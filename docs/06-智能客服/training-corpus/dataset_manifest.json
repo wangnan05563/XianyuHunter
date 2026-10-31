@@ -93,7 +93,7 @@
   "usage": {
     "import_to_chromadb": "通过知识库管理接口 POST /api/chatbot/kb/build 触发向量化构建，或使用 VectorStore.export/restore 进行快照导入",
     "incremental_update": "新增条目追加到对应 JSONL 文件后，调用 POST /api/chatbot/kb/rebuild 重建索引",
-    "rollback": "通过向量数据库维护页面（系统维护 > 向量数据库维护）选择历史快照一键回滚",
+    "rollback": "通过「客服配置 › 向量库维护」Tab（/config/chatbot?tab=vector-admin）选择历史快照一键回滚",
     "snapshot_location": "data/chromadb/snapshots/（手动快照前缀 manual_{timestamp}）"
   },
   "compliance": {
