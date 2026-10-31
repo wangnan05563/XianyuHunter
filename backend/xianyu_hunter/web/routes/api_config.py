@@ -42,10 +42,51 @@ class ConfigSaveBody(BaseModel):
 
 
 # ============== 工具 ==============
+# config.yaml 解析结果的进程内 memo：(文件指纹 (路径, mtime_ns, size), 解析出的 dict)
+# 为什么用文件指纹而不是 TTL：同一进程内读写，指纹变了就重解析，手工编辑配置文件也能
+# 自动跟上；TTL 反而会制造「保存后立刻读看到旧值」这类可感知的错数据。
+# 路径进指纹：单进程可能指向不同配置文件（测试里 monkeypatch CONFIG_FILE），否则
+# 两份「同尺寸同 mtime tick」的文件会互相串味。
+_yaml_memo: tuple[tuple[str, int, int], dict[str, Any]] | None = None
+# 作废代次管并发那半边：请求可能在「stat → 解析」中间被另一个请求的写盘插队，那份
+# 解析结果就是写盘前的旧值，而同尺寸 + 同一 tick 时指纹抓不到它。所以只有
+# 「读期间没人写过」才允许存回 memo；光靠读侧比对代次没用——坏值已经进了 memo。
+_yaml_epoch = 0
+
+
 def _load_yaml() -> dict[str, Any]:
+    """读取 config.yaml（解析结果按文件指纹 memo，返回深拷贝）
+
+    为什么返回深拷贝：调用方会原地改写这份 dict（`_deep_merge` 合并、`_redact_terminal`
+    逐层脱敏），共享同一个对象等于让缓存被写脏。
+    无锁：最坏情况只是多解析一次。`_yaml_epoch += 1` 不是原子的，但丢增量只会让计数
+    少涨一次，绝不会把旧代次「找回来」，所以判据（有没有人写过）依然成立。
+    """
+    global _yaml_memo
+    epoch = _yaml_epoch
     if not CONFIG_FILE.exists():
         return {}
-    return yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+    st = CONFIG_FILE.stat()
+    fingerprint = (str(CONFIG_FILE), st.st_mtime_ns, st.st_size)
+    memo = _yaml_memo
+    if memo is None or memo[0] != fingerprint:
+        parsed = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+        if _yaml_epoch == epoch:
+            _yaml_memo = (fingerprint, parsed)
+        return copy.deepcopy(parsed)
+    return copy.deepcopy(memo[1])
+
+
+def _invalidate_yaml_memo() -> None:
+    """写盘后作废 memo。
+
+    只靠文件指纹不够：Windows 上 mtime 粒度约 15.6 ms，同尺寸的快速连续写入会落在
+    同一个 tick 里，而「保存配置后立刻读」正是要防的那条闭环。写盘配对作废，
+    未来新增的写路径由 tests/test_config_yaml_memo.py 的源码门禁兜住。
+    """
+    global _yaml_memo, _yaml_epoch
+    _yaml_epoch += 1
+    _yaml_memo = None
 
 
 def _dump_yaml(data: dict[str, Any]) -> str:
@@ -269,6 +310,7 @@ def save_config(
         pruned = 0
     try:
         CONFIG_FILE.write_text(_dump_yaml(new), encoding="utf-8")
+        _invalidate_yaml_memo()
         # 触发单例重载
         reload_config()
         logger.debug(f"reload_config done, new _config id={id(get_config())}, pass_score={get_config().eval.pass_score}")
@@ -276,6 +318,7 @@ def save_config(
         # 写失败，回滚到刚做的备份
         if new_bak and new_bak.exists():
             CONFIG_FILE.write_text(new_bak.read_text(encoding="utf-8"), encoding="utf-8")
+            _invalidate_yaml_memo()
         raise HTTPException(status_code=500, detail=f"写入失败，已回滚: {e}")
     return {
         "ok": True,
@@ -545,10 +588,12 @@ def import_config(
         pruned = _prune_backups()
     try:
         CONFIG_FILE.write_text(_dump_yaml(incoming), encoding="utf-8")
+        _invalidate_yaml_memo()
         reload_config()
     except Exception as e:
         if new_bak and new_bak.exists():
             CONFIG_FILE.write_text(new_bak.read_text(encoding="utf-8"), encoding="utf-8")
+            _invalidate_yaml_memo()
         raise HTTPException(status_code=500, detail=f"导入失败，已回滚: {e}")
 
     return {
@@ -608,6 +653,7 @@ def rollback_config() -> dict[str, Any]:
     # 执行回滚：用最新备份覆盖当前配置
     target = BACKUP_DIR / target_backup["filename"]
     CONFIG_FILE.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    _invalidate_yaml_memo()
     reload_config()
     new_version = len(_list_backups())
     return {
@@ -637,6 +683,7 @@ def restore_backup(filename: str = "") -> dict[str, Any]:
         target = _resolve_backup(filename)
         label = target.name
     CONFIG_FILE.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    _invalidate_yaml_memo()
     reload_config()
     return {
         "ok": True,

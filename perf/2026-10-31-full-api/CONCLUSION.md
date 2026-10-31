@@ -26,13 +26,13 @@
 
 - **症状**：单用户 avg 50 ms 的接口，12 并发长跑变 200.5 ms；轻组 48→96 并发 P95 从 2 064.0 劣化到 3 893.2 ms，真实缺陷率单调升至 **3.17%**；`maintenance/status` 曾出现 P95 **60 033 ms**（客户端 60 s 超时），而它单发只要 1.6 s。
 - **根因链**：测时版本的 `web/cache.py`（`_make_sync_wrapper` / `_make_async_wrapper`）冷/过期 miss **无 single-flight** → N 个并发各自重算同一聚合（同族 `stats` 接口齐处 165~200 ms 窄带，正是「大家都在等同一份重算」的指纹）；重算占住 anyio 默认 40 token 线程池 → 连 8.4 ms 的 `notifier/quiet-hours` 在 96 并发被拖到 **2 096.8 ms**（完成样本从 55 掉到 7）；`services/cache_scan.py:52,66` 的进程级 `RLock` 再把 `/cache-scan` 与 `/maintenance/status` 串行化。
-- **对应措施**：B1（单飞，约 20 行）✅ **已于 2026-10-31 落地，本文数字全部是修复前基线** + B5（SWR 的「后台刷新」其实在请求线程里跑，见 REPORT 表 B9）✅ **同日落地** + B2（慢接口纳入 TTL）+ D1（慢同步接口独立线程池）+ D2（解锁）。B1 是**全场最大杠杆**。
+- **对应措施**：B1（单飞，约 20 行）✅ **已于 2026-10-31 落地，本文数字全部是修复前基线** + B5（SWR 的「后台刷新」其实在请求线程里跑，见 REPORT 表 B9）✅ **同日落地** + ~~B2（慢接口纳入 TTL）~~ **复核后 5 项撤回 4 项**（`cache-scan` 是推进状态机、`snapshots`/`strategy` 的旧值会被用户当场看见、`config/raw`+`share` 前端不消费且会把明文凭据放进进程缓存；反证见 OPTIMIZATIONS §B2）+ D1（慢同步接口独立线程池）+ D2（解锁）。B1 是**全场最大杠杆**。
 
 ### ② 请求路径上的重复文件/Socket 探测：与并发无关的固有成本（最易修、确定性最高）
 
 - **症状**：7 类接口在**零并发**下就是几百毫秒到 1.1 s。
-- **根因**：`modules/login_strategy.py:144` 每次请求对 CDP 端口做 `socket.create_connection(timeout=1.0)`（端口未开即吃满 1 s），随后 `:150-184` 打开 Chromium Cookie SQLite 做全表 `LIKE '%goofish%'`；`api_config.py:45-48` 每次 `_load_yaml()` 重读并 `safe_load` 整个配置（绕过了 `infra/yaml_config.py:784-789` 的单例缓存）；`api_vector_admin.py:103-104` 对同一目录调 `_dir_size` **两次**；`auth_query.py` 里 `_resolve_current_user_id` 被调用两次（`:336`、`:406`）+ 每次都重读 cookies 文件、写库、查库。鉴权本身（带 300 s 缓存的 `verify_session`）**不是**瓶颈 —— 这个区分很重要，否则会优化错方向。
-- **对应措施**：C4 + C3 + C1 + C2 + A4。这几条**改动小、收益可预测**（按实测地板参照 7~9 ms 估算），属"第 1 周就该走完"的那一档。
+- **根因**：`modules/login_strategy.py:144` 每次请求对 CDP 端口做 `socket.create_connection(timeout=1.0)`（端口未开即吃满 1 s），随后 `:150-184` 打开 Chromium Cookie SQLite 做全表 `LIKE '%goofish%'`；`api_config.py` 的 `_load_yaml()` 每次重读并 `safe_load` 整个配置（绕过了 `infra/yaml_config.py` 的单例缓存）—— **落地复核时把这条根因又下钻了一层**：7.2 KB 的配置纯 Python `safe_load` 就要 52.5 ms，而本机 libyaml 在而未用（OPTIMIZATIONS C6，判据 `config_memo_probe.py`）；`api_vector_admin.py` 的 `_list_snapshots` 对同一目录调 `_dir_size` **两次**；`auth_query.py` 里 `_resolve_current_user_id` 被调用两次 + 每次都重读 cookies 文件、写库、查库。鉴权本身（带 300 s 缓存的 `verify_session`）**不是**瓶颈 —— 这个区分很重要，否则会优化错方向。
+- **对应措施**：C6（换 libyaml 后端，成本最低、砍的是常量本身）+ C4 + C3 + C1 + C2 + A4。这几条**改动小、收益可预测**（按实测地板参照 7~9 ms 估算），属"第 1 周就该走完"的那一档。C3 的 config 侧已随 B2 残留落地（memo 掉重复解析）；`api_templates` 那半还没做。
 
 ### ③ 无索引 + 全量重载/全内存导出：随数据增长线性恶化（远期最贵）
 
@@ -48,8 +48,8 @@
 ## 3. 短期优化路线
 | 阶段 | 动作 | 可验证的累计效果（复跑同一套 JMX 对比） |
 |---|---|---|
-| **第 1 周**（低风险高收益，不动架构） | ✅ B1 缓存单飞（已落地）→ ✅ B5 SWR 刷新真正放到后台（已落地）→ B2 慢接口纳入 TTL → C1 `_dir_size` 合并 → C4 探测降本+缓存 → A4 计数降本 → E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；长跑整体 P95 544.5 → **≤250 ms**；`maintenance/status` 过期后首次调用 1.6 s → **≈0**；消除 60 s 超时与 795 次 503 噪声（长跑缺陷率 0.74% → **0**） |
-| **第 2–4 周**（结构性，仍单进程） | C2 `/auth/me` 去重 → A2 `eval.*` 下推 SQL → D1 慢接口独立线程池 → D2 打破 `cache_scan` RLock → C3 `_load_yaml` 走单例 → **B4 缓存容量上限 + ≥4 h 长跑复测** | 48/96 并发缺陷率 2.03%/3.17% → **<0.5%**；轻组 96 并发 P95 3 893.2 → **≤1 000 ms**；8.4 ms 级廉价接口在高并发不再被拖到 2 s；RSS `+75.9 MB/h` 的成因定论 |
+| **第 1 周**（低风险高收益，不动架构） | ✅ B1 缓存单飞（已落地）→ ✅ B5 SWR 刷新真正放到后台（已落地）→ ✅ B2 复核后收缩为 config memo（4/5 条撤回）→ **C6 换 libyaml 后端（新，替代 B2 的位置）** → C1 `_dir_size` 合并 → C4 探测降本（②的短 TTL 需配显式失效）→ A4 计数降本 → E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；长跑整体 P95 544.5 → **≤250 ms**；`maintenance/status` 过期后首次调用 1.6 s → **≈0**；配置族 `config/raw` 132.4 → **约 60~70 ms**（不是原先写的 ≤25 ms）；消除 60 s 超时与 795 次 503 噪声（长跑缺陷率 0.74% → **0**） |
+| **第 2–4 周**（结构性，仍单进程） | C2 `/auth/me` 去重 → A2 `eval.*` 下推 SQL → D1 慢接口独立线程池 → D2 打破 `cache_scan` RLock → ~~C3 `_load_yaml` 走单例~~（config 侧已落地，剩 `api_templates` 的 presets/user 文件）→ **B4 缓存容量上限 + ≥4 h 长跑复测** | 48/96 并发缺陷率 2.03%/3.17% → **<0.5%**；轻组 96 并发 P95 3 893.2 → **≤1 000 ms**；8.4 ms 级廉价接口在高并发不再被拖到 2 s；RSS `+75.9 MB/h` 的成因定论 |
 | **季度内**（容量形态） | D3 写批量 UPSERT + `busy_timeout` 10 s→2 s → D4 真流式导出 → A1 补 5 索引 + A5 FTS → **E1 多 worker** | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再从 66.4 回落到 51.9；内存峰值收敛；数据增长斜率变缓 |
 
 **顺序上有两条硬约束，不可打乱：**
@@ -72,4 +72,6 @@
 ## 5. 一句话行动建议
 
 ~~先做 **B1 缓存单飞**~~ —— **已于 2026-10-31 落地**（`web/cache.py` 单飞 + `tests/test_cache_single_flight.py` 9 例，变异验证有效）。它是本次唯一一个「约 20 行改动、同时压低长尾延迟、缺陷率和平均耗时」的条目，但**收益尚未复测**：`results/` 里仍是修复前基线，需要用同一套 JMX 复跑把它换成优化后的数字。~~顺路补上落地时新暴露的 **B5**~~ —— **B5 亦已于同日落地**（同步分支真起守护线程、异步分支改 `create_task`，两条分支的重算都并入 B1 的单飞；`tests/test_cache_swr_refresh.py` 6 例 + `swr_probe.py` 判据翻转为 False）。**不要**在 B3 之前去开多 worker；同一次复跑里把长跑拉到 **≥4 h** 并顺手给缓存加容量上限（B4），才能把唯一那条未定论的内存风险关掉。
+
+~~再按 **B2** 给五个慢接口挂 TTL 缓存~~ —— **2026-10-31 复核后撤回 4/5**：`maintenance/cache-scan` 是「每请求推进一片」的状态机（缓存后进度永远停在 `scanning`，前端「统计中禁止清理」的护栏会把清理功能永久锁死）、`vector-admin/snapshots` 与 `anticrawl/strategy` 的旧值会在用户自己的下一步操作后被当场看见、`config/raw` 与 `config/share` 前端零调用却会把整份明文凭据驻留在进程缓存里（与 B4 相反）。只留了一条不会引入失败的残留：**`_load_yaml` 按文件指纹 memo + 6 个写盘站点配对作废**（`tests/test_config_yaml_memo.py` 13 例，五条变异各自翻红）。而拆分成本时顺带挖出更值钱的一条：这台机器 **libyaml 已装、PyYAML 却在用纯 Python 后端**，7.2 KB 配置解析 52.5 ms / 序列化 32.9 ms，换 `CSafeLoader`/`CSafeDumper` 实测 4.7 / 6.3 ms 且**输出逐字节相同**（OPTIMIZATIONS C6，判据 `config_memo_probe.py`）—— 下一轮先做它，再谈 B3 预热。
 

@@ -14,11 +14,12 @@
 | C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 |
 | D1 | 慢同步接口独立线程池 | **高** | 48/96 并发轻组 P95 2 064/3 893 → ≤1 000 ms；缺陷率 2.03/3.17% → <0.5% | 中 |
 | A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
-| B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | **高** | 轻组基线 avg 50.9 → ≤25 ms | 低 |
+| C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出） | 同一份 config.yaml：解析 52.5 → 4.7 ms（11.3×）、序列化 32.9 → 6.3 ms，且输出逐字节相同 | 极低（换 loader/dumper 类） |
+| B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
 | A4 | `maintenance/status` 计数降本 | **高** | 单发 1.6 s → ≤200 ms；消除 60 s 超时（曾致 P95 60 033 ms / 37.5% 超时） | 低 |
 | A1 | 补齐 5 个过滤列索引 | 中 | `prices/category-comparison` 长跑 avg 580.2 → ≤200 ms | 低 |
-| C3 | `_load_yaml` 走单例缓存 | 中 | `config/raw` 132.4 → ≤15 ms、`config/share` 104.7 → ≤15 ms | 低 |
-| C1 | `_dir_size` 双调用合并 | 中 | `vector-admin/snapshots` 233.8 → ≤120 ms（叠加 B2 后 ≤20 ms） | 极低 |
+| C3 | `_load_yaml` 走单例缓存 | 中 ✅ **部分落地（config memo）** | `config/raw` 132.4 → ≤15 ms 的预期**过高**：实测解析 52 ms、脱敏+序列化另占 ~33 ms，memo 只砍前者（→ 约 80~90 ms）。写侧 `preview/save` 各去掉一次全量读 | 低 |
+| C1 | `_dir_size` 双调用合并 | 中 | `vector-admin/snapshots` 233.8 → ≤120 ms（B2 的快照缓存已撤回，不再有「叠加后 ≤20 ms」） | 极低 |
 | D2 | 打破 `cache_scan` 进程级 RLock 串行 | 中 | `maintenance/cache-scan` 96 并发 avg 1 822.8 → ≤400 ms | 中 |
 | D3 | 写侧批量 UPSERT + 池/超时调优 | 中 | 16 并发写 TPS 51.9 → ≥66（回到峰值档）；P95 635.8 → ≤400 ms | 中 |
 | D4 | 大结果集流式导出 | 中 | `db-admin/tables/items/export` P99 1 827.7 → ≤600 ms；私有内存峰值 617.7 MB 下降 | 中 |
@@ -77,14 +78,27 @@
 
 **落地状态（2026-10-31）**：✅ 单飞部分已实现 —— `web/cache.py` 新增 `_single_flight` / `_single_flight_async`（per-key 在途表 + 锁内双重检查；同步用 `threading.Event`、异步用同循环内的 `Future`，跨事件循环不合并），同步/异步两个包装器的 miss 路径都改为经单飞，`bypass_cache=True` 保持「不读缓存、不并入他人在途重算」的原语义。回归测试 `tests/test_cache_single_flight.py`（9 例）锁定「同 key 并发只重算一次」「不同 key 不互相合并」「异常不入缓存且传给跟随者」「TTL 到期后重算」「bypass 仍强制刷新」；变异验证（把两个入口退化成各自重算）后其中 2 例如期失败。**未落**：`invalidate_stats_cache()` 的按维度失效（仍整表清空）留待与 A2/B4 一并处理。
 
-### B2. 把「零并发就慢」的接口纳入 TTL 缓存 — 优先级 **高**
-**具体优化内容**：对以下未缓存的只读接口加 `@cached_ttl`（TTL 30~120 s）：`GET /api/anticrawl/strategy`、`GET /api/vector-admin/snapshots`、`GET /api/config/raw`、`GET /api/config/share`、`GET /api/maintenance/cache-scan`。（SWR 开关的可用性取决于 B5：本条最初写于 B5 修复之前，当时 `stale_while_revalidate=True` 既不能让过期请求变快、对 `async def` 还会静默冻结缓存，因此我一度撤回它。**B5 已于 2026-10-31 落地**，现在可以给「重算很贵、旧值可接受一小段时间」的接口开 SWR；但纯 TTL 仍是默认选择——SWR 只是把重算挪出请求路径，并不减少重算本身。）
-**证据**：基线（1 并发）分别 1 094.7 / 233.8 / 132.4 / 104.7 / 94.1 ms，长跑 12 并发 1 300.7 / 450.7 / 334.4 / 292.7 / 287.7 ms；96 并发 2 511.8 / 1 328.3 / 3 236.2 / 2 950.2 / 1 822.8 ms。这些接口的结果秒级内稳定，重复计算无业务价值。
-**量化预期收益**：命中后回到地板级 10~20 ms；`reads_light` 基线 avg **50.9 → ≤25 ms**，96 并发 P95 **3 893.2 → ≤1 500 ms**。
-**验证方式**：selftest 后同一 JMX 复跑；抽查 TTL 内两次请求的响应体一致性。
+### B2. 把「零并发就慢」的接口纳入 TTL 缓存 — ~~优先级 高~~ → **本条 5 项里 4 项撤回，只做安全残留** ⚠️ **已复核（2026-10-31）**
+**原建议**：对 `GET /api/anticrawl/strategy`、`GET /api/vector-admin/snapshots`、`GET /api/config/raw`、`GET /api/config/share`、`GET /api/maintenance/cache-scan` 加 `@cached_ttl`（TTL 30~120 s）。
+**复核结论（逐条反证，全部来自现读源码，不是推测）**：
+1. **`maintenance/cache-scan` —— 缓存会直接做坏功能。** 它不是「查询」，而是**推进状态机**：`api_maintenance.cache_scan_progress` 每次请求扫预算片并把进度写回进程内快照，`state` 从 `scanning` 走到 `done`；函数 docstring 自己就写着「与 /status 不同，这里不带响应缓存：每次请求都真实推进一小片」。缓存后进度永远停在第一个快照，前端 `Cleanup.tsx` 的 1 200 ms 轮询等不到 `done`，而它又按「统计中禁止清理」禁用按钮 —— 结果是**清理功能永久不可用**。原建议把「这个接口慢」误读成「这个接口可缓存」。
+2. **`vector-admin/snapshots` —— 缓存会在用户自己的操作后给出旧列表。** 该页 `VectorAdminPanel.loadAll()` 在创建/删除/恢复之后立刻重拉列表（快照面板的 `items` 直接来自这里，`_list_snapshots` 里每个目录还各调两次 `_dir_size`，见 C1）。TTL 30~120 s 意味着「我删了快照，列表里还在」「刚恢复完，体积还是恢复前的」——这是用户可感知的错数据，不是可接受的近似。降本应走 C1（合并重复遍历），而不是缓存。
+3. **`anticrawl/strategy` —— 结果的定义就是「当前环境」。** `login_strategy.LoginStrategySelector.evaluate` 每跳都要现场做 CDP 端口 socket 探测 + 读 Chromium `Network/Cookies` 判断 Cookie 是否仍有效；`api_anticrawl.get_strategy` 把它当「推荐登录策略」直接展示，而 `AntiCrawl/index.tsx` 是 `runInitialize()` → `fetchAll()` 的顺序 —— 用户刚点完「初始化」（或刚把带 CDP 的浏览器打开），页面却仍在按 30~120 s 前的探测结果推荐策略。降本的正确位置是 C4（探测 timeout 与索引），C4 里「② 探测结果整体短 TTL 缓存 10~30 s」同样要加「`/initialize` 之后强制失效」这条护栏才成立。
+4. **`config/raw` + `config/share` —— ① 前端根本不消费；② 缓存等于把明文凭据放进进程内缓存。** 全仓 `frontend/**`（ts/tsx/js/vue/html）grep `config/raw|config/share` 零命中，它们之所以有数字，是因为本次目标要求「覆盖所有端点」而进了压测集，不是真实流量。更要紧的是这两个接口返回**整份配置的明文 YAML**（`/raw` 只做了末 4 位脱敏的 `raw` 字段、`/share` 是分享用的渲染文本），把它们放进 `_cache_store` 就是在进程里驻留一份凭据 30~120 s —— 与 B4「大 payload / 导出类显式不进缓存」的方向正好相反。
+5. **量化预期「轻组 avg 50.9 → ≤25 ms」的口径本身也错了。** 专项探针 `config_memo_probe.py` 拆出成本：一次 `config.yaml`（7.2 KB）读+解析 **52.5 ms**、`_dump_yaml` 序列化 **32.9 ms**、`_sanitize_dict` 0.1 ms。`/raw` 基线 132.4 ms ≈ 这三段（86 ms）+ 框架与 JSON 序列化余量。TTL 缓存能全砍，memo 只砍解析那段，**换 C 后端（C6）砍的是同一段的 90%** —— 无论哪种，都不到「≤25 ms」，除非连 dump 一起换。
+**顺带把 B5 那条建议也收口**：B5 落地后 `stale_while_revalidate` 确实可用了，但**这四条换成 SWR 同样不成立** —— SWR 只是把重算挪出请求路径，旧值照样会被用户看见；`/cache-scan` 更连「同一份结果」都不存在（每次请求的结果就是进度本身）。SWR 的适用面仍然是「重算很贵、旧值可接受一小段时间、且没有紧随其后的用户动作」，本次只有 `maintenance/status` 符合。
+
+**实际落地的残留（只做不会引入失败的那一条）**：给 `api_config._load_yaml()` 加**按文件指纹 memo**（键 = 路径 + `st_mtime_ns` + `st_size`，命中返回 `copy.deepcopy`），并在 6 个 `CONFIG_FILE.write_text` 站点后配对 `_invalidate_yaml_memo()`。
+- 它不改语义：**经本模块写盘的路径**上，`_load_yaml` 的返回与磁盘内容严格一致（判据见 `tests/test_config_yaml_memo.py`：外部编辑立刻跟上、同尺寸+同一 mtime tick 的写盘靠显式作废兜住、切换文件不串味、返回值不被调用方写脏）；跨模块写盘的边界另见下面「残余边界」，不要把它读成「全面无陈旧」。
+- 它惠及的接口：`/preview`、`/save`、`/import`、`/export`、`/raw`、`/share` 全部走 `_load_yaml`（每次请求各省一次 52 ms 解析）；`GET /api/config` 本身走 `get_config()` 单例，与此无关。
+- 为什么「同尺寸写盘」必须显式作废：Windows 文件系统时间粒度约 15.6 ms，「POST /save 后前端立刻 GET」在本地回环上可能落在同一个 tick；`_save` 类改动还常常同尺寸（改一个等长字符串/数字）。这条闭环是产品主循环，不能靠指纹碰运气。
+- 残余边界（已钉成用例，防止后来人误判）：**绕过 `api_config` 的写盘**（`api_tunnel`、`api_notifier`、`api_batch_refresh`、`infra/ai_usage` 各自写 `config/config.yaml`）只由指纹兜住；若某次跨模块写盘恰好同尺寸且同一 tick，memo 会给出一个 tick 的旧值，下一次读即自愈。`test_out_of_band_same_fingerprint_write_is_the_residual_gap` 断言的就是这个已知缺口，别把它读成「已全面防护」。
+- 并发读写的代次护栏：请求可能在「`stat` → 解析」中间被另一个请求的写盘插队，那份解析结果就是写盘前的旧值，而同尺寸 + 同一 tick 时指纹抓不到它 —— 所以只有 `_yaml_epoch` 在读取期间没动过，才允许把结果存回 memo。**这条是被变异验证逼出来的**：初版我同时写了「存前比对」和「读时比对」两道，去掉任一道用例都照常绿（读侧比对挡不住已经进 memo 的坏值），删成单道之后才有判据。
+- 不做的事：不引入 TTL、不进 `_cache_store`（明文凭据不进响应缓存，见第 4 条）、不改 `GET /api/config` 的脱敏路径。
+**验证方式**：`tests/test_config_yaml_memo.py`（13 例）+ `config_memo_probe.py` 作为成本判据；变异验证五条退化各自翻红（冷/命中两条 return 都去掉深拷贝→1 例；指纹不再参与判定→2 例；去掉 6 处作废→3 例含源码门禁；指纹去掉路径→1 例；去掉代次护栏→1 例）。真实数字待同一 JMX 复跑替换，本文所有基线仍是修复前口径。
 
 ### B3. 预热清单扩展 — 优先级 **中**
-**具体优化内容**：`web/startup.py:799-828` 的 `_warm_stats_cache` 目前只暖 `business_kpi:30 / stats_today / stats_overview / stats_trend:events:24` 四个 key。把 B2 的接口与首页聚合（评估分布、通知未读数）纳入预热，并在每次调度周期后重暖。
+**具体优化内容**：`web/startup.py:799-828` 的 `_warm_stats_cache` 目前只暖 `business_kpi:30 / stats_today / stats_overview / stats_trend:events:24` 四个 key。把首页聚合（评估分布、通知未读数）纳入预热，并在每次调度周期后重暖。**原建议里「把 B2 的接口纳入预热」随 B2 一并撤回** —— 预热只是把同样的旧值提前算好，`cache-scan`/`snapshots`/`strategy` 的陈旧问题一条都不因预热而消失；`config/*` 那族现在由 B2 残留的指纹 memo 覆盖（冷的那一次仍要付解析，但只有第一次）。
 **证据**：基线首样本级长尾（`reads_light` P99 1 065.4 ms 而 P50 仅 11.1 ms）—— 99% 分位完全由冷算/击穿贡献。
 **量化预期收益**：冷启动/首个请求 **1.1 s → ≤100 ms**；P99 与 P50 的比值从 96× 降至 **≤10×**。
 **验证方式**：重启实例后立刻打 `reads_light` 基线，比较 P99。
@@ -119,6 +133,7 @@
 **具体优化内容**：`backend/xianyu_hunter/modules/login_strategy.py:144` 用 `socket.create_connection(("127.0.0.1", cdp_target_port), timeout=1.0)` 判断 CDP 可用性 —— 端口未开时**每次请求都吃满 1 s**；`:150-184` 再打开 Chromium `Network/Cookies` SQLite 做全表 `LIKE '%goofish%'`。改为：① 探测 timeout 降到 0.1 s 并 fail-fast；② 探测结果整体短 TTL 缓存（10~30 s）；③ Cookie 计数改用 `WHERE host_key = ?` 精确匹配（该表有 `idx_user_cookies_user_host` 类比索引可用，见 `db_models.py:776`）。
 **证据**：`GET /api/anticrawl/strategy` 基线 avg **1 094.7 ms**（≈ 1 s 探测 + 扫描），P99 1 216.8 ms；长跑 1 300.7 ms；96 并发 2 511.8 ms。同族 `anticrawl/fingerprint` 仅 9.0 ms，证明「不算这一跳」的成本地板。
 **量化预期收益**：avg **1 094.7 → ≤30 ms**（-97%）。这同时是 D1 的关键前提——它曾是最占用 anyio 线程的接口之一。
+**复核注（2026-10-31，与 §B2 第 3 条同源）**：① 探测 timeout 与 ③ 精确匹配是纯降本，随时可做；但 **②「探测结果整体短 TTL 缓存」不能裸上** —— `evaluate()` 的语义是「当前环境」，`AntiCrawl/index.tsx` 又是 `runInitialize()` → `fetchAll()`，缓存必须配对失效（至少 `/initialize`、登录态变更、会话失效三处），否则页面会在用户刚开 CDP/刚登录后继续推荐旧策略。TTL 也应按 B2 的口径压到 10 s 以内并显式失效，而不是当作「秒级稳定」的默认缓存候选。
 **验证方式**：CDP 关闭态下压该接口，确认不再出现 ~1 s 常数项。
 
 ### C3. `_load_yaml()` 走单例缓存 — 优先级 **中**
@@ -126,11 +141,25 @@
 **证据**：`config/raw` 132.4 ms、`config/share` 104.7 ms、`GET /api/templates` 115.8 ms、`POST /api/config/preview` 151.0 ms、`POST /api/templates` 200.9 ms（均 1 并发基线）；长跑分别 334.4 / 292.7 / 296.4 / 419.0 / 377.3 ms。
 **量化预期收益**：命中后 **≤15 ms**（-88%）；写侧 `preview/save` 去掉一次全量读后 avg **151 → ≤80 ms**。
 **验证方式**：同一 JMX 复跑 + 配置文件 mtime 变更后确认仍能读到新值（正确性回归）。
+**落地状态（2026-10-31）**：✅ config 侧已按 mtime 指纹 memo 落地（详见 §B2「实际落地的残留」：`api_config._load_yaml` + 6 处写盘配对作废 + 存储侧代次护栏 + `tests/test_config_yaml_memo.py` 13 例）。
+**本条「≤15 ms」需要下调**：探针把成本拆开后，`/raw` 的 132.4 ms 里解析 52.5 ms、`_dump_yaml` 序列化 32.9 ms —— memo 只砍前者，命中后仍有 33 ms 的 dump 加框架余量，落在 **80~90 ms** 而不是 15 ms。剩下那段由 **C6**（换 libyaml 后端）治，比给这两个前端并不消费的接口加 TTL 缓存（见 B2 第 4 条反证）更对症。
+**未落**：`api_templates.list_templates` / `save_template` 的同类 memo 化（每次请求读 YAML + JSON 再整表写回）——形态相同但没做过成本占比测量，且写侧模板是用户内容，失效点要单独设计，留作后续。
+
+
+### C6. PyYAML 走的是纯 Python 后端，libyaml 已在依赖里却没被用 — 优先级 **高**（新发现，非压测得出；`config_memo_probe.py` 暴露）
+**具体优化内容**：`yaml.safe_load` / `yaml.safe_dump` 绑定的是 PyYAML 的**纯 Python** `SafeLoader` / `SafeDumper`；本机 `yaml.__with_libyaml__ is True`，说明 `CSafeLoader` / `CSafeDumper` 可用。把配置读写切到 C 后端即可（`yaml.load(text, Loader=yaml.CSafeLoader)`、`yaml.dump(data, Dumper=yaml.CSafeDumper, allow_unicode=True, sort_keys=False, default_flow_style=False)`）。**注意 `CSafeLoader` 就是 `SafeLoader` 的 C 实现，不是 `yaml.load` 的裸 `Loader`/`FullLoader`**：同样不构造任意 Python 对象，不放宽反序列化面。受益面不止 `api_config`：`infra/yaml_config.load_yaml`（启动与每次 reload 都要读 config.yaml + eval.yaml + 子配置）、`api_templates`、`api_tunnel`/`api_notifier`/`api_batch_refresh`/`infra/ai_usage` 的增量写盘同样在用纯 Python 后端。
+**证据**（同一份 7.2 KB / 35 顶层键的 `config/config.yaml`，各 20 次采样取中位）：
+- 解析：`safe_load` 中位 **52.5 ms**（最快 40.4）→ `CSafeLoader` 中位 **4.7 ms**（最快 3.9），**11.3×**；两份结果 `== ` 相等。
+- 序列化：`_dump_yaml` 中位 **32.9 ms** → `CSafeDumper` 中位 **6.3 ms**；输出**逐字节相同**（含中文不转义、`sort_keys=False` 的插入顺序、`{}` / `''` / `null` 的写法）—— 这一条是写盘/备份/diff 稳定性的前提，探针里做了断言。
+- 读文件本身不是成本：`read_text` 中位 0.36 ms。
+**量化预期收益**：`config/raw` 132.4 → **约 60~70 ms**（省解析 48 + 序列化 27）；`config/share`、`config/export` 同量级；`config/preview`、`config/save` 各省一次 48 ms 解析（叠在 B2 的 memo 之上时，收益只在冷的那一次）。启动/reload 路径同理。**注意**：这是「砍掉常量项」，不改变并发下的排队，因此不能替代 D1/B1。
+**为什么没有直接落地**：用户对本轮的口径是「只做安全残留，不引入真实失败」。切后端的风险点还没测完 —— ① 解析异常类型/消息会变（`CSafeLoader` 的 `ScannerError` 行号与文本与纯 Python 不同），`import_config` 靠 `YAMLError` 转 400 的语义要重测；② `dump` 参数在 C 后端的兼容面（`sort_keys`、`width`）要逐个调用点确认；③ 需要一次全量回归 + 真实沙箱写盘对比。评估结论是「收益确定、风险可控但需要一轮验证」，列为**下一周第 1 优先**，先于 B3/C1。
+**验证方式**：把 `config_memo_probe.py` 里的等价性与逐字节断言升级成 pytest 用例（对多份真实形状的配置样本），再逐文件切换、跑全量。
 
 ### C1. 快照目录体积重复遍历合并 — 优先级 **中**
 **具体优化内容**：`web/routes/api_vector_admin.py:103-104` 对同一目录连续调用 `_dir_size(d)` 两次（分别填 `size_bytes` 与 `size_display`）。改为一次求值后复用。
 **证据**：`GET /api/vector-admin/snapshots` 基线 avg **233.8 ms**（P95 630.2），长跑 450.7 ms；其成本主要是磁盘遍历（`:64-72` 的 `rglob` 还跑在 async handler 内，会阻塞事件循环）。
-**量化预期收益**：**直接减半** → avg ≤120 ms；叠加 B2 缓存后 ≤20 ms。
+**量化预期收益**：**直接减半** → avg ≤120 ms。（原写「叠加 B2 缓存后 ≤20 ms」已作废：B2 对本接口撤回，理由是删/建/恢复快照后列表必须立刻反映磁盘现状，见 §B2 第 2 条。）
 **验证方式**：单接口阶梯复跑，比较 `size_bytes` 一致性。
 
 ### C5. 评估列表市场统计去 N+1 — 优先级 **中**
@@ -200,8 +229,8 @@
 
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
-| **第 1 周（低风险高收益）** | B1 单飞 + B2 慢接口缓存 + C1 双调用合并 + C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms** |
-| **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + C3/YAML 单例 + **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
+| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ **C6 换 libyaml 后端（新，成本极低）** + C1 双调用合并 + C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 60~70 ms**（B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
+| **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 
 > 每条落地后请用同一份 JMX 复跑对比（`jmeter-config-v2.yml` + `aggregate.py`，其阶段时长已改为取引擎日志实测墙钟），并保留 jtl/jsonl 作为前后证据。
