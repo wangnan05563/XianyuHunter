@@ -8,6 +8,10 @@
   A) 同步 + SWR：过期后的那次调用，墙钟耗时 ≈ 重算耗时（而不是 ≈ 0）；
   B) 异步 + SWR：`asyncio.run()` 在已运行的事件循环里必然 RuntimeError，被
      `except Exception: pass` 吞掉 → 缓存永不刷新 → 之后每次调用都返回同一个旧值。
+
+修复后（OPTIMIZATIONS B5）本探针即回归判据，应打印：
+  A) 过期后首次调用 ≈0s 且「过期请求被重算阻塞 = False」、后台刷新已写回缓存 = True；
+  B) 「值被冻结 = False」、后台任务已写回缓存 = True。
 """
 import asyncio
 import sys
@@ -47,17 +51,19 @@ time.sleep(1.1)                 # 跨过 TTL，进入「stale 立即返回 + 后
 t0 = time.perf_counter()
 second = sync_heavy()           # 期望：≈0（立即返回旧值），实际：?
 warm_expired = time.perf_counter() - t0
+time.sleep(0.9)                 # 等后台线程跑完那次重算
 t0 = time.perf_counter()
-third = sync_heavy()            # 缓存已被上面的刷新写新 → 应 ≈0
+third = sync_heavy()            # 缓存已被后台刷新写新 → 应 ≈0 且返回新值
 after = time.perf_counter() - t0
 
 print("A) 同步 + stale_while_revalidate")
 print(f"   冷路径耗时        {cold:.3f}s  返回 {first}")
 print(f"   过期后首次调用    {warm_expired:.3f}s  返回 {second}   "
       f"（docstring 承诺 ≈0，因为刷新该在后台）")
-print(f"   再调用一次        {after:.3f}s  返回 {third}   （此时才吃到刷新后的值）")
+print(f"   等后台跑完再调用  {after:.3f}s  返回 {third}   （应吃到刷新后的新值）")
 print(f"   底层重算次数      {len(sync_calls)}")
 print(f"   判定：过期请求被重算阻塞 = {warm_expired > RECALC_SEC * 0.8}")
+print(f"   判定：后台刷新已写回缓存 = {third > second}")
 
 # ---------- B) 异步 + SWR ----------
 async_calls = []
@@ -72,15 +78,19 @@ async def async_heavy() -> int:
 
 async def scenario_b():
     reset()
-    v1 = await async_heavy()            # 冷路径
-    await asyncio.sleep(1.1)            # 过期
-    vals = [await async_heavy() for _ in range(6)]   # 每次都应触发「后台刷新」
-    return v1, vals
+    v1 = await async_heavy()                    # 冷路径
+    await asyncio.sleep(1.1)                    # 过期
+    vals = [await async_heavy() for _ in range(6)]   # 立即返回旧值，刷新只排一次任务
+    await asyncio.sleep(0.2)                    # 让事件循环真正跑完那个后台刷新任务
+    after_refresh = await async_heavy()         # 应读到刷新后的新值
+    return v1, vals, after_refresh
 
 
-v1, vals = asyncio.run(scenario_b())
+v1, vals, after_refresh = asyncio.run(scenario_b())
 print("\nB) 异步 + stale_while_revalidate（当前无此类端点，属潜在坑）")
 print(f"   冷路径返回        {v1}")
 print(f"   过期后连续 6 次    {vals}")
+print(f"   等任务跑完再调用  {after_refresh}")
 print(f"   底层重算次数      {len(async_calls)}")
-print(f"   判定：值被冻结（永不刷新）= {vals == [v1] * len(vals) and len(async_calls) == 1}")
+print(f"   判定：值被冻结（永不刷新）= {after_refresh == v1 and len(async_calls) == 1}")
+print(f"   判定：后台任务已写回缓存 = {after_refresh > v1}")

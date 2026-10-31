@@ -41,6 +41,7 @@
 ### Fixed
 
 - **进程内 TTL 缓存的并发击穿（single-flight）**：`web/cache.py` 的冷/过期 miss 路径没有任何合并，TTL 到期的瞬间 N 个并发请求各自重算同一份聚合 —— 全量 API 性能测试实测「单用户 avg 50 ms 的接口，12 并发长跑变 200.5 ms」，重算还占住 anyio 默认 40 token 线程池，把 8.4 ms 级廉价接口在 96 并发拖到 2 s 以上。现按 key 登记在途重算：抢到 lead 的调用执行并写缓存，其余等待同一结果（同步用 `Event`、协程用同循环内的 `Future`，跨事件循环不合并）；`bypass_cache=True` 保持不读缓存、不并入他人在途重算的原语义；异常不入缓存并原样传给跟随者。回归见 `tests/test_cache_single_flight.py`（9 例，含变异验证）。证据与量化预期：`perf/2026-10-31-full-api/OPTIMIZATIONS.md` B1（本文档所有压测数字仍是修复前基线，待复跑）。
+- **`stale_while_revalidate` 的「后台刷新」并不在后台**（落地 B1 时复核出来的，不是压测观测到的）：`_maybe_refresh_stale` 的 docstring 写「启动守护线程异步刷新」，函数体却在请求线程里直接重算完再把**旧值**返回 —— 于是 `/api/maintenance/status` 每 60 s 窗口后的那一个请求付全款（专项探针实测 0.602 s ≈ 完整重算耗时），客户端还拿到过期数据。`_maybe_refresh_stale_async` 更糟：它在已运行的事件循环里调 `asyncio.run(...)`，必然抛 `RuntimeError` 并被 `except Exception: pass` 吞掉，缓存从此冻结在第一个旧值上（探针里过期后连续 6 次返回同一个值）。现同步分支真起 `cache-swr-refresh` 守护线程、异步分支改 `loop.create_task(...)`（任务强引用挂在 `_bg_tasks`，asyncio 对任务只持弱引用）；两条分支的重算都并入上面的单飞，所以后台刷新与同时到达的冷请求互并而不各算一次；刷新失败只记 WARNING、保留旧值并释放名额，下一个 TTL 窗口可重试。回归见 `tests/test_cache_swr_refresh.py`（6 例：过期不阻塞、后台写回、同 key 只刷一次、失败保留旧值且可重试、SWR 下 `bypass_cache` 仍强制重算、异步不再冻结）；`perf/2026-10-31-full-api/swr_probe.py` 的两条「判定」现均为 False。详见 OPTIMIZATIONS B5 / REPORT 表 B9。
 
 ## [0.4.0] - 2026-07-06
 

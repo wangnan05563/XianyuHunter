@@ -9,6 +9,7 @@
 - 线程安全：FastAPI 默认同步路由用 anyio worker thread 池，dict 读写需加锁
 - 主动过期：缓存项带 TTL，过期自动忽略（不主动清理，下次写入覆盖）
 - 击穿合并（single-flight）：同一 key 的并发 miss 只重算一次，其余等待同一结果
+- 过期不阻塞（stale-while-revalidate）：立即返回旧值，重算放后台（同步起线程、异步排任务）
 - 可选跳过缓存：bypass_cache=True 强制刷新（管理员手动刷新场景）
 - 同步/异步双支持：P3 改造后 stats 接口改 async def，装饰器自动识别协程函数
 """
@@ -17,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -24,12 +26,16 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 
+logger = logging.getLogger(__name__)
+
 # 全局缓存 dict + 读写锁
 # key 结构：(endpoint_name, args_tuple) → (timestamp, value)
 _cache_store: dict[tuple, tuple[float, Any]] = {}
 _cache_lock = threading.RLock()
 # stale-while-revalidate：记录正在进行后台刷新的 key，避免重复刷新（惊群）
 _refreshing: set[tuple] = set()
+# 后台刷新任务的强引用：asyncio 对任务只持弱引用，不托住会被 GC 掉而永不执行
+_bg_tasks: set["asyncio.Task"] = set()
 # 击穿合并：正在进行中的重算。同步/异步各一套——协程与 asyncio.Future 不跨事件循环，
 # 线程等待用 Event，协程等待用 Future，不能共用一个等待原语。
 _flights: dict[tuple, "_Flight"] = {}
@@ -63,7 +69,7 @@ def _make_async_wrapper(func, ttl_seconds: int, key_fn, stale_while_revalidate: 
             if stale_while_revalidate:
                 stale = _try_get_stale(cache_key)
                 if stale is not None:
-                    _maybe_refresh_stale_async(cache_key, func, args, kwargs)
+                    _maybe_refresh_stale_async(cache_key, func, args, kwargs, ttl_seconds)
                     return stale
             return await _single_flight_async(
                 cache_key, lambda: func(*args, **kwargs), ttl_seconds
@@ -93,7 +99,7 @@ def _make_sync_wrapper(func, ttl_seconds: int, key_fn, stale_while_revalidate: b
             if stale_while_revalidate:
                 stale = _try_get_stale(cache_key)
                 if stale is not None:
-                    _maybe_refresh_stale(cache_key, func, args, kwargs)
+                    _maybe_refresh_stale(cache_key, func, args, kwargs, ttl_seconds)
                     return stale
             return _single_flight(cache_key, lambda: func(*args, **kwargs), ttl_seconds)
 
@@ -264,38 +270,79 @@ def _try_get_stale(cache_key: tuple) -> Any | None:
     return None
 
 
-def _maybe_refresh_stale(cache_key: tuple, func, args, kwargs) -> None:
-    """同步函数：若当前无进行中的后台刷新，则启动守护线程异步刷新缓存。"""
-    with _cache_lock:
-        if cache_key in _refreshing:
-            return
-        _refreshing.add(cache_key)
+def _maybe_refresh_stale(cache_key: tuple, func, args, kwargs, ttl_seconds: int) -> None:
+    """同步函数：若当前无进行中的后台刷新，则起守护线程去重算（调用方立即拿到旧值）。
+
+    刷新走 `_single_flight`：若此刻已有请求在做同一 key 的重算，后台线程并入它而不是
+    再算一遍。异常只记日志、不外抛——调用方已经拿着旧值返回了。
+
+    约束：线程可能在响应早已返回之后才跑完，所以被装饰的函数只能依赖进程级资源
+    （如 `container.repo.engine`），不能依赖随请求结束而关闭的会话/连接。
+    """
+    if not _claim_refresh(cache_key):
+        return
     try:
-        result = func(*args, **kwargs)
-        _set_cache(cache_key, result)
+        threading.Thread(
+            target=_run_stale_refresh,
+            args=(cache_key, lambda: func(*args, **kwargs), ttl_seconds),
+            name="cache-swr-refresh",
+            daemon=True,
+        ).start()
     except Exception:
-        # 刷新失败：保留旧值，下次 TTL 窗口再试；不缓存错误结果
-        pass
-    finally:
-        with _cache_lock:
-            _refreshing.discard(cache_key)
+        # 起线程失败（极端资源耗尽）：交还标记，让下一个调用者重试，否则该 key 永不刷新
+        _release_refresh(cache_key)
+        raise
 
 
-def _maybe_refresh_stale_async(cache_key: tuple, func, args, kwargs) -> None:
-    """异步函数：在独立线程中用新事件循环运行协程刷新缓存。"""
+async def _await_and_refresh(
+    cache_key: tuple, coro_factory: Callable[[], Any], ttl_seconds: int
+) -> None:
+    try:
+        await _single_flight_async(cache_key, coro_factory, ttl_seconds)
+    except Exception as exc:
+        logger.warning("stale-while-revalidate 后台刷新失败 key=%s err=%s", cache_key, exc)
+    finally:
+        _release_refresh(cache_key)
+
+
+def _maybe_refresh_stale_async(cache_key: tuple, func, args, kwargs, ttl_seconds: int) -> None:
+    """异步函数：把刷新排成当前事件循环上的任务。
+
+    原先这里用 `asyncio.run(...)`，而本函数只在已运行的循环内被调用 → 必然
+    RuntimeError 并被 `except Exception: pass` 吞掉，缓存从此冻结在第一个旧值上。
+    任务引用保存在 _bg_tasks 里：asyncio 只持弱引用，不托住会被 GC 掉而永不执行。
+    """
+    if not _claim_refresh(cache_key):
+        return
+    task = asyncio.get_running_loop().create_task(
+        _await_and_refresh(cache_key, lambda: func(*args, **kwargs), ttl_seconds)
+    )
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+def _run_stale_refresh(cache_key: tuple, compute: Callable[[], Any], ttl_seconds: int) -> None:
+    try:
+        _single_flight(cache_key, compute, ttl_seconds)
+    except Exception as exc:
+        # 刷新失败：保留旧值，下次 TTL 窗口再试；不缓存错误结果
+        logger.warning("stale-while-revalidate 后台刷新失败 key=%s err=%s", cache_key, exc)
+    finally:
+        _release_refresh(cache_key)
+
+
+def _claim_refresh(cache_key: tuple) -> bool:
+    """抢占该 key 的后台刷新名额；已被占用则返回 False（避免惊群重复刷新）。"""
     with _cache_lock:
         if cache_key in _refreshing:
-            return
+            return False
         _refreshing.add(cache_key)
-    try:
-        result = asyncio.run(func(*args, **kwargs))
-        _set_cache(cache_key, result)
-    except Exception:
-        # 刷新失败：保留旧值，下次 TTL 窗口再试；不缓存错误结果
-        pass
-    finally:
-        with _cache_lock:
-            _refreshing.discard(cache_key)
+        return True
+
+
+def _release_refresh(cache_key: tuple) -> None:
+    with _cache_lock:
+        _refreshing.discard(cache_key)
 
 
 def _is_hashable(obj: Any) -> bool:
