@@ -126,11 +126,12 @@ def update_quiet_hours(
     # 1. 读取当前 config + patch notifier.quiet_hours
     from pathlib import Path
     import yaml
+    from xianyu_hunter.infra import yaml_io
 
     cfg_path = Path("config/config.yaml")
     raw = {}
     if cfg_path.exists():
-        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        raw = yaml_io.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     raw.setdefault("notifier", {})
     raw["notifier"]["quiet_hours"] = body.model_dump()
     cfg_path.write_text(

@@ -14,7 +14,7 @@
 | C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 |
 | D1 | 慢同步接口独立线程池 | **高** | 48/96 并发轻组 P95 2 064/3 893 → ≤1 000 ms；缺陷率 2.03/3.17% → <0.5% | 中 |
 | A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
-| C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出） | 同一份 config.yaml：解析 52.5 → 4.7 ms（11.3×）、序列化 32.9 → 6.3 ms，且输出逐字节相同 | 极低（换 loader/dumper 类） |
+| C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `📷`，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
 | B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
 | A4 | `maintenance/status` 计数降本 | **高** | 单发 1.6 s → ≤200 ms；消除 60 s 超时（曾致 P95 60 033 ms / 37.5% 超时） | 低 |
 | A1 | 补齐 5 个过滤列索引 | 中 | `prices/category-comparison` 长跑 avg 580.2 → ≤200 ms | 低 |
@@ -85,7 +85,7 @@
 2. **`vector-admin/snapshots` —— 缓存会在用户自己的操作后给出旧列表。** 该页 `VectorAdminPanel.loadAll()` 在创建/删除/恢复之后立刻重拉列表（快照面板的 `items` 直接来自这里，`_list_snapshots` 里每个目录还各调两次 `_dir_size`，见 C1）。TTL 30~120 s 意味着「我删了快照，列表里还在」「刚恢复完，体积还是恢复前的」——这是用户可感知的错数据，不是可接受的近似。降本应走 C1（合并重复遍历），而不是缓存。
 3. **`anticrawl/strategy` —— 结果的定义就是「当前环境」。** `login_strategy.LoginStrategySelector.evaluate` 每跳都要现场做 CDP 端口 socket 探测 + 读 Chromium `Network/Cookies` 判断 Cookie 是否仍有效；`api_anticrawl.get_strategy` 把它当「推荐登录策略」直接展示，而 `AntiCrawl/index.tsx` 是 `runInitialize()` → `fetchAll()` 的顺序 —— 用户刚点完「初始化」（或刚把带 CDP 的浏览器打开），页面却仍在按 30~120 s 前的探测结果推荐策略。降本的正确位置是 C4（探测 timeout 与索引），C4 里「② 探测结果整体短 TTL 缓存 10~30 s」同样要加「`/initialize` 之后强制失效」这条护栏才成立。
 4. **`config/raw` + `config/share` —— ① 前端根本不消费；② 缓存等于把明文凭据放进进程内缓存。** 全仓 `frontend/**`（ts/tsx/js/vue/html）grep `config/raw|config/share` 零命中，它们之所以有数字，是因为本次目标要求「覆盖所有端点」而进了压测集，不是真实流量。更要紧的是这两个接口返回**整份配置的明文 YAML**（`/raw` 只做了末 4 位脱敏的 `raw` 字段、`/share` 是分享用的渲染文本），把它们放进 `_cache_store` 就是在进程里驻留一份凭据 30~120 s —— 与 B4「大 payload / 导出类显式不进缓存」的方向正好相反。
-5. **量化预期「轻组 avg 50.9 → ≤25 ms」的口径本身也错了。** 专项探针 `config_memo_probe.py` 拆出成本：一次 `config.yaml`（7.2 KB）读+解析 **52.5 ms**、`_dump_yaml` 序列化 **32.9 ms**、`_sanitize_dict` 0.1 ms。`/raw` 基线 132.4 ms ≈ 这三段（86 ms）+ 框架与 JSON 序列化余量。TTL 缓存能全砍，memo 只砍解析那段，**换 C 后端（C6）砍的是同一段的 90%** —— 无论哪种，都不到「≤25 ms」，除非连 dump 一起换。
+5. **量化预期「轻组 avg 50.9 → ≤25 ms」的口径本身也错了。** 专项探针 `config_memo_probe.py` 拆出成本：一次 `config.yaml`（7.2 KB）读+解析 **52.5 ms**、`_dump_yaml` 序列化 **32.9 ms**、`_sanitize_dict` 0.1 ms。`/raw` 基线 132.4 ms ≈ 这三段（86 ms）+ 框架与 JSON 序列化余量。TTL 缓存能全砍，memo 只砍解析那段，C6 砍的也是解析那段（换 C loader，约 90%）—— 无论哪种都不到「≤25 ms」；**而 dump 那 33 ms 连 C6 也砍不了**（C dumper 的 emoji 写法不一致，见 §C6），所以 `/raw` 的稳态就在 80~90 ms 附近。
 **顺带把 B5 那条建议也收口**：B5 落地后 `stale_while_revalidate` 确实可用了，但**这四条换成 SWR 同样不成立** —— SWR 只是把重算挪出请求路径，旧值照样会被用户看见；`/cache-scan` 更连「同一份结果」都不存在（每次请求的结果就是进度本身）。SWR 的适用面仍然是「重算很贵、旧值可接受一小段时间、且没有紧随其后的用户动作」，本次只有 `maintenance/status` 符合。
 
 **实际落地的残留（只做不会引入失败的那一条）**：给 `api_config._load_yaml()` 加**按文件指纹 memo**（键 = 路径 + `st_mtime_ns` + `st_size`，命中返回 `copy.deepcopy`），并在 6 个 `CONFIG_FILE.write_text` 站点后配对 `_invalidate_yaml_memo()`。
@@ -142,19 +142,24 @@
 **量化预期收益**：命中后 **≤15 ms**（-88%）；写侧 `preview/save` 去掉一次全量读后 avg **151 → ≤80 ms**。
 **验证方式**：同一 JMX 复跑 + 配置文件 mtime 变更后确认仍能读到新值（正确性回归）。
 **落地状态（2026-10-31）**：✅ config 侧已按 mtime 指纹 memo 落地（详见 §B2「实际落地的残留」：`api_config._load_yaml` + 6 处写盘配对作废 + 存储侧代次护栏 + `tests/test_config_yaml_memo.py` 13 例）。
-**本条「≤15 ms」需要下调**：探针把成本拆开后，`/raw` 的 132.4 ms 里解析 52.5 ms、`_dump_yaml` 序列化 32.9 ms —— memo 只砍前者，命中后仍有 33 ms 的 dump 加框架余量，落在 **80~90 ms** 而不是 15 ms。剩下那段由 **C6**（换 libyaml 后端）治，比给这两个前端并不消费的接口加 TTL 缓存（见 B2 第 4 条反证）更对症。
-**未落**：`api_templates.list_templates` / `save_template` 的同类 memo 化（每次请求读 YAML + JSON 再整表写回）——形态相同但没做过成本占比测量，且写侧模板是用户内容，失效点要单独设计，留作后续。
+**本条「≤15 ms」需要下调**：探针把成本拆开后，`/raw` 的 132.4 ms 里解析 52.5 ms、`_dump_yaml` 序列化 32.9 ms —— memo 只砍前者，命中后仍有 33 ms 的 dump 加框架余量，落在 **80~90 ms** 而不是 15 ms。解析那段已由 **C6**（读侧换 libyaml C loader）在冷路径上砍掉约 41 ms；**dump 那 27~33 ms 治不了** —— C dumper 对 emoji 不遵守 `allow_unicode`，写侧不换（见 §C6），所以 `/raw` 命中后的 80~90 ms 是稳态而非过渡值。这仍然比给这两个前端并不消费的接口加 TTL 缓存（见 B2 第 4 条反证）对症。
+**未落**：`api_templates.list_templates` / `save_template` 的同类 memo 化（每次请求读 YAML + JSON 再整表写回）——形态相同但没做过成本占比测量，且写侧模板是用户内容，失效点要单独设计，留作后续。（读侧的 C loader 已随 C6 覆盖 `api_templates._load_presets`。）
 
 
-### C6. PyYAML 走的是纯 Python 后端，libyaml 已在依赖里却没被用 — 优先级 **高**（新发现，非压测得出；`config_memo_probe.py` 暴露）
-**具体优化内容**：`yaml.safe_load` / `yaml.safe_dump` 绑定的是 PyYAML 的**纯 Python** `SafeLoader` / `SafeDumper`；本机 `yaml.__with_libyaml__ is True`，说明 `CSafeLoader` / `CSafeDumper` 可用。把配置读写切到 C 后端即可（`yaml.load(text, Loader=yaml.CSafeLoader)`、`yaml.dump(data, Dumper=yaml.CSafeDumper, allow_unicode=True, sort_keys=False, default_flow_style=False)`）。**注意 `CSafeLoader` 就是 `SafeLoader` 的 C 实现，不是 `yaml.load` 的裸 `Loader`/`FullLoader`**：同样不构造任意 Python 对象，不放宽反序列化面。受益面不止 `api_config`：`infra/yaml_config.load_yaml`（启动与每次 reload 都要读 config.yaml + eval.yaml + 子配置）、`api_templates`、`api_tunnel`/`api_notifier`/`api_batch_refresh`/`infra/ai_usage` 的增量写盘同样在用纯 Python 后端。
+### C6. PyYAML 走的是纯 Python 后端，libyaml 已在依赖里却没被用 — 优先级 **高**（新发现，非压测得出；`config_memo_probe.py` 暴露）✅ **已于 2026-11-01 落地（只落读侧）**
+**具体优化内容**：`yaml.safe_load` 绑定的是 PyYAML 的**纯 Python** `SafeLoader`；本机 `yaml.__with_libyaml__ is True`，说明 `CSafeLoader` 可用。**注意 `CSafeLoader` 就是 `SafeLoader` 的 C 实现，不是 `yaml.load` 的裸 `Loader`/`FullLoader`**：同样不构造任意 Python 对象，不放宽反序列化面。受益面不止 `api_config`：`infra/yaml_config.load_yaml`（启动与每次 reload 都要读 config.yaml + eval.yaml + 子配置）、`api_templates`、`api_tunnel`/`api_notifier`/`api_batch_refresh`/`infra/ai_usage`/`menu_manager`/`repo_param_rules` 的读盘同样在用纯 Python 后端。
 **证据**（同一份 7.2 KB / 35 顶层键的 `config/config.yaml`，各 20 次采样取中位）：
 - 解析：`safe_load` 中位 **52.5 ms**（最快 40.4）→ `CSafeLoader` 中位 **4.7 ms**（最快 3.9），**11.3×**；两份结果 `== ` 相等。
-- 序列化：`_dump_yaml` 中位 **32.9 ms** → `CSafeDumper` 中位 **6.3 ms**；输出**逐字节相同**（含中文不转义、`sort_keys=False` 的插入顺序、`{}` / `''` / `null` 的写法）—— 这一条是写盘/备份/diff 稳定性的前提，探针里做了断言。
+- 序列化：`_dump_yaml` 中位 **32.9 ms** → `CSafeDumper` 中位 **6.3 ms**；在 `config.yaml` 这一份上输出逐字节相同（中文不转义、`sort_keys=False` 的插入顺序、`{}` / `''` / `null` 的写法）。
 - 读文件本身不是成本：`read_text` 中位 0.36 ms。
-**量化预期收益**：`config/raw` 132.4 → **约 60~70 ms**（省解析 48 + 序列化 27）；`config/share`、`config/export` 同量级；`config/preview`、`config/save` 各省一次 48 ms 解析（叠在 B2 的 memo 之上时，收益只在冷的那一次）。启动/reload 路径同理。**注意**：这是「砍掉常量项」，不改变并发下的排队，因此不能替代 D1/B1。
-**为什么没有直接落地**：用户对本轮的口径是「只做安全残留，不引入真实失败」。切后端的风险点还没测完 —— ① 解析异常类型/消息会变（`CSafeLoader` 的 `ScannerError` 行号与文本与纯 Python 不同），`import_config` 靠 `YAMLError` 转 400 的语义要重测；② `dump` 参数在 C 后端的兼容面（`sort_keys`、`width`）要逐个调用点确认；③ 需要一次全量回归 + 真实沙箱写盘对比。评估结论是「收益确定、风险可控但需要一轮验证」，列为**下一周第 1 优先**，先于 B3/C1。
-**验证方式**：把 `config_memo_probe.py` 里的等价性与逐字节断言升级成 pytest 用例（对多份真实形状的配置样本），再逐文件切换、跑全量。
+
+**⚠️ 「逐字节相同」当时被我过度泛化了 —— 所以只有读侧能落地**：把上面那条断言从「一份文件」升级成「仓库里 7 份真实 YAML 逐份比对」（`config_memo_probe.py` 已改成逐份打印）之后，**6/7 相同、`preset_templates.yaml` 不同**。原因是 `CSafeDumper` 对**超出 BMP 的字符**（emoji，模板图标 `📷` = 📷）不遵守 `allow_unicode=True`，写成 `"📷"` 转义，而纯 Python dumper 写原字符。两种写法都能被任一侧 loader 读回同一个值，但**磁盘产物会变**：写盘、备份、`_diff` 都建立在「同一个 dict 两次 dump 结果一致」之上，而模板 `icon` 是用户可见、可手改的字段。因此本轮只切读侧，**dump 继续走 `yaml.safe_dump`**（那 21~27 ms 不拿）。这条分歧钉在 `tests/test_yaml_io_equivalence.py::test_c_dumper_would_mangle_astral_chars_so_dump_stays_python` —— 它断言的是「两边确实不一致」，将来 libyaml 修了这个行为时用例会红并提示重新评估写侧。
+**落地状态（2026-11-01）**：✅ 新增 `backend/xianyu_hunter/infra/yaml_io.py`（只导出 `safe_load`；`_LOADER = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader`，libyaml 缺失时退回纯 Python —— 精简镜像里这是真实形态，不是想象的场景），9 个读盘点改为经它：`api_config._load_yaml`、`infra/yaml_config.load_yaml`、`infra/repo_param_rules`、`infra/ai_usage`、`web/services/menu_manager`、`web/routes/api_templates`、`api_tunnel`、`api_notifier`、`api_batch_refresh`。写侧 7 处 dump 一字未动。
+- **实测落点**（同机、只读真实 `config.yaml`，15 次采样取中位）：`yaml.safe_load` 47.7 ms → `yaml_io.safe_load` **6.5 ms（7.4×）**；`yaml_config.load_yaml`（含开文件）12.0 ms。启动与每次 `reload_config()` 都要走的这条路径同享。
+- **前置等价性用例先行**（`tests/test_yaml_io_equivalence.py`，56 例）：结构相等（10 种真实形状 × 仓库在用的 3 组 dump 参数 × 交叉读写）、空文档返回 `None`、异常**类**与纯 Python 一致（`menu_manager` 的 `except yaml.YAMLError` 覆盖面不能缩；实测两侧同为 `ScannerError` 子类，只有消息文本不同，而仓库里没有代码断言消息文本）、`!!python/object` 照旧被拒、文件对象入参仍支持（`load_yaml` / `_load_presets` 传的是句柄）、仓库 7 份真实 YAML 逐份读出结构相等、后端选择跟 `hasattr(yaml, "CSafeLoader")` 走（防止悄悄退回纯 Python 而用例全绿）。
+- **订正原「为什么没有直接落地」里的两处错误**（本轮逐个调用点复核）：① 原写「`import_config` 靠 `YAMLError` 转 400 的语义要重测」站不住 —— `/import` 收的是 **JSON body**（`body.get("config")` 必须是 dict），不做 YAML 文本解析，全仓 `YAMLError` 只有 `menu_manager.py:123` 一处捕获，已进等价性用例；② 原写「`dump` 参数在 C 后端的兼容面要逐个调用点确认」—— 这条不仅成立而且比预想严重（就是上面的 astral 字符分歧），因此写侧整段撤回。
+**量化预期收益**：`config/raw` 132.4 → **约 90 ms**（只省解析 41~48 ms；dump 那 27 ms 留在原地，与 C3 的 80~90 ms 口径一致）；`config/share`、`config/export` 同量级；`config/preview`、`config/save` 各省一次解析（叠在 B2 的 memo 之上时读侧收益只在冷的那一次 —— **但启动/reload 路径的 `yaml_config.load_yaml` 每次都吃这条收益**）。**注意**：这是「砍掉常量项」，不改变并发下的排队，因此不能替代 D1/B1。
+**验证方式**：`tests/test_yaml_io_equivalence.py`（56 例）+ `tests/test_config_yaml_memo.py`（13 例，计数 shim 的 patch 目标随之内移到 `api_config.yaml_io`）+ 受影响面（config/tunnel/notifier/menu/templates/param_rules/ai_usage/yaml_config）全绿 + 全量回归。`config_memo_probe.py` 保留为成本判据，现已含逐份 dump 比对。变异验证两腿各自翻红（把 `_LOADER` 硬编码成纯 Python `SafeLoader` → 1 例；换成 `FullLoader` → 3 例）—— **第二腿最初只翻 1 例**，暴露出「拒绝 python 标签」那条对 FullLoader 是无效的（`!!python/object/apply` 连 FullLoader 都拒），于是补了 `test_rejection_is_not_vacuous` 正面断言「FullLoader 接受 `!!python/name`、我们拒」，判据本身才成立。真实数字待同一 JMX 复跑替换。
 
 ### C1. 快照目录体积重复遍历合并 — 优先级 **中**
 **具体优化内容**：`web/routes/api_vector_admin.py:103-104` 对同一目录连续调用 `_dir_size(d)` 两次（分别填 `size_bytes` 与 `size_display`）。改为一次求值后复用。
@@ -229,7 +234,7 @@
 
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
-| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ **C6 换 libyaml 后端（新，成本极低）** + C1 双调用合并 + C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 60~70 ms**（B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
+| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ C1 双调用合并 + C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
 | **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 

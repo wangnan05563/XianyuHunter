@@ -27,6 +27,7 @@ import os
 import pytest
 import yaml
 
+from xianyu_hunter.infra import yaml_io
 from xianyu_hunter.web.routes import api_config
 
 DISK_V1 = {"search": {"keyword": "AAAA", "min_price": 10}}
@@ -36,7 +37,11 @@ FIXED_NS = (10 ** 16, 10 ** 16)
 
 
 class _CountingYaml:
-    """只替换 api_config 模块里绑定的 yaml 名字，不影响其他模块的解析计数"""
+    """只替换 api_config 模块里绑定的 yaml_io 名字，不影响其他模块的解析计数
+
+    C6 之后 `_load_yaml` 走的是 `yaml_io.safe_load`（libyaml C loader），所以计数挂在
+    它上面 —— patch 目标是 `api_config.yaml_io` 而不是 `api_config.yaml`。
+    """
 
     def __init__(self, real) -> None:
         self.real = real
@@ -63,8 +68,8 @@ def sandbox_config(monkeypatch, tmp_path):
 
 @pytest.fixture
 def counter(monkeypatch):
-    counting = _CountingYaml(yaml)
-    monkeypatch.setattr(api_config, "yaml", counting)
+    counting = _CountingYaml(yaml_io)
+    monkeypatch.setattr(api_config, "yaml_io", counting)
     return counting
 
 
@@ -192,11 +197,11 @@ def test_read_overlapping_a_save_does_not_cache_the_pre_write_value(sandbox_conf
             api_config._invalidate_yaml_memo()
             return result
 
-    racing = _RacingYaml(yaml)
-    monkeypatch.setattr(api_config, "yaml", racing)
+    racing = _RacingYaml(yaml_io)
+    monkeypatch.setattr(api_config, "yaml_io", racing)
     assert api_config._load_yaml()["search"]["keyword"] == "AAAA"  # 本次读到的是快照，允许
 
-    monkeypatch.setattr(api_config, "yaml", _CountingYaml(yaml))
+    monkeypatch.setattr(api_config, "yaml_io", _CountingYaml(yaml_io))
     assert api_config._load_yaml()["search"]["keyword"] == "BBBB", (
         "写盘前的旧值被存回了 memo：指纹相同，之后所有请求都会读到 AAAA"
     )

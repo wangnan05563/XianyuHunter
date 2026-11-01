@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from xianyu_hunter.infra import yaml_io
 from xianyu_hunter.infra.yaml_config import get_config, reload_config
 from xianyu_hunter.paths import get_config_dir
 from xianyu_hunter.web.services.tunnel_providers import (
@@ -85,7 +86,7 @@ def _load_yaml_raw() -> dict[str, Any]:
     p = _config_yaml_path()
     if not p.exists():
         return {}
-    return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return yaml_io.safe_load(p.read_text(encoding="utf-8")) or {}
 
 
 def _dump_yaml_raw(data: dict[str, Any]) -> str:

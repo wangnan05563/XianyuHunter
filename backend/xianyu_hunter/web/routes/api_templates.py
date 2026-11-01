@@ -12,9 +12,10 @@ import os
 import time
 import uuid
 
-import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+from xianyu_hunter.infra import yaml_io
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -41,7 +42,7 @@ def _load_presets() -> list[dict]:
     if not os.path.exists(PRESET_FILE):
         return []
     with open(PRESET_FILE, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f) or []
+        return yaml_io.safe_load(f) or []
 
 
 def _load_user() -> list[dict]:

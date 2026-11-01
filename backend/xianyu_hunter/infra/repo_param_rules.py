@@ -9,13 +9,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from xianyu_hunter.domain.param_calculator import (
     RuleCategory,
     RuleMeta,
     Scenario,
 )
+from xianyu_hunter.infra import yaml_io
 from xianyu_hunter.paths import get_config_dir
 
 _RULES_FILE = "param_rules.yaml"
@@ -35,7 +34,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        data = yaml_io.safe_load(f) or {}
     return data if isinstance(data, dict) else {}
 
 

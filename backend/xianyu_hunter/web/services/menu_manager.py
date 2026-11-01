@@ -23,6 +23,8 @@ import yaml
 from sqlalchemy import text as sa_text
 from sqlalchemy.engine import Engine
 
+from xianyu_hunter.infra import yaml_io
+
 # menu_registry.yaml 是只读资源（随安装包分发），应从安装目录读取
 # 为什么不用 get_config_dir()：那是可写目录（%APPDATA%），registry 不应运行时修改
 # 为什么不用 Path("config/menu_registry.yaml")：打包后 CWD 不确定，相对路径找不到文件
@@ -119,7 +121,7 @@ class MenuManager:
             return
         try:
             with open(path, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
+                data = yaml_io.safe_load(f) or {}
         except (OSError, yaml.YAMLError) as e:
             # YAML 解析失败不阻塞服务启动，使用空 registry 让前端展示空菜单
             logger.error("菜单注册表加载失败: %s", e, exc_info=True)

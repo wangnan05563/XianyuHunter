@@ -16,6 +16,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from xianyu_hunter.container import Container
+from xianyu_hunter.infra import yaml_io
 from xianyu_hunter.infra.yaml_config import (
     AppConfig,
     get_config,
@@ -70,7 +71,7 @@ def _load_yaml() -> dict[str, Any]:
     fingerprint = (str(CONFIG_FILE), st.st_mtime_ns, st.st_size)
     memo = _yaml_memo
     if memo is None or memo[0] != fingerprint:
-        parsed = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+        parsed = yaml_io.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
         if _yaml_epoch == epoch:
             _yaml_memo = (fingerprint, parsed)
         return copy.deepcopy(parsed)

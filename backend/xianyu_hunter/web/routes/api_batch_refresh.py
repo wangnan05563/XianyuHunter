@@ -171,10 +171,11 @@ def patch_config(body: BatchRefreshConfigPatch) -> dict[str, Any]:
     if yaml_patch:
         from pathlib import Path
         import yaml as _yaml
+        from xianyu_hunter.infra import yaml_io
         cfg_path = Path("config/config.yaml")
         raw: dict[str, Any] = {}
         if cfg_path.exists():
-            raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            raw = yaml_io.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         raw.setdefault("batch_refresh", {})
         raw["batch_refresh"].update(yaml_patch)
         cfg_path.write_text(

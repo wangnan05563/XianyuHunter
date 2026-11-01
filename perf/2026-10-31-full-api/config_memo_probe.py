@@ -78,17 +78,33 @@ def main() -> int:
         sanitized, Dumper=yaml.CSafeDumper,
         allow_unicode=True, sort_keys=False, default_flow_style=False))
     show("同样参数的 CSafeDumper", dump_c)
-    identical = api_config._dump_yaml(sanitized) == yaml.dump(
-        sanitized, Dumper=yaml.CSafeDumper,
-        allow_unicode=True, sort_keys=False, default_flow_style=False)
-    print(f"   逐字节相同：{identical}（写盘/备份/diff 都依赖这个稳定性）")
+    print("   写侧能不能换：逐份比对仓库里真实 YAML（只读，不写盘）")
+    from pathlib import Path as _P
+    samples = sorted(_P(api_config.CONFIG_FILE).parent.glob("*.yaml"))
+    samples += [_P(__file__).resolve().parents[2] / "backend" / "xianyu_hunter" / "data" / "preset_templates.yaml"]
+    diverging = []
+    for sp in samples:
+        if not (sp.exists() and sp.stat().st_size):
+            continue
+        data = yaml.safe_load(sp.read_text(encoding="utf-8"))
+        same_bytes = (
+            yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            == yaml.dump(data, Dumper=yaml.CSafeDumper,
+                         allow_unicode=True, sort_keys=False, default_flow_style=False)
+        )
+        if not same_bytes:
+            diverging.append(sp.name)
+    print(f"   dump 产物逐字节相同的文件：{len(samples) - len(diverging)}/{len(samples)}"
+          f"；不一致的：{diverging or '无'}")
+    print("   ⚠️ 不一致的原因是 CSafeDumper 对超出 BMP 的字符（emoji，如模板图标 📷）不遵守"
+          " allow_unicode，会写成 \"\\U0001F4F7\"。单看 config.yaml 会以为可以换 —— 别只测一份。")
 
     print(f"\n[A] memo 净收益 ≈ 冷路径 {cold[0]:.2f} − 深拷贝 {copy_cost[0]:.2f}"
           f" = {cold[0] - copy_cost[0]:.2f} ms/请求")
-    print(f"[B] C 后端净收益 ≈ 解析省 {cold[0] - cload[0]:.2f} ms；"
-          f"序列化再省 {dump_pure[0] - dump_c[0]:.2f} ms（/raw、/share、/export 每次都要 dump）")
+    print(f"[B] C loader 净收益 ≈ 解析省 {cold[0] - cload[0]:.2f} ms/请求（已落地，读侧）；"
+          f"序列化那 {dump_pure[0] - dump_c[0]:.2f} ms 没省 —— C dumper 的 emoji 写法不一致，见上")
     print("对照基线（1 并发）：/raw 132.4 ms、/share 104.7 ms")
-    print("→ memo 把重复解析变成一次；C 后端把那一次本身砍掉一个数量级。两者不冲突。")
+    print("→ memo 把重复解析变成一次；C loader 把那一次本身砍掉一个数量级。两者不冲突。")
     return 0
 
 

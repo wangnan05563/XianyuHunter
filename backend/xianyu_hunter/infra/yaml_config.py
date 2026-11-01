@@ -5,11 +5,12 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, model_validator
 
 # 路径统一入口：避免硬编码 Path("config") / Path("data/chromadb")
 from xianyu_hunter.paths import get_config_dir, get_chromadb_path
+# 读盘统一入口（libyaml 在则走 C loader，见 infra/yaml_io.py docstring）
+from xianyu_hunter.infra import yaml_io
 
 
 # ============== 配置模型定义 ==============
@@ -775,7 +776,7 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     if not p.exists():
         return {}
     with p.open(encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return yaml_io.safe_load(f) or {}
 
 
 _config: AppConfig | None = None

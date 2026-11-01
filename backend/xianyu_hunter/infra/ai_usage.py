@@ -396,10 +396,11 @@ def _persist_budget_to_yaml(yaml_patch: dict[str, Any]) -> None:
     try:
         from pathlib import Path
         import yaml as _yaml
+        from xianyu_hunter.infra import yaml_io
         cfg_path = Path("config/config.yaml")
         raw: dict[str, Any] = {}
         if cfg_path.exists():
-            raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            raw = yaml_io.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         raw.setdefault("ai_budget", {})
         raw["ai_budget"].update(yaml_patch)
         cfg_path.write_text(
