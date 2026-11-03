@@ -65,6 +65,17 @@ class LoginStrategySelector:
     # CDP 默认端口
     CDP_PORT = 9222
 
+    # CDP 端口探测的连接上限（秒）
+    # 为什么是 0.1 而不是 1.0：本机对回环上「没监听的端口」不发 RST 而是静默丢包
+    # （`perf/2026-10-31-full-api/loopback_connect_control.py` 实测：空闲端口连 1.0 s
+    # 上限就是吃满 1.0 s），于是「CDP 未开启」这一最常见形态每次请求都要付满超时 —— 这正是
+    # `GET /api/anticrawl/strategy` avg 1 094.7 ms 里的那 1 秒。真正在 accept 的 CDP
+    # 端口握手是亚毫秒级（同探针实测 0.76 ms），0.1 s 的预算对它没有影响。
+    # 已知边界：端口在监听但没人 accept 且 backlog 已满时，握手会挂到超时，本值会让它被判为
+    # 「不可用」；这种 CDP 即便判为可用也无法使用（后续 HTTP 调用同样会挂），故接受该边界。
+    # （只是「在监听、暂时没 accept」不算这个边界：内核会把握手收进 backlog，本机实测亚毫秒。）
+    CDP_PROBE_TIMEOUT = 0.1
+
     # 闲鱼关键 Cookie 名称
     KEY_COOKIES = {"_m_h5_tk", "_m_h5_tk_enc", "unb", "sgcookie", "cookie2", "lg2"}
 
@@ -141,7 +152,9 @@ class LoginStrategySelector:
         - Cookie 天然有效，与日常浏览共享
         """
         try:
-            with socket.create_connection(("127.0.0.1", self.cdp_target_port), timeout=1.0):
+            with socket.create_connection(
+                ("127.0.0.1", self.cdp_target_port), timeout=self.CDP_PROBE_TIMEOUT
+            ):
                 return True
         # S5713: ConnectionRefusedError 与 socket.timeout 均为 OSError 的子类，仅保留父类
         except OSError:
@@ -173,13 +186,20 @@ class LoginStrategySelector:
             return False
         try:
             import sqlite3
+            # 把关键 Cookie 名直接下推给 SQLite：原先取回 goofish/taobao 的全部 Cookie 名
+            # 再在 Python 里求交集，5 000 条 Cookie 的实测 8.24 ms → 3.44 ms
+            # （`perf/2026-10-31-full-api/anticrawl_probe_cost.py`）。判定完全等价：
+            # 谓词还是那两个 LIKE +「名字属于 KEY_COOKIES」，只是命中一条即停。
+            key_names = sorted(self.KEY_COOKIES)
+            placeholders = ",".join(["?"] * len(key_names))
             with sqlite3.connect(f"file:{cookie_db}?mode=ro", uri=True) as conn:
-                rows = conn.execute(
-                    "SELECT name FROM cookies WHERE host_key LIKE ? OR host_key LIKE ?",
-                    ("%goofish%", "%taobao%"),
-                ).fetchall()
-                names = {n for (n,) in rows}
-                return bool(self.KEY_COOKIES & names)
+                hit = conn.execute(
+                    "SELECT 1 FROM cookies "
+                    f"WHERE (host_key LIKE ? OR host_key LIKE ?) AND name IN ({placeholders}) "
+                    "LIMIT 1",
+                    ("%goofish%", "%taobao%", *key_names),
+                ).fetchone()
+                return hit is not None
         except Exception:
             return False
 

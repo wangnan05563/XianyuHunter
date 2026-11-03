@@ -11,7 +11,7 @@
 | B1 | 缓存单飞（single-flight） | **高** | 长跑混合场景 avg 200.5 → ≤80 ms；长跑整体 P95 544.5 → ≤250 ms | 低（`web/cache.py` 约 20 行）✅ **已落地** |
 | B5 | SWR「后台刷新」实为同步 + 异步分支静默失效 | **高** ✅ **已落地** | `maintenance/status` 过期后首次调用 ≈1.6 s → ≈0；消除 SWR 冻结隐患 | 低 |
 | C2 | `/api/auth/me` 去重复文件解析 | **高** | avg 152.6 → ≤50 ms（长跑 414.3 → ≤120 ms） | 低 |
-| C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 |
+| C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 ✅ **已落地（①③；②不落地，且「≤30 ms」经实测作废 → 约 190~250 ms）** |
 | D1 | 慢同步接口独立线程池 | **高** | 48/96 并发轻组 P95 2 064/3 893 → ≤1 000 ms；缺陷率 2.03/3.17% → <0.5% | 中 |
 | A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
 | C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `\U0001F4F7` 转义，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
@@ -129,12 +129,22 @@
 **量化预期收益**：avg **152.6 → ≤50 ms**（对标 `me/refresh` 17.9 ms + 用户信息查询）；长跑 **414.3 → ≤120 ms**。该接口是控制台每个页面加载的必经调用，收益覆盖全站请求，故列为高优先级。
 **验证方式**：`/me` 单接口阶梯（1/16/48 并发）复跑；统计每请求的文件 open 次数。
 
-### C4. 反爬策略接口降本（socket 探测 + Chromium Cookie 全表扫） — 优先级 **高**
-**具体优化内容**：`backend/xianyu_hunter/modules/login_strategy.py:144` 用 `socket.create_connection(("127.0.0.1", cdp_target_port), timeout=1.0)` 判断 CDP 可用性 —— 端口未开时**每次请求都吃满 1 s**；`:150-184` 再打开 Chromium `Network/Cookies` SQLite 做全表 `LIKE '%goofish%'`。改为：① 探测 timeout 降到 0.1 s 并 fail-fast；② 探测结果整体短 TTL 缓存（10~30 s）；③ Cookie 计数改用 `WHERE host_key = ?` 精确匹配（该表有 `idx_user_cookies_user_host` 类比索引可用，见 `db_models.py:776`）。
+### C4. 反爬策略接口降本（socket 探测 + Chromium Cookie 全表扫） — 优先级 **高** ✅ **已于 2026-11-03 落地（只落 ①③，②刻意不落；「≤30 ms」经实测作废）**
+**具体优化内容**：`backend/xianyu_hunter/modules/login_strategy.py:144` 用 `socket.create_connection(("127.0.0.1", cdp_target_port), timeout=1.0)` 判断 CDP 可用性 —— 端口未开时**每次请求都吃满 1 s**；`:150-184` 再打开 Chromium `Network/Cookies` SQLite 做全表 `LIKE '%goofish%'`。改为：① 探测 timeout 降到 0.1 s 并 fail-fast；② 探测结果整体短 TTL 缓存（10~30 s）；③ Cookie 计数改用 `WHERE host_key = ?` 精确匹配（该表有 `idx_user_cookies_user_host` 类比索引可用，见 `db_models.py:776`）—— **这一句在落地时被推翻**（那个索引是我们自己的表；等价匹配会漏掉子域形态），实际做的是关键名下推 + `LIMIT 1`，见下方落地记录。
 **证据**：`GET /api/anticrawl/strategy` 基线 avg **1 094.7 ms**（≈ 1 s 探测 + 扫描），P99 1 216.8 ms；长跑 1 300.7 ms；96 并发 2 511.8 ms。同族 `anticrawl/fingerprint` 仅 9.0 ms，证明「不算这一跳」的成本地板。
-**量化预期收益**：avg **1 094.7 → ≤30 ms**（-97%）。这同时是 D1 的关键前提——它曾是最占用 anyio 线程的接口之一。
+**量化预期收益**：avg **1 094.7 → ≤30 ms**（-97%）。这同时是 D1 的关键前提——它曾是最占用 anyio 线程的接口之一。 **← 「≤30 ms」已由实测作废（①③ 只能到约 190~250 ms），见下方落地记录。**
 **复核注（2026-10-31，与 §B2 第 3 条同源）**：① 探测 timeout 与 ③ 精确匹配是纯降本，随时可做；但 **②「探测结果整体短 TTL 缓存」不能裸上** —— `evaluate()` 的语义是「当前环境」，`AntiCrawl/index.tsx` 又是 `runInitialize()` → `fetchAll()`，缓存必须配对失效（至少 `/initialize`、登录态变更、会话失效三处），否则页面会在用户刚开 CDP/刚登录后继续推荐旧策略。TTL 也应按 B2 的口径压到 10 s 以内并显式失效，而不是当作「秒级稳定」的默认缓存候选。
 **验证方式**：CDP 关闭态下压该接口，确认不再出现 ~1 s 常数项。
+
+**落地记录（2026-11-03，`modules/login_strategy.py`）**
+
+- **先证前提，再动手**：本条把 ~1 s 归给「端口未开时 `create_connection(timeout=1.0)` 吃满超时」，而这台机器上回环连**没监听的**端口到底是立刻 RST 还是静默丢包，决定这条成不成立。`loopback_connect_control.py` 四个对照（bind+listen 不 accept / +accept / 真实 HTTP 往返 / 空闲端口分别 1.0 s 与 0.1 s）实测：**没监听的端口收不到 RST，连接吃满 timeout**（1.0 s → ~1 010 ms，0.1 s → ~109 ms），真正在 accept 的监听端口 **0.76 ms** 完成。前提成立。（中途一版探针把「自建的监听端口」误标成 timeout，一度指向「前提不成立」——是探针的标签错了，不是现象错了。）
+- **① 已落**：探测超时提到类常量 `LoginStrategySelector.CDP_PROBE_TIMEOUT = 0.1`，调用处用它。`c4_after_probe.py` 实测（9 次采样取中位）：CDP 关闭态这一跳 **1 014.2 → 109.1 ms（省 905.1 ms，9.3×）**；同一轮里真在 accept 的端口 **0.60 ms** 仍判可用（0.1 s 预算对它留了 ~160× 余量）；完整 `evaluate()` 地板 **~1 s → 109.5 ms**。
+- **② 不落**（与 §B2 第 3 条同源）：`evaluate()` 的语义就是「当前环境」，TTL 缓存必须配对失效才成立 —— 至少 `/initialize`、登录态变更、会话失效、以及「用户刚把带 CDP 的浏览器打开」四类边界。本轮不引入「界面在用户当场改完环境后继续推荐旧策略」这种真实失败，所以只做了不改语义的两项。
+- **③ 的落地形态与本条原文不同，且原文的索引依据是错的**：`db_models.py:776` 的 `idx_user_cookies_user_host` 属于**我们自己的** `user_cookies` 表，Chromium 那个 `Network/Cookies` 文件里没有它；而 `host_key = ?` 精确匹配会**改判定语义** —— 同一站点在 Chromium 里同时存在 `.goofish.com` / `www.goofish.com` / `s.taobao.com` 几种形态，`LIKE '%goofish%'` 正是在覆盖它们。改成**把关键名下推给 SQL 并命中一条即停**：`SELECT 1 FROM cookies WHERE (host_key LIKE ? OR host_key LIKE ?) AND name IN (...) LIMIT 1`，谓词集合不变。实测 `anticrawl_probe_cost.py`：5 000 行 **8.24 → 3.44 ms**（布尔逐形状相同）；走真实代码路径复核：命中 **0.87 ms**、最坏情况（全表无关键名）仍要扫完 **2.47 ms**。这一项本来就只占毫秒级，**不是那一秒的来源** —— 收益小、语义零风险，所以照做，但别指望它降本。
+- **本条「avg → ≤30 ms」作废**：残余的 109 ms **就是预算本身**（本机静默丢包 ⇒ 这一跳的耗时恰好等于 timeout），①③ 相加只能到 **约 190~250 ms**（= 基线 1 094.7 扣掉省下的 895 ms）。再往下只有两条路：把常量继续压小（0.05 s → 约 54 ms，代价是给慢启动的 CDP 更少余量），或落 ② 的短 TTL + 显式失效。**接口级与并发级数字（含 96 并发 2 511.8 ms）仍待同一 JMX 复跑。**
+- **验证**：`tests/test_anticrawl_strategy_cost.py`（19 例）。探测侧钉「调用处取的是类常量」「预算 ≤0.2 s」「关闭端口整次探测 <0.5 s」「真在 accept 的端口仍判可用」「探测失败不往上抛、`evaluate()` 回落到扫码」；Cookie 侧钉**与改写前等价**（8 个形状同时断言新实现与内联的参照实现 `legacy_check` 一致，防止「用例跟着新语义一起改错」）、host 与 name 两个过滤都还活着、`name IN` + `LIMIT 1` 确实进了 SQL 文本、缺库 / 无 `cookies` 表 / 非 SQLite 文件三种坏形态照旧 False。安全边界：全部用例 `chdir` 到 tmp 并打桩 `get_config` / `get_browser_data_dir`，不读真实 `data/browser-data` 与真实 Cookie 库。
+- **变异验证四腿 + 负对照**（串行）：timeout 写回 `1.0` → 2 例红；SQL 分支整体退回原句 → 1 例红；去掉 `name IN` 下推 → 5 例红；第二个 host 图案接错（`%taobao%` 写成 `%goofish%`）→ 1 例红；**负对照**改 `infra/browser.py` 里另一处 CDP 超时 → 全绿（证明用例认的是本模块这一跳，而不是任意一次 socket 调用）。还原后 sha256 与基线逐字节相同。判据脚本 `loopback_connect_control.py` / `anticrawl_probe_cost.py` / `c4_after_probe.py` / `c4_mutation_run.py` 均只读、只在临时目录造数据。
 
 ### C3. `_load_yaml()` 走单例缓存 — 优先级 **中**
 **具体优化内容**：`web/routes/api_config.py:45-48` 每次调用都 `CONFIG_FILE.read_text()` + `yaml.safe_load()` 整份配置，绕过了 `infra/yaml_config.py:784-789` `get_config()` 已有的单例缓存。改为复用单例 + mtime 失效。模板接口同一形态：`web/routes/api_templates.py:65-66 list_templates` 每次调 `_load_presets`(`:39` 读 YAML) + `_load_user`(`:47` 读 JSON)，`POST`(`:76-77 save_template`) 还要再读后整表写回 —— 应按 mtime memo 化。
@@ -242,7 +252,7 @@
 
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
-| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
+| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ ~~C4 探测降本~~ ✅（2026-11-03 落地 ①③，关闭态每请求省 905 ms；②短 TTL 因需配对失效不落；「≤30 ms」作废 → 约 190~250 ms，待复跑）+ A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
 | **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 
