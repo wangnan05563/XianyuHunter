@@ -418,15 +418,20 @@ Write-Host "  __pycache__ 清理完成" -ForegroundColor DarkGray
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }
 Write-Host "  PyInstaller 打包完成"
 
-# ============== 4.5 修复 PyInstaller 收集的 sentence_transformers 包完整性 ==============
-# onnx 模式已 exclude sentence_transformers，无需也无法修复该包完整性
+# ============== 4.5 校验 PyInstaller 收集的 sentence_transformers 包完整性 ==============
+# onnx 模式已 exclude sentence_transformers，无需也无法校验该包完整性
 if ($EmbeddingEngine -eq "onnx") {
     Write-Host "`n[4.5] onnx 模式已排除 sentence_transformers，跳过包完整性修复" -ForegroundColor DarkGray
 } else {
-    Write-Host "`n[4.5] 修复 sentence_transformers 包完整性..." -ForegroundColor Yellow
-    & .venv-build\Scripts\python "$PSScriptRoot\sync-sentence-transformers.py"
-    if ($LASTEXITCODE -ne 0) { Write-Host "  [WARN] sentence_transformers 修复失败，继续构建" -ForegroundColor Yellow }
-    else { Write-Host "  sentence_transformers 包完整性修复完成" -ForegroundColor Green }
+    Write-Host "`n[4.5] 检查 sentence_transformers 包完整性..." -ForegroundColor Yellow
+    # 路径全部显式传入：脚本原先把仓库绝对路径写死成默认值，换目录就必然走 skip 分支，
+    # 还打印成 [WARN] 让人误判成 RAG 打包缺陷（T04184）。现在缺参数直接 argparse 报错。
+    & .venv-build\Scripts\python "$PSScriptRoot\sync-sentence-transformers.py" `
+        --venv-site-packages "$repoRoot\.venv-build\Lib\site-packages" `
+        --dist-internal "$repoRoot\release\xianyu-hunter\_internal" `
+        --pyz-toc "$pyiWorkDir\xianyu-hunter\PYZ-00.toc"
+    if ($LASTEXITCODE -ne 0) { Write-Host "  [ERROR] sentence_transformers 完整性检查未通过（PYZ 未收录或路径参数不对），本地 embedding 引擎在打包版会失效" -ForegroundColor Red }
+    else { Write-Host "  sentence_transformers 完整性检查通过" -ForegroundColor Green }
 }
 
 # ============== 5. 复制外置资源 ==============

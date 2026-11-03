@@ -88,7 +88,29 @@ if _EMBEDDING_ENGINE == "onnx":
     print(logger_extra)
 else:
     # st 模式（默认）：收集 sentence-transformers 全部子模块（含其 tokenizers 依赖）
-    hiddenimports += safe_collect_submodules('sentence_transformers')
+    _st_mods = safe_collect_submodules('sentence_transformers')
+    # 断言口径与上面的 chromadb 一致：看「收集结果」而非「是否抛异常」。
+    # 缺陷形态是同一种 —— 构建 venv 只剩 dist-info 壳时 collect_submodules 抛
+    # ModuleNotFoundError、被 safe_collect_submodules 吞成空列表，包里根本没有 ST，
+    # 本地 embedding 要到运行期加载后端才报失败。
+    # 用 sentence_transformer.model 作判据：sentence_transformers/__init__.py 就是从
+    # 该模块 import SentenceTransformer，缺它 = from sentence_transformers import
+    # SentenceTransformer 直接 ImportError。
+    if "sentence_transformers.sentence_transformer.model" not in _st_mods:
+        raise RuntimeError(
+            "[spec] sentence_transformers 子模块收集缺少 sentence_transformers.sentence_transformer.model"
+            "（仅收到 %d 个），打包版本地 embedding 会断链，构建中止。根因通常是构建 venv 依赖残缺"
+            "（dist-info 壳在、包体已被删；pip 会判为已安装而跳过修复）。修复命令：\n"
+            "  .venv-build\\Scripts\\python -m pip install --force-reinstall --no-deps sentence-transformers\n"
+            "自检命令：\n"
+            "  .venv-build\\Scripts\\python -c \"from sentence_transformers.sentence_transformer.model import SentenceTransformer; print('ok')\""
+            % len(_st_mods)
+        )
+    print(
+        f"[spec] sentence_transformers 收集 {len(_st_mods)} 个子模块"
+        "（含 sentence_transformers.sentence_transformer.model）"
+    )
+    hiddenimports += _st_mods
 hiddenimports += safe_collect_submodules('duckdb')  # chromadb 1.x 通常不再需要，缺失则跳过
 
 # (b) uvicorn 动态子模块
