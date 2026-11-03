@@ -23,6 +23,7 @@ from xianyu_hunter.web.middleware.exception_handler import register_exception_ha
 from xianyu_hunter.web.middleware.request_id import setup_request_id_middleware
 from xianyu_hunter.web.middleware.security import setup_security_middleware
 from xianyu_hunter.web.startup import setup_startup_hooks
+from xianyu_hunter.web.slow_lane import apply_slow_lanes
 from xianyu_hunter.web.routes import (
     api_about,  # 关于菜单：版本信息 + 检查更新
     api_accounts,  # 多账号管理：列表/切换/退出/会话事件（/api/auth/accounts）
@@ -616,6 +617,10 @@ def create_app() -> FastAPI:
         _router = getattr(_mod, _attr)
         app.include_router(_router)                    # /api/*
         app.include_router(_router, prefix="/xianyu")  # /xianyu/api/*
+
+    # D1：把实测最重的同步接口从共享线程池（40 令牌）挪到专用道，
+    # 免得 1 s 级的导出/扫描把 8 ms 级的读配置请求一起拖死
+    apply_slow_lanes(app)
 
     @app.get("/healthz", tags=["meta"])
     def healthz() -> JSONResponse:

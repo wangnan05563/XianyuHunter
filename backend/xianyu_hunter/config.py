@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # 本地个人工具场景下，token 防止同网络其他设备随意访问
     web_token: str = ""
 
+    # 慢接口线程池专用道的容量（见 web/slow_lane.py）；<=0 关闭隔离，全部回到共享的 40 令牌池。
+    # 4 不是随手写的：按压测实测「吞吐 × 单次占用」算出的慢族在途需求最坏为 2.14（96 并发档），
+    # 4 个槽位的吞吐上限 9.16 rps 高于实测需求 4.9 rps —— 既够用，也不会把慢族自己堵死。
+    slow_lane_tokens: int = 4
+
     # 闲鱼站点基础 URL：支持通过环境变量切换镜像/测试环境，
     # 避免在多个模块中硬编码导致切换困难
     xianyu_base_url: str = "https://www.goofish.com"

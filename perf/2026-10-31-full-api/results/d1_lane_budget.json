@@ -1,0 +1,318 @@
+{
+  "baseline_heavy": {
+    "priced_from": "baseline_heavy",
+    "slow_endpoints": 7,
+    "slow_offered_rps": 7.0,
+    "slow_mean_hold_ms": 48.5,
+    "slow_inflight_needed": 0.34,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 82.55,
+    "lane_saturates": false,
+    "worst_hold_ms": 107.5,
+    "per_endpoint": {
+      "GET /api/config/export": {
+        "rps": 1.0,
+        "hold_ms": 107.5,
+        "inflight": 0.11
+      },
+      "GET /api/logs": {
+        "rps": 1.0,
+        "hold_ms": 91.3,
+        "inflight": 0.09
+      },
+      "GET /api/logs/stream": {
+        "rps": 1.0,
+        "hold_ms": 36.6,
+        "inflight": 0.04
+      },
+      "GET /api/db-admin/tables/items/export": {
+        "rps": 1.0,
+        "hold_ms": 35.0,
+        "inflight": 0.04
+      },
+      "GET /api/db-admin/tables/items/rows": {
+        "rps": 1.0,
+        "hold_ms": 34.2,
+        "inflight": 0.03
+      },
+      "GET /api/db-admin/tables/items/schema": {
+        "rps": 1.0,
+        "hold_ms": 19.7,
+        "inflight": 0.02
+      },
+      "GET /api/export/items": {
+        "rps": 1.0,
+        "hold_ms": 14.9,
+        "inflight": 0.01
+      }
+    }
+  },
+  "baseline_light": {
+    "priced_from": "baseline_light",
+    "slow_endpoints": 5,
+    "slow_offered_rps": 1.5,
+    "slow_mean_hold_ms": 331.9,
+    "slow_inflight_needed": 0.5,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 12.05,
+    "lane_saturates": false,
+    "worst_hold_ms": 1094.7,
+    "per_endpoint": {
+      "GET /api/anticrawl/strategy": {
+        "rps": 0.3,
+        "hold_ms": 1094.7,
+        "inflight": 0.33
+      },
+      "GET /api/vector-admin/snapshots": {
+        "rps": 0.3,
+        "hold_ms": 233.8,
+        "inflight": 0.07
+      },
+      "GET /api/config/raw": {
+        "rps": 0.3,
+        "hold_ms": 132.4,
+        "inflight": 0.04
+      },
+      "GET /api/config/share": {
+        "rps": 0.3,
+        "hold_ms": 104.7,
+        "inflight": 0.03
+      },
+      "GET /api/maintenance/cache-scan": {
+        "rps": 0.3,
+        "hold_ms": 94.1,
+        "inflight": 0.03
+      }
+    }
+  },
+  "baseline_write": {
+    "priced_from": "baseline_write",
+    "slow_endpoints": 0,
+    "slow_offered_rps": 0,
+    "slow_mean_hold_ms": 0.0,
+    "slow_inflight_needed": 0,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": Infinity,
+    "lane_saturates": false,
+    "worst_hold_ms": 0.0,
+    "per_endpoint": {}
+  },
+  "stress_light_t16": {
+    "priced_from": "baseline_light",
+    "slow_endpoints": 5,
+    "slow_offered_rps": 4.5,
+    "slow_mean_hold_ms": 329.9,
+    "slow_inflight_needed": 1.48,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 12.12,
+    "lane_saturates": false,
+    "worst_hold_ms": 1094.7,
+    "per_endpoint": {
+      "GET /api/anticrawl/strategy": {
+        "rps": 0.9,
+        "hold_ms": 1094.7,
+        "inflight": 0.99
+      },
+      "GET /api/vector-admin/snapshots": {
+        "rps": 0.8,
+        "hold_ms": 233.8,
+        "inflight": 0.19
+      },
+      "GET /api/config/raw": {
+        "rps": 1.0,
+        "hold_ms": 132.4,
+        "inflight": 0.13
+      },
+      "GET /api/config/share": {
+        "rps": 1.0,
+        "hold_ms": 104.7,
+        "inflight": 0.1
+      },
+      "GET /api/maintenance/cache-scan": {
+        "rps": 0.8,
+        "hold_ms": 94.1,
+        "inflight": 0.08
+      }
+    }
+  },
+  "stress_light_t48": {
+    "priced_from": "baseline_light",
+    "slow_endpoints": 5,
+    "slow_offered_rps": 3.6,
+    "slow_mean_hold_ms": 342.8,
+    "slow_inflight_needed": 1.23,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 11.67,
+    "lane_saturates": false,
+    "worst_hold_ms": 1094.7,
+    "per_endpoint": {
+      "GET /api/anticrawl/strategy": {
+        "rps": 0.8,
+        "hold_ms": 1094.7,
+        "inflight": 0.88
+      },
+      "GET /api/config/raw": {
+        "rps": 0.8,
+        "hold_ms": 132.4,
+        "inflight": 0.11
+      },
+      "GET /api/vector-admin/snapshots": {
+        "rps": 0.4,
+        "hold_ms": 233.8,
+        "inflight": 0.09
+      },
+      "GET /api/config/share": {
+        "rps": 0.8,
+        "hold_ms": 104.7,
+        "inflight": 0.08
+      },
+      "GET /api/maintenance/cache-scan": {
+        "rps": 0.8,
+        "hold_ms": 94.1,
+        "inflight": 0.08
+      }
+    }
+  },
+  "stress_light_t96": {
+    "priced_from": "baseline_light",
+    "slow_endpoints": 5,
+    "slow_offered_rps": 4.9,
+    "slow_mean_hold_ms": 436.8,
+    "slow_inflight_needed": 2.14,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 9.16,
+    "lane_saturates": false,
+    "worst_hold_ms": 1094.7,
+    "per_endpoint": {
+      "GET /api/anticrawl/strategy": {
+        "rps": 1.6,
+        "hold_ms": 1094.7,
+        "inflight": 1.75
+      },
+      "GET /api/config/raw": {
+        "rps": 1.6,
+        "hold_ms": 132.4,
+        "inflight": 0.21
+      },
+      "GET /api/config/share": {
+        "rps": 1.6,
+        "hold_ms": 104.7,
+        "inflight": 0.17
+      },
+      "GET /api/maintenance/cache-scan": {
+        "rps": 0.1,
+        "hold_ms": 94.1,
+        "inflight": 0.01
+      },
+      "GET /api/vector-admin/snapshots": {
+        "rps": 0.0,
+        "hold_ms": 233.8,
+        "inflight": 0.0
+      }
+    }
+  },
+  "stress_write_t4": {
+    "priced_from": "baseline_write",
+    "slow_endpoints": 0,
+    "slow_offered_rps": 0,
+    "slow_mean_hold_ms": 0.0,
+    "slow_inflight_needed": 0,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": Infinity,
+    "lane_saturates": false,
+    "worst_hold_ms": 0.0,
+    "per_endpoint": {}
+  },
+  "stress_write_t8": {
+    "priced_from": "baseline_write",
+    "slow_endpoints": 0,
+    "slow_offered_rps": 0,
+    "slow_mean_hold_ms": 0.0,
+    "slow_inflight_needed": 0,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": Infinity,
+    "lane_saturates": false,
+    "worst_hold_ms": 0.0,
+    "per_endpoint": {}
+  },
+  "stress_write_t16": {
+    "priced_from": "baseline_write",
+    "slow_endpoints": 0,
+    "slow_offered_rps": 0,
+    "slow_mean_hold_ms": 0.0,
+    "slow_inflight_needed": 0,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": Infinity,
+    "lane_saturates": false,
+    "worst_hold_ms": 0.0,
+    "per_endpoint": {}
+  },
+  "soak_mixed": {
+    "priced_from": "baseline_light",
+    "slow_endpoints": 11,
+    "slow_offered_rps": 4.4,
+    "slow_mean_hold_ms": 319.8,
+    "slow_inflight_needed": 1.41,
+    "lane_cap": 4,
+    "lane_throughput_ceiling_rps": 12.51,
+    "lane_saturates": false,
+    "worst_hold_ms": 1094.7,
+    "per_endpoint": {
+      "GET /api/anticrawl/strategy": {
+        "rps": 0.4,
+        "hold_ms": 1094.7,
+        "inflight": 0.44
+      },
+      "GET /api/db-admin/tables/items/export": {
+        "rps": 0.4,
+        "hold_ms": 558.2,
+        "inflight": 0.22
+      },
+      "GET /api/logs": {
+        "rps": 0.4,
+        "hold_ms": 442.3,
+        "inflight": 0.18
+      },
+      "GET /api/config/export": {
+        "rps": 0.4,
+        "hold_ms": 288.4,
+        "inflight": 0.12
+      },
+      "GET /api/db-admin/tables/items/rows": {
+        "rps": 0.4,
+        "hold_ms": 234.6,
+        "inflight": 0.09
+      },
+      "GET /api/vector-admin/snapshots": {
+        "rps": 0.4,
+        "hold_ms": 233.8,
+        "inflight": 0.09
+      },
+      "GET /api/db-admin/tables/items/schema": {
+        "rps": 0.4,
+        "hold_ms": 185.1,
+        "inflight": 0.07
+      },
+      "GET /api/export/items": {
+        "rps": 0.4,
+        "hold_ms": 150.0,
+        "inflight": 0.06
+      },
+      "GET /api/config/raw": {
+        "rps": 0.4,
+        "hold_ms": 132.4,
+        "inflight": 0.05
+      },
+      "GET /api/config/share": {
+        "rps": 0.4,
+        "hold_ms": 104.7,
+        "inflight": 0.04
+      },
+      "GET /api/maintenance/cache-scan": {
+        "rps": 0.4,
+        "hold_ms": 94.1,
+        "inflight": 0.04
+      }
+    }
+  }
+}

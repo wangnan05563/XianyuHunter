@@ -1,0 +1,78 @@
+[
+  {
+    "arm_id": "A0",
+    "arm": "A0 空载地板",
+    "hog": null,
+    "hog_n": 0,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "none",
+    "cheap_completed": 548,
+    "cheap_avg_ms": 58.75,
+    "cheap_p50_ms": 27.08,
+    "cheap_p95_ms": 186.81,
+    "queue_p50_ms": 0.98,
+    "queue_p95_ms": 5.71,
+    "work_p50_ms": 3.74,
+    "hog_completions": 0,
+    "cheap_errors": 0,
+    "peak_borrowed": 8,
+    "peak_lane_borrowed": 0,
+    "round": 1
+  },
+  {
+    "arm_id": "C0",
+    "arm": "C0 大响应体hog×40 走共享池",
+    "hog": "/hog_big",
+    "hog_n": 40,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "io",
+    "error": "server not ready；服务端输出尾部: ''",
+    "round": 1
+  },
+  {
+    "arm_id": "C1",
+    "arm": "C1 大响应体hog×40 走专用道 cap=4",
+    "hog": "/hog_lane_big",
+    "hog_n": 40,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "io",
+    "error": "server not ready；服务端输出尾部: ''",
+    "round": 1
+  },
+  {
+    "arm_id": "C1",
+    "arm": "C1 大响应体hog×40 走专用道 cap=4",
+    "hog": "/hog_lane_big",
+    "hog_n": 40,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "io",
+    "error": "server not ready；服务端输出尾部: ''",
+    "round": 2
+  },
+  {
+    "arm_id": "C0",
+    "arm": "C0 大响应体hog×40 走共享池",
+    "hog": "/hog_big",
+    "hog_n": 40,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "io",
+    "error": "server not ready；服务端输出尾部: ''",
+    "round": 2
+  },
+  {
+    "arm_id": "A0",
+    "arm": "A0 空载地板",
+    "hog": null,
+    "hog_n": 0,
+    "tokens": 40,
+    "lane": 4,
+    "kind": "none",
+    "error": "server not ready；服务端输出尾部: ''",
+    "round": 2
+  }
+]

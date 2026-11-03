@@ -1,0 +1,71 @@
+{
+  "anchors": {
+    "锚点·纯 Python 忙等": {
+      "label": "锚点·纯 Python 忙等",
+      "per_call_ms": 50.175,
+      "cpu_over_wall": 0.685,
+      "ticker_ratio": 0.492
+    },
+    "锚点·time.sleep 等待": {
+      "label": "锚点·time.sleep 等待",
+      "per_call_ms": 65.916,
+      "cpu_over_wall": 0.0,
+      "ticker_ratio": 1.105
+    }
+  },
+  "targets": [
+    {
+      "label": "锚点·纯 Python 忙等",
+      "per_call_ms": 50.175,
+      "cpu_over_wall": 0.685,
+      "ticker_ratio": 0.492
+    },
+    {
+      "label": "锚点·time.sleep 等待",
+      "per_call_ms": 65.916,
+      "cpu_over_wall": 0.0,
+      "ticker_ratio": 1.105
+    },
+    {
+      "label": "rglob 全树枚举（vector-admin 同形）",
+      "per_call_ms": 57.753,
+      "cpu_over_wall": 0.524,
+      "ticker_ratio": 1.228
+    },
+    {
+      "label": "_dir_size 同形遍历（含逐文件 stat）",
+      "per_call_ms": 244.383,
+      "cpu_over_wall": 0.46,
+      "ticker_ratio": 1.09
+    },
+    {
+      "label": "SQLite LIKE 全扫 events(18389 行, task_id)",
+      "per_call_ms": 10.214,
+      "cpu_over_wall": 0.562,
+      "ticker_ratio": 1.188
+    },
+    {
+      "label": "SQLite 顺序取 5000 行（events）",
+      "per_call_ms": 51.714,
+      "cpu_over_wall": 0.816,
+      "ticker_ratio": 1.074
+    },
+    {
+      "label": "CSV 序列化 5000 行",
+      "per_call_ms": 181.252,
+      "cpu_over_wall": 0.603,
+      "ticker_ratio": 1.463
+    },
+    {
+      "label": "JSON 序列化 5000 行（响应体同形功）",
+      "per_call_ms": 143.629,
+      "cpu_over_wall": 0.687,
+      "ticker_ratio": 1.105
+    }
+  ],
+  "thresholds": {
+    "cpu_rel": 0.8,
+    "io_rel": 0.35,
+    "anchor_full_scale": 0.596
+  }
+}
