@@ -1,0 +1,32 @@
+{
+  "label": "after",
+  "round": 1,
+  "iters": 7,
+  "identity": {
+    "sandbox_default": {
+      "cold_ms": 77.1,
+      "median_ms": 1.2,
+      "min_ms": 1.1,
+      "max_ms": 2.4,
+      "sql_warm": [
+        1
+      ],
+      "total": 0
+    },
+    "owner": {
+      "cold_ms": 311.2,
+      "median_ms": 238.1,
+      "min_ms": 228.7,
+      "max_ms": 316.7,
+      "sql_warm": [
+        5
+      ],
+      "total": 377
+    }
+  },
+  "read_stage": {
+    "rows": 377,
+    "ms": 35.9,
+    "method": "list_events_by_type(等值)"
+  }
+}

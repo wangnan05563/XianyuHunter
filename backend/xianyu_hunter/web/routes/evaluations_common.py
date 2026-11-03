@@ -26,6 +26,24 @@ _EVAL_TYPE_PREFIX = "eval."
 _EVAL_SCORED_TYPE = "eval.scored"
 
 
+def load_eval_scored_events(repo: Any, user_id: str | None, limit: int = 50000) -> list[dict]:
+    """评估族只读 GET 的统一取数入口：按 type **等值**取 eval.scored（A2）
+
+    为什么不用 `list_events_by_type_prefix("eval.")`：
+    1. 列表 / distribution / feedback 紧接着就丢弃所有非 eval.scored 行（NotifierHub
+       推钉钉时写入的 `eval.passed`，payload=None），前缀等于白读：真实库 1867 行里
+       只有 377 行留用（多读 5.0×），而每行的 payload 还要在 `_row_to_dict` 里做一次
+       json.loads；
+    2. `LIKE 'eval.%' ORDER BY created_at DESC LIMIT n` 让 SQLite 走
+       `ix_events_created_type` **全表扫**，等值才命中 `ix_events_type_created`；
+    3. 该方法附发的 COUNT 在本族所有只读调用点都被丢弃（列表的 total 是 enrich +
+       过滤之后在 Python 端算的），那条 `count(*)` 是一次纯浪费的覆盖索引扫。
+    两个 POST 路径不在本入口范围内：`evaluations_batch._collect_evaluated_ids` 与
+    recompute 按「eval.* 宽口径」界定已评估范围，语义不同，保持原调用。
+    """
+    return repo.list_events_by_type(_EVAL_SCORED_TYPE, limit=limit, user_id=user_id)
+
+
 # ============== 价格策略缓存闭包 ==============
 def make_price_strategy_getter(container: Container, log_prefix: str = "eval"):
     """创建任务级 PriceStrategy 缓存查询闭包

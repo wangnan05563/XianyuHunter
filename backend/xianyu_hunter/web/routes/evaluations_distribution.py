@@ -18,7 +18,7 @@ from xianyu_hunter.infra.yaml_config import get_config
 from xianyu_hunter.web.deps import get_container
 from xianyu_hunter.web.routes.evaluations_common import (
     _EVAL_SCORED_TYPE,
-    _EVAL_TYPE_PREFIX,
+    load_eval_scored_events,
 )
 from xianyu_hunter.web.routes.evaluations_list import _match_task_id_filter, _filter_price_range, _parse_eval_score
 from xianyu_hunter.web.utils import to_datetime
@@ -510,14 +510,14 @@ def evaluations_distribution(
     now = _utcnow()
     cutoff = now - timedelta(hours=range_hours)
 
-    # 从 events 拉 eval.*，并 join items 拿价格（item_id 在 payload.item_id）
+    # 从 events 拉 eval.scored，并 join items 拿价格（item_id 在 payload.item_id）
     # 修复：之前用 list_events(limit=5000) + list_items(limit=5000) 全量加载，
-    # 改为按 type 前缀过滤 events，按涉及 item_id 批量查询 items
+    # 改为 SQL 端按 type 等值过滤 events，按涉及 item_id 批量查询 items
+    # 为什么等值而非 `eval.` 前缀：紧接着的 `_collect_dist_eval_records` 会丢弃所有
+    # 非 eval.scored 行，前缀多读的那部分从不参与统计（A2，见 `load_eval_scored_events`）
     # 多用户隔离：仅统计当前账号的评估事件
     user_id = getattr(request.state, "user_id", None)
-    events, _ = container.repo.list_events_by_type_prefix(
-        type_prefix=_EVAL_TYPE_PREFIX, user_id=user_id,
-    )
+    events = load_eval_scored_events(container.repo, user_id)
     from xianyu_hunter.web.routes.evaluations_list import _apply_task_price_fallback
     min_price, max_price = _apply_task_price_fallback(
         container, task_id, min_price, max_price, include_out_of_range

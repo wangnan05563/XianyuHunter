@@ -1,0 +1,31 @@
+{
+  "label": "before",
+  "round": 1,
+  "iters": 7,
+  "identity": {
+    "sandbox_default": {
+      "cold_ms": 1085.1,
+      "median_ms": 4.0,
+      "min_ms": 3.6,
+      "max_ms": 4.6,
+      "sql_warm": [
+        2
+      ],
+      "total": 0
+    },
+    "owner": {
+      "cold_ms": 740.4,
+      "median_ms": 574.7,
+      "min_ms": 518.0,
+      "max_ms": 649.5,
+      "sql_warm": [
+        6
+      ],
+      "total": 377
+    }
+  },
+  "read_stage": {
+    "rows": 1867,
+    "ms": 218.7
+  }
+}

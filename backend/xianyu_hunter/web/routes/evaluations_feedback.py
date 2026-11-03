@@ -13,7 +13,10 @@ from loguru import logger
 from xianyu_hunter.container import Container
 from xianyu_hunter.infra.db_models import _utcnow
 from xianyu_hunter.web.deps import get_container
-from xianyu_hunter.web.routes.evaluations_common import _EVAL_SCORED_TYPE, _EVAL_TYPE_PREFIX
+from xianyu_hunter.web.routes.evaluations_common import (
+    _EVAL_SCORED_TYPE,
+    load_eval_scored_events,
+)
 
 router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
 
@@ -59,7 +62,7 @@ def feedback_stats(
     """
     # 多用户隔离：仅统计当前账号的评估反馈
     user_id = getattr(request.state, "user_id", None)
-    rows, _ = container.repo.list_events_by_type_prefix(_EVAL_SCORED_TYPE, limit=50000, user_id=user_id)
+    rows = load_eval_scored_events(container.repo, user_id)
     stats = _accumulate_feedback_stats(rows)
 
     total_feedback = stats["accurate"] + stats["inaccurate"] + stats["partial"]

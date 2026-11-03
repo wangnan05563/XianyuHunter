@@ -1,0 +1,76 @@
+{
+  "events_total": 25856,
+  "eval_prefix_rows": 9335,
+  "eval_scored_rows": 1885,
+  "multiplier": 5,
+  "legs": {
+    "prefix(改动前)": [
+      {
+        "rows": 9335,
+        "read_ms": 699.8,
+        "read_sql": 2,
+        "endpoint_median_ms": 1208.9,
+        "endpoint_ms": [
+          1323.0,
+          1289.8,
+          1208.9,
+          1139.8
+        ],
+        "sql_warm": [
+          8
+        ],
+        "total": 1885
+      },
+      {
+        "rows": 9335,
+        "read_ms": 820.9,
+        "read_sql": 2,
+        "endpoint_median_ms": 1705.4,
+        "endpoint_ms": [
+          1441.8,
+          1970.5,
+          1705.4,
+          1447.2
+        ],
+        "sql_warm": [
+          8
+        ],
+        "total": 1885
+      }
+    ],
+    "exact(改动后)": [
+      {
+        "rows": 1885,
+        "read_ms": 143.0,
+        "read_sql": 1,
+        "endpoint_median_ms": 609.1,
+        "endpoint_ms": [
+          764.7,
+          612.7,
+          609.1,
+          594.1
+        ],
+        "sql_warm": [
+          5
+        ],
+        "total": 1885
+      },
+      {
+        "rows": 1885,
+        "read_ms": 175.6,
+        "read_sql": 1,
+        "endpoint_median_ms": 1027.2,
+        "endpoint_ms": [
+          692.1,
+          1033.2,
+          1027.2,
+          999.0
+        ],
+        "sql_warm": [
+          5
+        ],
+        "total": 1885
+      }
+    ]
+  }
+}

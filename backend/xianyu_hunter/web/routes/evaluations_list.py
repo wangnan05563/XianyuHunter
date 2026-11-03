@@ -22,8 +22,8 @@ from xianyu_hunter.web.deps import get_container
 from xianyu_hunter.web.routes.evaluations_common import (
     _BROKEN_LABEL,
     _EVAL_SCORED_TYPE,
-    _EVAL_TYPE_PREFIX,
     _USED_TRACE_LABEL,
+    load_eval_scored_events,
 )
 from xianyu_hunter.web.routes.evaluations_data_cleaner import clean_dirty_seller_nick
 # 复用 price_dashboard 的 _compute_sold_range 避免口径漂移
@@ -724,14 +724,13 @@ def list_evaluations(
     start_dt, end_dt = _parse_eval_time_range(start_time, end_time)
 
     # 修复：之前用 list_events(limit=limit*4) 在 Python 端过滤 eval.*，
-    # 当非 eval 事件多时会遗漏数据且 total 不准。改为 SQL 端按 type 前缀过滤。
-    # 不传 limit/offset，全量加载 eval.* 事件（评估事件已按 task_id+item_id 去重，量级可控），
-    # 后续在 Python 端做 item_id/task_id 模糊匹配、score/time 范围过滤，再分页。
+    # 当非 eval 事件多时会遗漏数据且 total 不准。改为 SQL 端按 type 过滤。
+    # 不传 limit/offset，全量加载 eval.scored 事件（评估事件已按 task_id+item_id 去重，
+    # 量级可控），后续在 Python 端做 item_id/task_id 模糊匹配、score/time 范围过滤，再分页。
+    # 为什么取「等值 eval.scored」而不是「前缀 eval.」：见 `load_eval_scored_events`（A2）
     # 多用户隔离：仅查询当前账号的评估事件
     user_id = getattr(request.state, "user_id", None)
-    rows, _ = container.repo.list_events_by_type_prefix(
-        type_prefix=_EVAL_TYPE_PREFIX, user_id=user_id,
-    )
+    rows = load_eval_scored_events(container.repo, user_id)
 
     min_price, max_price = _apply_task_price_fallback(
         container, task_id, min_price, max_price, include_out_of_range
@@ -859,9 +858,7 @@ def list_evaluation_brands(
     收缩，换品牌必须先清空（评审 2.4-8，商品页同类缺陷已在 T02566 修复）。
     """
     user_id = getattr(request.state, "user_id", None)
-    rows, _ = container.repo.list_events_by_type_prefix(
-        type_prefix=_EVAL_TYPE_PREFIX, user_id=user_id,
-    )
+    rows = load_eval_scored_events(container.repo, user_id)
     item_ids: set[str] = set()
     payload_brands: dict[str, str] = {}
     for r in rows:

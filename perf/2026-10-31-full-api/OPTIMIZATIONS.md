@@ -13,7 +13,7 @@
 | C2 | `/api/auth/me` 去重复文件解析 | **高** ✅ **已落地（①⑤′；②③④判定不落；根因归属被实测推翻）** | ~~avg 152.6 → ≤50 ms~~ **作废**：处理器本身 ~4~7 ms（进程内）/ p50 ~10 ms（安静服务端）。实际落地效果 = **每请求 SQL 2.0 → 1.0 条**，省掉的是 0.5~9 ms 的 StaticPool 单连接占用（随订单规模）；HTTP avg 在本机噪声下**方向不可判定**，并发墙归 D1 | 低 |
 | C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 ✅ **已落地（①③；②不落地，且「≤30 ms」经实测作废 → 约 190~250 ms）** |
 | D1 | 慢同步接口独立线程池 | **高** | 48/96 并发轻组 P95 2 064/3 893 → ≤1 000 ms；缺陷率 2.03/3.17% → <0.5% | 中 |
-| A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
+| A2 | `eval.*` 事件查询下推 | **高** ✅ **已落地（2026-11-04；方向与原文相反：前缀→等值；「缓存命中态」与「≤60 ms」被实测推翻）** | ~~`/api/evaluations` avg 195.9 → ≤60 ms~~ **作废**：压测身份（`user_id="default"`）读到 0 行，195.9 ms 里不含这笔成本（归 D1）。真实收益在**数据主人身份**：端点中位 **574.7 / 586.5 → 238.1 / 228.6 ms**，取数段 **218.7 / 256.2 → 35.9 / 65.3 ms**，每请求 SQL 6 → 5 条；5× 副本下取数段再省 ≈4.8×（抗增长） | 中 → 实际低（未做 SQL 分页/聚合下推） |
 | C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `\U0001F4F7` 转义，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
 | B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
 | A4 | `maintenance/status` 计数降本 | **高** ✅ **已落地（2026-11-03）** | 完整重算 **2 235 / 5 205 ms → 188 / 170 ms**（「≤200 ms」在重算路径成立），消除 60 s 超时（曾致 P95 60 033 ms / 37.5%）。**归因修正**：6 张表 `COUNT(*)` 每张仅 ~0.1 ms，真正成本是漏排除的 `.venv-build/` pycache（1 578 个目录 / 131.7 MB）；原文 ①②（近似行数/后台计数）因此不成立 | 低 |
@@ -47,11 +47,33 @@
 **量化预期收益**：本副本 items 仅 774 行时全表扫已是百毫秒级；补索引后区间过滤类接口 P95 预计由 1 330 → **≤500 ms**（12 并发），且随数据量增长由线性恶化转为对数级。**当前数据量下延迟收益有限，属「防恶化」型投资**，故列为中优先级而非高。
 **验证方式**：`EXPLAIN QUERY PLAN` 前后对比 + 同一 JMX（`reads_light`）复跑，看 `category-comparison` 与 `stats/price-trend` 的 P95。
 
-### A2. `eval.*` 事件全量重载下推到 SQL — 优先级 **高**
-**具体优化内容**：`GET /api/evaluations` 目前经 `web/routes/evaluations_list.py:732` 调 `container.repo.list_events_by_type_prefix(...)`，其默认 `limit=50000`（`infra/repo_events.py:337`，注释自陈「评估事件量级的上限」），把事件整段读进 Python 再过滤 / 分页 / 求中位数；另在同函数额外发一次 COUNT（`repo_events.py:333-365`）。改为：SQL 侧 `WHERE type LIKE 'eval.%' AND …` + `LIMIT/OFFSET`（或 keyset 分页）+ `COUNT(*) OVER ()` 单趟取总数，聚合（中位数/分位）改为 SQL 侧或物化到快照表。
+### A2. `eval.*` 事件全量重载下推到 SQL — 优先级 **高** ✅ **已于 2026-11-04 落地（取数口径收窄；原文建议的 `LIKE 'eval.%'` 恰是实测更慢的形态，「缓存命中态」与「≤60 ms」两处被推翻）**
+**原建议（② 的 SQL 形态与「缓存命中态」两处被实测修正，见下方落地状态）**：`GET /api/evaluations` 目前经 `web/routes/evaluations_list.py:732` 调 `container.repo.list_events_by_type_prefix(...)`，其默认 `limit=50000`（`infra/repo_events.py:337`，注释自陈「评估事件量级的上限」），把事件整段读进 Python 再过滤 / 分页 / 求中位数；另在同函数额外发一次 COUNT（`repo_events.py:333-365`）。改为：SQL 侧 `WHERE type LIKE 'eval.%' AND …` + `LIMIT/OFFSET`（或 keyset 分页）+ `COUNT(*) OVER ()` 单趟取总数，聚合（中位数/分位）改为 SQL 侧或物化到快照表。
 **证据**：基线 1 并发 19.8 ms（缓存命中态）→ 12 并发长跑 **195.9 ms / P95 456.9 / P99 858.0**；同族 `evaluations/distribution` 190.4、`evaluations/threshold-suggestion` 180.2、`evaluations/brands` 173.1 —— 说明整族都被同一重载支配。
 **量化预期收益**：长跑该族 avg **195.9 → ≤60 ms**（-70%），P99 **858 → ≤250 ms**；由于评估列表是控制台首页的核心调用，混合场景整体 avg 200.5 可下移约 5~8%。
 **验证方式**：同一 JMX 复跑 + `sqlite3 .stats` 或 `EXPLAIN QUERY PLAN`；比对事件表行数翻倍后的 P95（抗增长才是真收益）。
+
+**落地状态（2026-11-04）**：✅ 已落地，但落地的杠杆与原文 ① 相反 —— **不是「改成 `LIKE 'eval.%'`」，而是「从前缀改成等值」**；且**压测里那 195.9 ms 根本不包含本条描述的成本**。四份判据脚本都在**生产库的一致性快照副本**上跑（sqlite3 `backup` API 拷到 `D:/tmp/xh-a2-probe/`、`chdir` 过去，配置四份一并复制；生产文件从不被打开，5× 那轮往副本里插数据）：`a2_evals_probe.py`（逐阶段计时 + `EXPLAIN QUERY PLAN`）、`a2_enrich_probe.py`（两种身份 + cProfile）、`a2_ab.py`（前后各两轮、每轮 7 次取中位）、`a2_growth.py`（5× 合成副本、前后腿交替）。
+
+- **「缓存命中态」不成立**：`list_evaluations` / `list_evaluation_brands` / `evaluations_distribution` / `feedback_stats` 四个只读端点**都没有 `@cached_ttl`** —— 没有缓存可命中，基线里的 19.8 ms 只是单发耗时。
+- **压测身份一行评估数据都没读**：压测走 WEB_TOKEN 直通，中间件把 `request.state.user_id` 置为 `"default"`（`web/middleware/auth.py:123`），而真实库里 1 867 条 `eval.*` 事件全部归属同一个数据主人账号（`events.user_id`，形如手机号，明文不落本文档）。同一条请求换身份：沙箱态 median **4.8 ms / total=0**，主人态 median **306.1 ms / total=377**。于是 12 并发长跑的 **195.9 ms 里不含「多读 5× 行」**，那段是并发排队（归 **D1**）；本条的收益只落在**账号里有评估数据的真实用户**路径上，压测口径测不到。这是「同一份压测数据、不同身份」这类误判的又一例（同 C2）。
+- **等值才走索引**：`type LIKE 'eval.%' ORDER BY created_at DESC LIMIT n` 的 `EXPLAIN QUERY PLAN` 是 `SCAN events USING COVERING INDEX ix_events_created_type`（按 created_at 从新到旧扫全表、逐行判 LIKE），等值 `type = 'eval.scored'` 是 `SEARCH events USING INDEX ix_events_type_created (type=?)`。真实库 18 388 条 events 里 `eval.%` 命中 1 867 条，其中 **1 490 条是 `eval.passed`**（NotifierHub 推钉钉时写入，`payload=None`、`stage=notify`），四个只读端点紧接着就在 Python 端按 `type != "eval.scored"` 丢弃 —— 白读 5.0× 行，且每行都要在 `_row_to_dict` 里做一次 `json.loads`；另附发的 `count(*)` 在这 4 个调用点全部以 `rows, _ =` 丢弃。
+- **落地效果（主人态、进程内直调，两轮同向）**：端点中位 **574.7 / 586.5 → 238.1 / 228.6 ms（-59% / -61%）**；取数段 **218.7 / 256.2 ms @1 867 行 → 35.9 / 65.3 ms @377 行**；每请求 SQL **6 → 5 条**；冷启动 740.4 / 449.7 → 311.2 / 311.8 ms。
+- **「avg → ≤60 ms」这条目标不成立**：取数收窄后，cProfile 显示剩余大头在 enrich 而不是 SQL —— 3 次主人态调用共 2.356 s 里 `_enrich_eval_record` 累计 **1.267 s（54%）**、原 `list_events_by_type_prefix` 只占 0.521 s（22%），热点是 `normalize_display_brand → _compact_text`（**73 251 次 `re.sub` / 累计 0.704 s**，外加 `re._compile` 73 746 次的缓存查找）。要下探 60 ms 得动品牌归一化（预编译 pattern + 按 title 结果 memo），那是新的一条（记为 **A2′**，见下方残余），不在 A2 范围。
+- **抗增长才是本条真正买到的东西**（5× 合成副本：events 25 856 / `eval.%` 9 335 / `eval.scored` 1 885，前后腿交替）：取数段 **699.8 / 820.9 → 143.0 / 175.6 ms（≈4.8×↓）**，端点中位 **1 208.9 / 1 705.4 → 609.1 / 1 027.2 ms**，每请求 SQL **8 → 5 条**。原文「当前数据量下不致命、随采集累积线性恶化」的判断在增长口径下成立，且斜率差由索引形态决定，不是行数比例。
+
+落地的三项：① `infra/repo_events.list_events_by_type()` —— 等值过滤、`user_id is not None` 才加隔离条件（与 `list_events` 的「`None` = 不过滤」口径一致）、**返回 `list` 而不是 `(rows, total)`**、不附发 COUNT；② `evaluations_common.load_eval_scored_events()` 作为评估族只读 GET 的统一取数入口（把「为什么等值」写在一处）；③ 4 个只读端点接线：`list_evaluations`、`list_evaluation_brands`、`evaluations_distribution`、`feedback_stats`（后者原先就把 `_EVAL_SCORED_TYPE` 当**前缀**传进 `list_events_by_type_prefix`，即 `LIKE 'eval.scored%'`，顺带也修掉「`eval.scored_extra` 会被读进来」这个潜在口径漏洞）。
+
+**刻意不落**：① 原文的 SQL 侧 `LIMIT/OFFSET` 分页与 `COUNT(*) OVER ()` —— 列表的过滤条件依赖 join items 之后的价格/标题字段，`total` 也是 enrich + 过滤之后才成立的，把分页下推会改变语义；② 中位数/分位下推 SQL 或物化快照 —— 收窄后取数只剩 377 行的读，聚合是否仍然贵需要复测才定，不为未测的成本引入 SQL 侧口径漂移；③ 两个 POST 路径（`evaluations_batch._collect_evaluated_ids`、`evaluations_recompute`）**保留 `eval.` 宽口径** —— 它们问的是「这个 item 是否被评估流程触碰过」，改成等值会让 `eval.passed` 覆盖的条目从「已评估」范围里消失，属行为变更而非降本；`list_events_by_type_prefix` 的形状（元组 + COUNT）因此一字未动。
+
+回归：`tests/test_eval_events_query_pushdown.py`（14 例）—— 仓储层锁「等值不顺带命中 `eval.scored_extra`（并把前缀语义留作对照组）」「恰 1 条 SQL 且不含 `count(`/前缀方法仍是 2 条」「`user_id` 隔离与 `None=不过滤`」「共享入口返回 list 且入参必须是精确类型」；端点层锁「跨账号：别人的 `eval.scored` 混不进当前账号的列表」「混入 `eval.passed` 时列表结果不变」「把 `list_events_by_type_prefix` 打成炸弹后 `/api/evaluations` 仍 200（丢弃式解包改错了不会报错，只有炸弹能发现）」「brands/distribution/feedback 三端点各取数一次、类型都是 `eval.scored`、user 都是 `default`，且通知事件不被误算成 `insufficient_count`」（这条是历史缺陷回归）；AST 门禁锁「4 个只读函数必须用共享入口、不得出现前缀取数」与「2 个 POST 函数必须继续用前缀」（后者防的是将来「顺手统一」）。判据集 = 这 14 例 + 评估族 5 个既有文件（`test_evaluations_sold_filter` / `_brand_facets` / `_price_filter` / `test_enrich_eval_overwrite` / `test_auto_collect_stats_endpoint`）共 **66 例，基线全绿**；全量后端 **2 781 例通过、0 失败**（16 min 03 s）。
+
+**语义等价性另有一条数据侧判据**（生产库 `mode=ro` 复核）：`eval.passed` 覆盖的 item_id 里，**没有任何一个** item 缺 `eval.scored` 行（`NOT EXISTS` 计数 = 0），且 1 867 条 `eval.*` 全部归属那一个数据主人账号、`user_id='default'` 为 0 条 —— 所以把范围从 `eval.` 收到 `eval.scored` 不会让品牌候选集或列表少任何一个条目，改动是纯降本而不是语义收缩。
+
+**变异验证**（`a2_mutation_run.py`，9 腿串行 + 负对照，基线 66 例全绿前置）：等值退回前缀 `LIKE` → 1 例红；把 COUNT 加回来并改回元组返回 → 33 例红；等值查询丢掉 `user_id` 隔离 → 2 例红（仓储层 + 端点层各一条）；共享入口把精确类型换成前缀字面量 → 30 例红；`/api/evaluations` 回退前缀 → 2 例红；`/evaluations/brands` 回退前缀 → 2 例红；distribution 回退前缀 → 2 例红；feedback 回退前缀 → 2 例红；batch 的宽口径被「顺手统一」成等值 → 1 例红（AST 门禁）。负对照（只把等值方法的 `limit` 默认值 50 000 → 500 000）66 例全绿。6 个源文件按 sha256 逐字节还原。
+**这一轮纪律上的收获**（首轮作废重跑的原因）：L5b 的锚点少写一行缩进，拼出孤立的 `)`，pytest 以 `exit=2`（收集期 SyntaxError）「翻红」—— 脚本原先把 `exit != 0` 一律当成「这条腿有判据」，于是假绿了 9/9。现补两道闸：注入前 `ast.parse` 变异文本、判定只认 `exit == 1`（跑到用例且有失败），2/3/4 一律标为无效并打印原始输出尾部。
+
+**残余（新线索，非本条范围）**：A2′ —— `_compact_text` 每次调用都新建一个 `re.sub` 模式串并把 3 类字符串（title / candidate / alias）压平，单请求 24 000+ 次；把 pattern 提到模块级预编译、或按 `(candidate, title)` 做请求内 memo，才是把评估列表从 230 ms 推向 60 ms 的那一刀。判据：同一份 `a2_enrich_probe.py`，落地前后取 `_enrich_eval_record` 的累计占比。另：B1 落地时把「`invalidate_stats_cache()` 按维度失效」记为「留待与 A2 一并处理」—— 本条复核后确认**这两件事没有交集**：评估族 4 个只读 GET 本来就不挂 `@cached_ttl`（上面第 1 条），A2 没有新增任何缓存键，也就没有失效点要补；按维度失效仍然只是 B4/统计族那半条的开放项。
 
 ### A4. `maintenance/status` 计数降本 — 优先级 **高**
 **原建议（①② 后被实测修正，见下方落地状态）**：`web/routes/api_maintenance.py:236-250` 对 `tasks/items/task_links/events/orders/notifications` 逐张 `SELECT COUNT(*)`（`:245`），再 glob 日志目录 + `_cache_scan.snapshot()` 全树遍历。改为：① 用 `PRAGMA`/`sqlite_stat1` 近似行数或维护计数器表；② 全量精确计数移到后台调度任务，接口只读快照；③ 现有 `@cached_ttl(60, …)`（`:235`）把 TTL 提到 300 s 并启用 `stale_while_revalidate` 命中优先。
@@ -291,7 +313,7 @@
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
 | **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ ~~C4 探测降本~~ ✅（2026-11-03 落地 ①③，关闭态每请求省 905 ms；②短 TTL 因需配对失效不落；「≤30 ms」作废 → 约 190~250 ms，待复跑）+ ~~A4 计数降本~~ ✅（2026-11-03 落地：完整重算 2 235/5 205 → 188/170 ms，归因改为 `.venv-build` pycache 漏排除 + 日志 3 次 stat + TTL 60→300；①② 计数近似不成立）+ ~~E3 503 语义~~ ✅（2026-11-03 落地：依赖不可用改 200 + 单条 SSE error 事件，UI 行为不变、HTTP 5xx 归零） | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
-| **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
+| **第 2–4 周（结构性）** | C2 `/me` 去重 + ~~A2 事件下推~~（✅ 2026-11-04 已落：前缀→等值 + 去掉被丢弃的 COUNT；SQL 分页/聚合下推判定不落 —— 详见 OPTIMIZATIONS §A2）+ D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 
 > 每条落地后请用同一份 JMX 复跑对比（`jmeter-config-v2.yml` + `aggregate.py`，其阶段时长已改为取引擎日志实测墙钟），并保留 jtl/jsonl 作为前后证据。

@@ -330,6 +330,36 @@ class EventsMixin:
             stmt = stmt.limit(limit).offset(offset)
             return [self._row_to_dict(r) for r in conn.execute(stmt).all()]
 
+    def list_events_by_type(
+        self,
+        type_value: str,
+        task_id: str | None = None,
+        limit: int = 50000,
+        offset: int = 0,
+        user_id: str | None = None,
+    ) -> list[dict]:
+        """按 type **等值**读取事件，只返回行（不发 COUNT）
+
+        与 `list_events_by_type_prefix` 的三点差别，都是 A2 实测出来的（
+        `perf/2026-10-31-full-api/a2_evals_probe.py` / `a2_enrich_probe.py`）：
+        1. 等值命中 `ix_events_type_created`（`SEARCH ... (type=?)`），而
+           `type LIKE 'eval.%' ORDER BY created_at DESC LIMIT n` 会让 SQLite 改走
+           `ix_events_created_type` **全表扫**（`SCAN`），行数越多差距越大；
+        2. 前缀把 `eval.passed`（NotifierHub 写的通知事件，payload=None）一起读进来，
+           调用方随即在 Python 端丢弃：真实库 1867 行里只有 377 行留用（多读 5.0×），
+           每行的 payload 还要在 `_row_to_dict` 里做一次 json.loads；
+        3. 不附发 COUNT —— 评估族只读 GET 全部丢弃 total（列表的 total 是过滤后在
+           Python 端算的），那条 `count(*)` 是一次纯浪费的覆盖索引扫。
+        """
+        with self.engine.connect() as conn:
+            stmt = select(EventRow).where(EventRow.type == type_value)
+            if task_id:
+                stmt = stmt.where(EventRow.task_id == task_id)
+            if user_id is not None:
+                stmt = stmt.where(EventRow.user_id == user_id)
+            stmt = stmt.order_by(EventRow.created_at.desc()).limit(limit).offset(offset)
+            return [self._row_to_dict(r) for r in conn.execute(stmt).all()]
+
     def list_events_by_type_prefix(
         self,
         type_prefix: str,
