@@ -207,21 +207,35 @@ def _extract_setup_download_url(assets: list[Any]) -> str:
     """
     if not isinstance(assets, list):
         return ""
+    lite_url = ""
     for a in assets:
         if not isinstance(a, dict):
             continue
         name = str(a.get("name", "") or "")
         if re.match(r"^XianyuHunter-Setup-v.+\.exe$", name):
             url = str(a.get("browser_download_url", "") or "")
-            if url:
-                return url
-    return ""
+            if not url:
+                continue
+            # Full 优先：Lite 只是兜底（未上传 Full 时仍可一键更新）
+            if name.lower().endswith("-lite.exe"):
+                lite_url = lite_url or url
+                continue
+            return url
+    return lite_url
 
 
 @router.get("", include_in_schema=False)
 async def get_about() -> dict[str, Any]:
-    """系统元信息：版本、构建日期、Git SHA、Python 版本、平台。"""
+    """系统元信息：版本、构建日期、Git SHA、Python 版本、平台、当前浏览器内核。"""
     info = _safe_build_info()
+    # 浏览器内核诊断：回答「这个安装到底在用哪个浏览器」，避免排障时黑盒
+    from xianyu_hunter.infra.browser_kernel import describe_kernel
+
+    try:
+        browser = describe_kernel()
+    except Exception as e:  # noqa: BLE001 - 诊断信息不能拖垮关于页
+        logger.warning(f"[about] 浏览器内核探测失败: {e}")
+        browser = {"policy": "unknown", "active": "unknown", "source": ""}
     return {
         "product": _PRODUCT_NAME,
         "version": info["version"],
@@ -229,6 +243,7 @@ async def get_about() -> dict[str, Any]:
         "git_sha": info["git_sha"],
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "platform": _platform.system().lower(),
+        "browser": browser,
     }
 
 

@@ -35,6 +35,19 @@ def _get_browser_cfg():
     return get_config().browser
 
 
+def _kernel_launch_kwargs(cfg) -> dict:
+    """内核选择参数，与 Worker/扫码登录共用同一策略（infra/browser_kernel.py）。
+
+    QR 登录用的 profile 与搜索浏览器是同一个 user_data_dir，若两边内核不同，
+    Cookie 的 DPAPI 密钥与 profile 布局对不上，登录态就会「写进去、读不出来」。
+    """
+    from xianyu_hunter.infra.browser_kernel import resolve_kernel
+
+    kernel = resolve_kernel(allow_download=cfg.allow_browser_download)
+    print(f"[auth_helper] 浏览器内核: {kernel.kind}（{kernel.source}）", file=sys.stderr)
+    return kernel.launch_kwargs()
+
+
 def _cleanup_lock_files(user_data_dir: Path) -> None:
     """清理 user_data_dir 中残留的 SingletonLock 等锁文件
 
@@ -286,6 +299,7 @@ async def _cmd_info(out_dir: Path) -> int:
                     "--disable-setuid-sandbox",
                     "--disable-web-security",  # 允许跨域（登录页需要）
                 ],
+                **_kernel_launch_kwargs(cfg),
             )
             # 清理残留锁文件：Worker 异常退出后 SingletonLock 会残留，
             # 导致 launch_persistent_context 启动后无法创建 page，nick 抓取整个流程不执行
@@ -558,19 +572,19 @@ async def _cmd_qr(out_dir: Path, timeout: int) -> int:
     _set_status(out_dir, state="starting", message="启动浏览器…")
     try:
         async with async_playwright() as pw:
-            # 使用与搜索相同的 Chromium 浏览器（headless=False 用于显示二维码）
-            # 不传 channel="msedge"，确保 Cookie 加密密钥与搜索浏览器一致
+            # 使用与搜索相同的浏览器内核（由 browser.system_browser 统一决定）。
             # 关键：不注入 stealth 脚本、不传反检测参数，以最接近用户手动打开的方式启动
             # 清理残留锁文件：与 _cmd_info 一致，避免 SingletonLock 残留导致启动失败
             _cleanup_lock_files(user_data_dir)
             ctx = await pw.chromium.launch_persistent_context(
                 user_data_dir=str(user_data_dir),
                 headless=False,
-                # 不设 user_agent，使用 Chromium 原生 UA
+                # 不设 user_agent，使用内核原生 UA
                 # 不传 args，避免任何可能被识别为自动化的启动标志
                 viewport={"width": 1280, "height": 800},
                 locale="zh-CN",
                 timezone_id="Asia/Shanghai",
+                **_kernel_launch_kwargs(cfg),
             )
             try:
                 # 不注入 stealth 脚本 — 保留浏览器原生状态，避免被检测
@@ -669,6 +683,7 @@ async def _cmd_qr(out_dir: Path, timeout: int) -> int:
                             viewport={"width": 1280, "height": 800},
                             locale="zh-CN",
                             timezone_id="Asia/Shanghai",
+                            **_kernel_launch_kwargs(cfg),
                         )
                         page = await ctx.new_page()
                         await page.goto(

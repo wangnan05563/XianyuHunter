@@ -14,6 +14,15 @@ interface BuildInfo {
   version: string
   buildDate: string
   gitSha: string
+  browserKernel?: string
+}
+
+const KERNEL_LABELS: Record<string, string> = {
+  msedge: '系统 Edge',
+  chrome: '系统 Chrome',
+  bundled: '随包 Chromium',
+  'download-on-first-use': '未安装（首次使用时下载）',
+  unavailable: '不可用',
 }
 
 // API 失败时的兜底值，确保 UI 不白屏
@@ -26,7 +35,12 @@ export default function About() {
   // 拉取元信息；失败时 FALLBACK 兜底，不阻塞 UI
   useEffect(() => {
     aboutApi.get().then(
-      (d) => setInfo({ version: d.version, buildDate: d.build_date, gitSha: d.git_sha }),
+      (d) => setInfo({
+        version: d.version,
+        buildDate: d.build_date,
+        gitSha: d.git_sha,
+        browserKernel: d.browser?.active,
+      }),
       () => { /* 失败用 FALLBACK，不阻塞列表渲染 */ },
     )
   }, [])
@@ -49,6 +63,13 @@ export default function About() {
         onInstall={() => install(state)}
       />
       <AboutMenuList onOpenLicenses={() => setLicensesOpen(true)} />
+      {info.browserKernel && (
+        <div className="xh-about-footer">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            浏览器内核：{KERNEL_LABELS[info.browserKernel] ?? info.browserKernel}
+          </Text>
+        </div>
+      )}
       <OpenSourceLicenses
         open={licensesOpen}
         onClose={() => setLicensesOpen(false)}

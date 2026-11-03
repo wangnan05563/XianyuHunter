@@ -20,6 +20,15 @@ const SOURCE_LABELS: Record<AboutSource, string> = {
   info: '系统信息',
 }
 
+// 后端 browser.active 的取值 → 展示文案（与 pages/About/index.tsx 保持一致）
+const KERNEL_LABELS: Record<string, string> = {
+  msedge: '系统 Edge',
+  chrome: '系统 Chrome',
+  bundled: '随包 Chromium',
+  'download-on-first-use': '未安装（首次使用时下载）',
+  unavailable: '不可用',
+}
+
 export default function MobileAbout() {
   const { message } = App.useApp()
   const { token: themeToken } = theme.useToken()
@@ -96,6 +105,11 @@ export default function MobileAbout() {
           </Descriptions.Item>
           <Descriptions.Item label="Python">{info.python}</Descriptions.Item>
           <Descriptions.Item label="平台">{info.platform}</Descriptions.Item>
+          {info.browser?.active && (
+            <Descriptions.Item label="浏览器内核">
+              {KERNEL_LABELS[info.browser.active] ?? info.browser.active}
+            </Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 

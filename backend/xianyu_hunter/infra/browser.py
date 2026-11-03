@@ -285,6 +285,14 @@ class BrowserManager:
         except Exception as e:
             logger.debug("未使用 LoginOrchestrator 指纹（回退到默认）: {}", e)
 
+        # 内核解析：系统 Edge → 系统 Chrome → 随包 Chromium → 首启下载。
+        # 与 scripts/browser_login.py、scripts/auth_helper.py 共用同一策略：
+        # 三处若各挑各的内核，Cookie（DPAPI 加密、profile 布局随内核）会跨内核读不出。
+        from xianyu_hunter.infra.browser_kernel import resolve_kernel
+
+        kernel = resolve_kernel()
+        logger.info("浏览器内核: {}（{}）", kernel.kind, kernel.source)
+
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(self.user_data_dir),
             # 固定传 False，无头行为由上方 launch_args 里的 --headless=new 提供。
@@ -300,6 +308,7 @@ class BrowserManager:
             locale="zh-CN",
             timezone_id="Asia/Shanghai",
             args=launch_args,
+            **kernel.launch_kwargs(),
         )
 
         # 注入 stealth 脚本

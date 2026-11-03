@@ -31,7 +31,12 @@ param(
     [switch]$Clean,
     # 本地 embedding 引擎：st（默认，sentence-transformers+torch，行为不变）/
     # onnx（ONNX Runtime，排除 torch 约 -320MB，需先运行 scripts/export_embedding_onnx.py）
-    [string]$EmbeddingEngine = "st"
+    [string]$EmbeddingEngine = "st",
+    # 是否随包 Playwright Chromium（约 +415MB 解压体积）。
+    # 默认不随包（Lite）：运行时优先复用系统 Edge/Chrome，缺失则首启下载。
+    # 指定 -BundleBrowser 时产出 Full 包，并额外产出一个 Lite 安装包（同一份 dist，
+    # 仅在 Inno Setup 层排除 playwright_browsers，无需二次 PyInstaller 构建）。
+    [switch]$BundleBrowser
 )
 
 $ErrorActionPreference = "Stop"
@@ -434,7 +439,15 @@ if (Test-Path "config\menu_registry.yaml") {
 # 缓存到 .cache/playwright_browsers/，复制到 release/xianyu-hunter/playwright_browsers/
 Write-Host "  [5.4] Playwright Chromium..." -ForegroundColor Yellow
 $pwTarget = "release\xianyu-hunter\playwright_browsers"
-if (Test-Path "$pwCacheDir\chromium-*") {
+if (-not $BundleBrowser) {
+    # Lite 形态：不随包 Chromium（-415.85MB）。运行时由 infra/browser_kernel.py 依次
+    # 解析系统 Edge → 系统 Chrome → 随包 Chromium → 首启下载。
+    # 增量构建会让旧目录残留，这里统一清掉，保证 dist 与形态一致（幂等）。
+    if (Test-Path $pwTarget) {
+        Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue
+    }
+    Write-Host "  Lite 形态：跳过随包 Chromium（运行时复用系统 Edge/Chrome，缺失则首启下载）" -ForegroundColor Cyan
+} elseif (Test-Path "$pwCacheDir\chromium-*") {
     Write-Host "  从缓存复制 Chromium...（约 10-30 秒）"
     Copy-Item -Recurse -Force $pwCacheDir $pwTarget
     Write-Host "  Chromium 已从缓存复制到 $pwTarget"
@@ -452,11 +465,13 @@ if (Test-Path "$pwCacheDir\chromium-*") {
     }
     Remove-Item Env:\PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
 }
-# P1 瘦身：只保留完整 Chromium，剔除 chromium_headless_shell-*（约 -267MB）。
-# auth_helper 已改用 --headless=new 走完整内核，运行期不再需要 headless-shell。
-# 增量打包时目标目录可能残留旧版本，故复制后统一清理（幂等）。
-Get-ChildItem "$pwTarget" -Directory -Filter "chromium_headless_shell-*" -ErrorAction SilentlyContinue |
-    ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
+if ($BundleBrowser) {
+    # P1 瘦身：只保留完整 Chromium，剔除 chromium_headless_shell-*（约 -267MB）。
+    # auth_helper 已改用 --headless=new 走完整内核，运行期不再需要 headless-shell。
+    # 增量打包时目标目录可能残留旧版本，故复制后统一清理（幂等）。
+    Get-ChildItem "$pwTarget" -Directory -Filter "chromium_headless_shell-*" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
+}
 
 # 5.5 embedding 工件（按引擎分支）
 # - onnx：复制 scripts/export_embedding_onnx.py 生成的 ONNX + tokenizer 工件
@@ -688,7 +703,8 @@ DisableProgramGroupPage=yes
 [Tasks]
 Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Additional:"
 [Files]
-Source: "release\xianyu-hunter\*"; DestDir: "{app}"; Excludes: "*.log,data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Excludes 必须是「空格分隔」的 wildcard 列表（Inno Setup 语义），写成逗号会导致整串匹配不上
+Source: "release\xianyu-hunter\*"; DestDir: "{app}"; Excludes: "*.log data\* .env .secrets.json .env.local"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\XianyuHunter"; Filename: "{app}\xianyu-hunter.exe"
 Name: "{commondesktop}\XianyuHunter"; Filename: "{app}\xianyu-hunter.exe"; Tasks: desktopicon
@@ -719,6 +735,27 @@ if (-not $iscc) {
     } else {
         $setupExe = "release\XianyuHunter-Setup-v$version.exe"
         Write-Host "  安装包已生成：$setupExe" -ForegroundColor Green
+
+        # 6.5 -BundleBrowser 时同一次构建再出一个 Lite 安装包：
+        # 同一份 dist，仅在 [Files] 层排除 playwright_browsers（无需二次 PyInstaller 构建）。
+        # Inno Setup 的 Excludes 是「空格分隔」的 wildcard 列表（逗号会被当作模式的一部分，
+        # 导致整串匹配不上），这里统一写成空格分隔。
+        if ($BundleBrowser) {
+            $liteIss = "installer-lite.iss"
+            $liteSrc = Get-Content "installer.iss" -Raw
+            $liteSrc = $liteSrc -replace '(?m)^(OutputBaseFilename=.+)$', '$1-Lite'
+            $liteSrc = $liteSrc -replace '(?m)Excludes:\s*"[^"]*"', 'Excludes: "*.log data\* .env .secrets.json .env.local playwright_browsers\*"'
+            [System.IO.File]::WriteAllText(
+                (Join-Path $repoRoot $liteIss), $liteSrc, (New-Object System.Text.UTF8Encoding($true))
+            )
+            Write-Host "  编译 Lite 安装包（不含 Chromium）..."
+            & $iscc /DMyAppVersion=$version $liteIss
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  [WARN] Lite 安装包编译失败" -ForegroundColor Red
+            } else {
+                Write-Host "  Lite 安装包已生成：release\XianyuHunter-Setup-v$version-Lite.exe" -ForegroundColor Green
+            }
+        }
     }
 }
 

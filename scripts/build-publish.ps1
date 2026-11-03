@@ -75,6 +75,23 @@ function Resolve-EmbeddingEngine {
     return $e
 }
 
+function Resolve-BundleBrowser {
+    # Full/Lite 双形态由 config 决定（build_pipeline.bundle_browser），命令里只写
+    # __BUNDLE_BROWSER__ 占位符。开启后 build-exe.ps1 用同一份 dist 额外产出一个
+    # 不含 playwright_browsers 的 -Lite 安装包（不触发第二次 PyInstaller 构建）。
+    # 该值最终进 Invoke-Expression，因此只回显开关本身，不透传配置里的原始文本。
+    $v = if ($cfg.build_pipeline) {
+        $p = $cfg.build_pipeline.PSObject.Properties["bundle_browser"]
+        if ($p) { $p.Value } else { $false }
+    } else { $false }
+    if ($v -isnot [bool]) {
+        Write-Error "[build-publish] build_pipeline.bundle_browser 必须是 true / false，收到：$v"
+        exit 1
+    }
+    if ($v) { return "-BundleBrowser" }
+    return ""
+}
+
 # ---- 配置加载 ----
 if (-not (Test-Path $ConfigPath)) { Write-Error "config 未找到: $ConfigPath"; exit 1 }
 $cfg = Get-Content -Raw -Encoding UTF8 $ConfigPath | ConvertFrom-Json
@@ -104,6 +121,7 @@ try {
                 if (-not $cmd) { continue }
                 $cmd = $cmd -replace '__SCRIPTS__', $PSScriptRoot
                 $cmd = $cmd -replace '__EMBEDDING_ENGINE__', (Resolve-EmbeddingEngine)
+                $cmd = $cmd -replace '__BUNDLE_BROWSER__', (Resolve-BundleBrowser)
                 Write-Host "[build-publish] [$i/$($cfg.build_pipeline.steps.Count)] $($step.name)" -ForegroundColor Cyan
                 Write-Host "  > $cmd"
                 Invoke-Expression $cmd
@@ -129,7 +147,8 @@ try {
     if (-not (Test-Path $assetDir)) { Write-Error "[build-publish] 资产目录不存在: $assetDir"; exit 1 }
     $matches = Get-ChildItem -Path $assetDir -File | Where-Object {
         $n = $_.Name
-        ($n -like $glob) -and (-not ($excl | Where-Object { $n -like $_ -or $n.Contains($_) }))
+        # Lite 是附加资产（-Lite 后缀），绝不作为主资产/版本号来源
+        ($n -like $glob) -and ($n -notmatch '(?i)-Lite\.exe$') -and (-not ($excl | Where-Object { $n -like $_ -or $n.Contains($_) }))
     } | Sort-Object LastWriteTime -Descending
     $asset = $null
     if ($matches -and $matches.Count -gt 0) {
@@ -190,6 +209,24 @@ try {
     Write-Host "[build-publish] 发布中 (dry_run=$($DryRun -or $rel.dry_run))..." -ForegroundColor Cyan
     & $py $pub $asset $notes $display
     if ($LASTEXITCODE -ne 0) { Write-Error "[build-publish] 发布失败 (exit $LASTEXITCODE)"; exit 1 }
+
+    # bundle_browser=true 时同一次构建还产出了 -Lite 安装包（[Files] 层排除 playwright_browsers）。
+    # 主资产固定取 Full，Lite 作为第二个资产单独上传；publish-release.py 对同名已存在资产会跳过，
+    # 所以上传失败后可直接重跑本脚本（配合 -SkipBuild）补齐，不会重复创建 Release。
+    if ((Resolve-BundleBrowser) -eq "-BundleBrowser") {
+        $liteMatches = Get-ChildItem -Path $assetDir -File |
+            Where-Object { $_.Name -like "XianyuHunter-Setup-v*-Lite.exe" } |
+            Sort-Object LastWriteTime -Descending
+        if (-not $liteMatches -or $liteMatches.Count -eq 0) {
+            Write-Error "[build-publish] bundle_browser=true 但未找到 Lite 安装包（XianyuHunter-Setup-v*-Lite.exe）"
+            exit 1
+        }
+        $liteAsset = $liteMatches[0].FullName
+        $liteDisplay = [System.IO.Path]::GetFileName($liteAsset)
+        Write-Host "[build-publish] 发布 Lite 资产: $liteAsset" -ForegroundColor Cyan
+        & $py $pub $liteAsset $notes $liteDisplay
+        if ($LASTEXITCODE -ne 0) { Write-Error "[build-publish] Lite 资产发布失败 (exit $LASTEXITCODE)"; exit 1 }
+    }
     Write-Host "[build-publish] 发布完成" -ForegroundColor Green
 } finally {
     Pop-Location

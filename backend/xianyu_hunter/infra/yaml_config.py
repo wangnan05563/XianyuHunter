@@ -41,6 +41,14 @@ class BrowserConfig(BaseModel):
     auto_sync_interval: int = 30                # 同步间隔（分钟）
     auto_sync_expiry_threshold: int = 10        # Cookie 剩余有效期阈值（分钟）
     cdp_port: int = 9222                        # CDP 调试端口
+    # 浏览器内核解析策略（见 infra/browser_kernel.py）：
+    # - auto（默认）：系统 Edge → 系统 Chrome → 随包 Chromium → 首启下载
+    # - msedge / chrome：只用指定系统浏览器，缺失即报可诊断错误（不静默降级）
+    # - bundled：只用随包（或已下载）的 Playwright Chromium
+    # Lite 安装包不随带 Chromium，依赖本项命中系统浏览器或首启下载。
+    system_browser: str = "auto"
+    # 前三级都不可用时，是否允许首启下载 Chromium 到可写的用户目录
+    allow_browser_download: bool = True
 
 
 class AntiDetectConfig(BaseModel):

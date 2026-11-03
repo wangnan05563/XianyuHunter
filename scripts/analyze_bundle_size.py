@@ -92,13 +92,11 @@ def main() -> int:
 
     print("\n== 外置资源 ==")
     pw = REPO_ROOT / ".cache/playwright_browsers"
-    shipped = 0
     for child in sorted(pw.iterdir()) if pw.is_dir() else []:
         size = _dir_size(child)
         if child.is_dir() and child.name.startswith("chromium_headless_shell"):
             marker = "（构建时剔除，不进包）"
         else:
-            shipped += size
             marker = ""
         print(f"{child.name:<30}{size / MB:10.2f} MB {marker}")
     for label, path in (
@@ -106,7 +104,17 @@ def main() -> int:
         ("release/spa", REPO_ROOT / "release/spa"),
     ):
         print(f"{label:<30}{_dir_size(path) / MB:10.2f} MB")
-    print(f"{'chromium 实际进包合计':<27}{shipped / MB:10.2f} MB")
+    # 「实际进包」必须以 dist 为准：Lite 包不拷 playwright_browsers，
+    # 缓存里即便有 Chromium 也不代表安装包带了它（T04103）
+    pw_dist = REPO_ROOT / "release/xianyu-hunter/playwright_browsers"
+    shipped = _dir_size(pw_dist)
+    if not (REPO_ROOT / "release/xianyu-hunter").is_dir():
+        suffix = "（dist 不存在，尚未构建）"
+    elif not shipped:
+        suffix = "（Lite 形态：不随包）"
+    else:
+        suffix = ""
+    print(f"{'chromium 实际进包':<27}{shipped / MB:10.2f} MB{suffix}")
 
     print("\n== 瘦身杠杆（engine=onnx 时从 _internal 消失的组件）==")
     for key in ("torch", "transformers", "scipy", "scipy.libs", "sklearn"):

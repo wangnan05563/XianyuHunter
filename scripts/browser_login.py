@@ -97,21 +97,15 @@ def _save_playwright_cookies(cookies: list[dict], data_dir: Path | None = None) 
         print(f"[browser_login] 保存 Playwright Cookie 失败: {e}", file=sys.stderr)
 
 
-def _get_edge_path() -> str | None:
-    """查找系统 Edge 浏览器路径"""
-    import shutil
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    # fallback: 用 shutil.which 查找
-    edge = shutil.which("msedge")
-    if edge:
-        return edge
-    return None
+def _resolve_kernel(cfg):
+    """与 Worker 共用同一内核解析策略（infra/browser_kernel.py）。
+
+    为什么不能各挑各的：登录窗口写入的 Cookie 由内核的 DPAPI 密钥加密、
+    并存放在该内核的 profile 布局里，搜索浏览器换了内核就读不出来。
+    """
+    from xianyu_hunter.infra.browser_kernel import resolve_kernel
+
+    return resolve_kernel(allow_download=cfg.allow_browser_download)
 
 
 def _validate_login_cookies(cookies: list[dict]) -> bool:
@@ -499,8 +493,15 @@ async def _cmd_login(status_file: Path, timeout: int, data_dir: Path | None = No
     cfg = _get_browser_cfg()
     set_status(status="starting", message="正在启动浏览器...")
 
-    # 检测可用浏览器：优先 Edge（Windows 自带），其次 Chromium
-    edge_path = _get_edge_path()
+    # 检测可用浏览器：解析顺序见 infra/browser_kernel.py（Edge → Chrome → 随包 → 下载）
+    from xianyu_hunter.infra.browser_kernel import BrowserKernelUnavailable
+
+    try:
+        kernel = _resolve_kernel(cfg)
+    except BrowserKernelUnavailable as e:
+        print(f"[browser_login] {e}", file=sys.stderr)
+        _set_status(status_file, status="error", message=str(e))
+        return 2
     # 使用已有的 browser-data 目录，登录后 Cookie 与 Worker 共享
     user_data_dir = get_browser_data_dir(cfg.user_data_dir)
 
@@ -509,10 +510,7 @@ async def _cmd_login(status_file: Path, timeout: int, data_dir: Path | None = No
         import xianyu_hunter.paths as _paths_mod
         _paths_mod.get_browser_data_dir = lambda configured="./browser-data": data_dir / (configured if isinstance(configured, Path) else Path(configured))
 
-    if edge_path:
-        print(f"[browser_login] 使用系统 Edge: {edge_path}", file=sys.stderr)
-    else:
-        print("[browser_login] Edge 未找到，使用 Playwright 内置 Chromium", file=sys.stderr)
+    print(f"[browser_login] 浏览器内核: {kernel.kind}（{kernel.source}）", file=sys.stderr)
 
     # Background heartbeat during slow launch/nav to prevent backend 90s timeout.
     _hb_stop = threading.Event()
@@ -535,12 +533,11 @@ async def _cmd_login(status_file: Path, timeout: int, data_dir: Path | None = No
                 "timezone_id": "Asia/Shanghai",
                 "args": _build_login_launch_args(cfg),
             }
-            if edge_path:
-                # 系统 Edge：干净启动，最不容易被风控检测
-                launch_kwargs["executable_path"] = edge_path
-                launch_kwargs["channel"] = "msedge"
-            else:
-                # Playwright 内置 Chromium：需要反检测参数
+            # 内核参数（channel / executable_path）必须始终带上：下载兜底装到的
+            # Chromium 目录未必在 Playwright 默认搜索路径里。
+            launch_kwargs.update(kernel.launch_kwargs())
+            if kernel.kind == "bundled":
+                # Playwright 随包/已下载的 Chromium：需要反检测参数
                 launch_kwargs["args"].extend([
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",

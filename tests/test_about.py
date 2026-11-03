@@ -137,12 +137,20 @@ def test_about_endpoints_accessible_without_token(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 def test_get_about_returns_required_fields(client: TestClient) -> None:
-    """/api/about 必须返回 6 个字段：product/version/build_date/git_sha/python/platform。"""
+    """/api/about 必须返回 product/version/build_date/git_sha/python/platform/browser。
+
+    browser 是 T04103 新增的内核诊断字段：前端关于页据此展示「当前用的是
+    系统 Edge / Chrome / 随包 Chromium」，排障时不用再黑盒猜。
+    """
     r = client.get("/api/about")
     assert r.status_code == 200
     data = r.json()
-    expected_keys = {"product", "version", "build_date", "git_sha", "python", "platform"}
+    expected_keys = {
+        "product", "version", "build_date", "git_sha", "python", "platform", "browser",
+    }
     assert set(data.keys()) == expected_keys
+    browser = data["browser"]
+    assert {"policy", "active", "source"} <= set(browser.keys())
 
 
 def test_get_about_product_name_is_xianyu_hunter(client: TestClient) -> None:

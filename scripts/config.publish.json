@@ -12,6 +12,7 @@
   },
   "build_pipeline": {
     "embedding_engine": "onnx",
+    "bundle_browser": false,
     "steps": [
       {
         "name": "Bump build version (pyproject + __init__)",
@@ -20,7 +21,7 @@
       },
       {
         "name": "Build EXE (PyInstaller) + Inno Setup installer",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"__SCRIPTS__\\build-exe.ps1\" -EmbeddingEngine __EMBEDDING_ENGINE__",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"__SCRIPTS__\\build-exe.ps1\" -EmbeddingEngine __EMBEDDING_ENGINE__ __BUNDLE_BROWSER__",
         "on_fail": "stop"
       }
     ]

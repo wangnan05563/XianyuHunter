@@ -30,6 +30,14 @@ browser:
   auto_sync_interval: 30              # 同步间隔（分钟）
   auto_sync_expiry_threshold: 10      # Cookie 剩余有效期阈值（分钟），低于此值触发同步
   cdp_port: 9222                      # CDP 调试端口
+  # 浏览器内核解析策略（Worker / 扫码登录 / 二维码抓取共用同一策略）
+  # auto：系统 Edge → 系统 Chrome → 随包 Chromium → 首启下载（推荐）
+  # msedge / chrome：强制使用指定系统浏览器，找不到即报错（可诊断，不静默回退）
+  # bundled：只用随包/已下载的 Chromium（Full 安装包，或允许下载时自动补装）
+  # 注意：Cookie 由内核 DPAPI 加密且 profile 布局随内核不同，改这里要重新登录
+  system_browser: auto
+  # 允许在运行时下载 Playwright Chromium（Lite 包在既无 Edge 也无 Chrome 时需要）
+  allow_browser_download: true
 
 # 反检测策略：控制请求频率与行为模拟
 antidetect:

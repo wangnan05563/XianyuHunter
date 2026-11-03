@@ -1,5 +1,16 @@
 import client from './client'
 
+// 当前浏览器内核（由后端 browser_kernel.describe_kernel() 解析）
+export interface BrowserKernelInfo {
+  policy: string
+  active: string
+  source: string
+  system_edge?: string
+  system_chrome?: string
+  bundled_chromium?: string
+  browsers_dir?: string
+}
+
 // About API 响应类型（与后端 api_about.py 契约对齐）
 export interface AboutInfo {
   product: string
@@ -8,6 +19,7 @@ export interface AboutInfo {
   git_sha: string
   python: string
   platform: string
+  browser?: BrowserKernelInfo
 }
 
 export interface UpdateCheckResult {

@@ -98,8 +98,12 @@ def _setup_env() -> None:
     sys.path.insert(0, str(Path(sys.executable).resolve().parent / "_internal"))
     from xianyu_hunter.paths import get_app_dir
     app_dir = get_app_dir()
-    # Playwright 浏览器路径：随安装包分发
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(app_dir / "playwright_browsers")
+    # Playwright 浏览器路径：Full 包随安装包分发；Lite 包没有该目录，
+    # 此时指向可写的用户目录，让「首启下载兜底」装得进 %APPDATA%（安装目录只读）
+    _pw_dir = app_dir / "playwright_browsers"
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
+        str(_pw_dir) if _pw_dir.exists() else str(_appdata / "playwright_browsers")
+    )
     # sentence-transformers 模型路径：预置到 models/，避免首次运行联网下载
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(app_dir / "models")
     # 启用调度器：Web + 浏览器 + 任务引擎同进程
