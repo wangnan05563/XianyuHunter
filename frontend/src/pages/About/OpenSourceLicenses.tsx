@@ -27,7 +27,6 @@ const FRONTEND_DEPS: Dependency[] = [
   { name: 'p5', version: '^2.3.0', license: 'LGPL-2.1', repo: 'https://github.com/processing/p5.js' },
   { name: 'react', version: '^18.3.1', license: 'MIT', repo: 'https://github.com/facebook/react' },
   { name: 'react-dom', version: '^18.3.1', license: 'MIT', repo: 'https://github.com/facebook/react' },
-  { name: 'react-flow-renderer', version: '^10.3.17', license: 'MIT', repo: 'https://github.com/wbkd/react-flow' },
   { name: 'react-router-dom', version: '^6.26.0', license: 'MIT', repo: 'https://github.com/remix-run/react-router' },
   { name: 'zustand', version: '^4.5.0', license: 'MIT', repo: 'https://github.com/pmndrs/zustand' },
   // devDependencies

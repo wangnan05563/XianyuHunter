@@ -18,7 +18,7 @@ import { Tag, Tooltip, message, theme } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { rehypeHighlightSubset } from './markdownHighlight'
 import 'highlight.js/styles/atom-one-light.css'
 import type { Source } from '../types'
 
@@ -89,14 +89,15 @@ function MarkdownPre({ children }: { readonly children?: React.ReactNode }) {
   return <pre>{children}</pre>
 }
 
-// 代码块组件：语言标签 + 复制按钮 + 语法高亮（rehype-highlight 已处理）
+// 代码块组件：语言标签 + 复制按钮 + 语法高亮（markdownHighlight 子集已处理）
 function CodeBlock({ children, className }: { readonly children?: React.ReactNode; readonly className?: string }) {
   const [copied, setCopied] = useState(false)
   const codeRef = useRef<HTMLElement>(null)
-  const lang = (className || '').replace('language-', '') || ''
+  // className 形如 "hljs language-sql"：只取语言名，否则高亮插件加的 hljs 前缀会混进标签
+  const lang = className?.split(/\s+/).find((name) => name.startsWith('language-'))?.slice(9) ?? ''
 
   const handleCopy = async () => {
-    // 从 DOM 取 textContent：rehype-highlight 处理后 children 是高亮 spans，不是纯文本
+    // 从 DOM 取 textContent：高亮处理后 children 是 token spans，不是纯文本
     const text = codeRef.current?.textContent || ''
     try {
       await navigator.clipboard.writeText(text)
@@ -150,7 +151,7 @@ export function MarkdownContent({ content, sources, className }: MarkdownContent
       <SourcesContext.Provider value={sources}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
+          rehypePlugins={[rehypeHighlightSubset]}
           components={mdComponents}
         >
           {processedContent}
