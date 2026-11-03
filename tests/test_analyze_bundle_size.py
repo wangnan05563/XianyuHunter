@@ -96,6 +96,33 @@ def test_spa_activity_uses_explicit_build_timestamp(tmp_path: Path) -> None:
     assert "spa-built-after" in result["cutoff_source"]
 
 
+def test_spa_activity_counts_public_passthrough_as_active(tmp_path: Path) -> None:
+    """vite 逐字节拷贝 public/ 且保留 mtime，纯时间判据不得把 favicon 记成残留。"""
+    built_at = dt.datetime(2026, 11, 3, 10, 0, tzinfo=dt.timezone.utc)
+    checkout = built_at - dt.timedelta(days=100)
+    epoch = int(checkout.timestamp())
+
+    public = tmp_path / "public"
+    public.mkdir()
+    src = public / "favicon.ico"
+    src.write_bytes(b"ico-bytes")
+    os.utime(src, (epoch, epoch))
+
+    spa = tmp_path / "spa"
+    spa.mkdir()
+    copied = spa / "favicon.ico"
+    copied.write_bytes(b"ico-bytes")
+    os.utime(copied, (epoch, epoch))
+    stale = spa / "index-OLD.js"
+    stale.write_text("z" * 50)
+    os.utime(stale, (epoch, epoch))
+
+    result = mod._spa_activity(spa, built_at.timestamp(), public_dir=public)
+    assert result["active_files"] == 1
+    assert result["active_bytes"] == 9
+    assert result["stale_files"] == 1
+
+
 def test_spa_activity_falls_back_to_mtime_cluster(tmp_path: Path) -> None:
     """无构建时间戳时按 mtime 聚类切分：最近一批写入为活跃，更早批次为残留。"""
     recent = dt.datetime.now(dt.timezone.utc)

@@ -89,7 +89,8 @@ def _iter_collect(collect_toc: Path):
         yield dest.replace("\\", "/"), source, typ, size
 
 
-def _spa_activity(spa_root: Path, built_after: float | None) -> dict:
+def _spa_activity(spa_root: Path, built_after: float | None,
+                  public_dir: Path | None = None) -> dict:
     """区分「当次构建的活跃资源」与「目录里的历史残留」。
 
     背景（T04105 实测 / T04180）：`vite.config.ts` 刻意 `emptyOutDir: false`，
@@ -100,7 +101,18 @@ def _spa_activity(spa_root: Path, built_after: float | None) -> dict:
     活跃口径优先信 `--spa-built-after`（由 build-exe.ps1 传入，权威）；
     单独跑脚本没有该时间戳时，退化为 mtime 聚类：按 mtime 降序找到第一个
     大于 5 分钟的间隔作为「上一次构建」的分界。
+
+    `frontend/public/` 的资源由 vite 逐字节拷贝且保留源文件 mtime，
+    纯时间判据会把它们误标成残留（T04180 实测 6 个 favicon/icon 全部如此），
+    所以同名、同尺寸、同 mtime 的公共目录直通件一律算活跃。
     """
+    public_dir = REPO_ROOT / "frontend" / "public" if public_dir is None else public_dir
+    public_stat = {}
+    if public_dir.is_dir():
+        for pf in public_dir.rglob("*"):
+            if pf.is_file():
+                public_stat[pf.relative_to(public_dir)] = pf.stat()
+
     files = [f for f in spa_root.rglob("*") if f.is_file()] if spa_root.is_dir() else []
     if not files:
         return {"root": str(spa_root), "total_files": 0, "total_bytes": 0,
@@ -119,7 +131,14 @@ def _spa_activity(spa_root: Path, built_after: float | None) -> dict:
                 break
             prev = st
         cutoff_source = "mtime 聚类（近似：与最新写入的首个 >5 分钟间隔处切分）"
-    active = [st for _f, st in stats if st.st_mtime >= cutoff]
+    def _is_active(path: Path, st: os.stat_result) -> bool:
+        if st.st_mtime >= cutoff:
+            return True
+        src = public_stat.get(path.relative_to(spa_root))
+        return (src is not None and src.st_size == st.st_size
+                and abs(src.st_mtime - st.st_mtime) < 1.0)
+
+    active = [st for f, st in stats if _is_active(f, st)]
     active_bytes = sum(st.st_size for st in active)
     total_bytes = sum(st.st_size for _f, st in stats)
     return {
