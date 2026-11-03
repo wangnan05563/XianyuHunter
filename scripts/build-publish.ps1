@@ -59,6 +59,22 @@ function Get-PyprojectVersion($root) {
     return $null
 }
 
+function Resolve-EmbeddingEngine {
+    # 发布包用哪条 embedding 链由 config 决定（build_pipeline.embedding_engine），
+    # 命令里只写 __EMBEDDING_ENGINE__ 占位符。历史缺陷（T04093 P1）：步骤命令裸调
+    # build-exe.ps1、从不传引擎，于是永远吃脚本默认值 st，每一版都把 torch 全家桶
+    # （实测 360.03 MB）带进安装包，拖了多少版没人发现。
+    # 该值最终进 Invoke-Expression，所以只接受白名单，不做任何“透传”。
+    $e = if ($cfg.build_pipeline -and $cfg.build_pipeline.embedding_engine) {
+        "$($cfg.build_pipeline.embedding_engine)".Trim().ToLower()
+    } else { "st" }
+    if (@("st", "onnx") -notcontains $e) {
+        Write-Error "[build-publish] build_pipeline.embedding_engine 只能是 st / onnx，收到：$e"
+        exit 1
+    }
+    return $e
+}
+
 # ---- 配置加载 ----
 if (-not (Test-Path $ConfigPath)) { Write-Error "config 未找到: $ConfigPath"; exit 1 }
 $cfg = Get-Content -Raw -Encoding UTF8 $ConfigPath | ConvertFrom-Json
@@ -87,6 +103,7 @@ try {
                 $cmd = $step.command
                 if (-not $cmd) { continue }
                 $cmd = $cmd -replace '__SCRIPTS__', $PSScriptRoot
+                $cmd = $cmd -replace '__EMBEDDING_ENGINE__', (Resolve-EmbeddingEngine)
                 Write-Host "[build-publish] [$i/$($cfg.build_pipeline.steps.Count)] $($step.name)" -ForegroundColor Cyan
                 Write-Host "  > $cmd"
                 Invoke-Expression $cmd

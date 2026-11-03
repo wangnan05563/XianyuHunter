@@ -7,13 +7,32 @@ from __future__ import annotations
 
 import secrets as _secrets
 from functools import lru_cache
+from importlib.util import find_spec
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 路径统一入口：PyInstaller 打包后基于 _MEIPASS / exe 目录，
 # 开发模式下基于 __file__ 推算项目根（不依赖 CWD）
 from xianyu_hunter.paths import get_app_dir, get_env_file
+
+
+def _default_embedding_engine() -> str:
+    """本地 embedding 的默认引擎跟随「这份产物里实际装着哪条链」。
+
+    onnx 形态的安装包在构建期就把 torch/sentence_transformers 整棵子树排除了
+    （xianyu-hunter.spec 的 _excludes）。若默认值写死 "st"，冻结包首次向量检索会
+    先撞一次 ImportError、再靠 embedding_service._get_local_backend 的回退兜住——
+    结果正确但每进程白跑一趟，且日志里留一条误导性的 warning。
+
+    只探测「装了什么」，不替用户做决定：显式配置（.env / 构造参数）优先级不变。
+    """
+    try:
+        return "st" if find_spec("sentence_transformers") is not None else "onnx"
+    except (ImportError, ValueError):
+        # 探测本身失败（异常形态的冻结 importer 等）→ 退回历史行为，不改变语义
+        return "st"
 
 
 class Settings(BaseSettings):
@@ -63,8 +82,9 @@ class Settings(BaseSettings):
     # 0 表示未配置，由 cfg.kb.embedding_dimensions 兜底
     embedding_dimensions: int = 0
     # 本地 embedding 引擎：st=sentence-transformers(torch) / onnx=ONNX Runtime(无 torch)
-    # 默认 "st"（行为不变）；设为 "onnx" 可移除 torch 依赖（需先运行导出脚本生成工件）
-    embedding_engine: str = "st"
+    # 默认值由 _default_embedding_engine() 按产物内实际存在的依赖链解析
+    # （onnx 形态的冻结包里没有 torch，写死 "st" 会白撞一次回退）；显式配置仍可覆盖两种方向。
+    embedding_engine: str = Field(default_factory=_default_embedding_engine)
 
     # Web 认证：留空则首次启动自动生成并写入 .env
     # 本地个人工具场景下，token 防止同网络其他设备随意访问

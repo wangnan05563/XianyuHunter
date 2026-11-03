@@ -67,6 +67,10 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
+# ST 探测的会话级缓存：{"ok": bool, "reason": str}
+_ST_PROBE_STATE: dict = {}
+
+
 def _st_importable() -> bool:
     """安全探测 sentence_transformers 是否可导入（不污染当前进程）
 
@@ -74,17 +78,44 @@ def _st_importable() -> bool:
     try/except 无法捕获。改用子进程探测，且先预热 torch/transformers（与导出脚本
     成功顺序一致，可规避该崩溃）；崩溃只杀子进程，不影响 pytest 主进程。
     设 XH_TEST_EMBED_REF=tf 可强制跳过 ST 探测。
+
+    两点实测口径（2026-11-03，T04101）：
+    - 冷启动 torch 导入本机实测 62s，原先 120s 的预算在与其他用例并发争用磁盘时
+      会超时，而超时被吞成「ST 不可用」→ 等价性用例静默 skip（发布门禁形同虚设）。
+      预算提到 300s（可用 XH_TEST_EMBED_REF_TIMEOUT 覆盖），且把「超时」与「没装」分开报。
+    - 结果按进程缓存：同一会话内两处探测点共用一次子进程，避免重复付 62s 以上的代价。
     """
     if os.environ.get("XH_TEST_EMBED_REF") == "tf":
+        _ST_PROBE_STATE["reason"] = "XH_TEST_EMBED_REF=tf（显式禁用 ST 参考）"
         return False
+    if "ok" in _ST_PROBE_STATE:
+        return _ST_PROBE_STATE["ok"]
+    budget = int(os.environ.get("XH_TEST_EMBED_REF_TIMEOUT", "300"))
     try:
         r = subprocess.run(
             [sys.executable, "-c", "import torch, transformers; import sentence_transformers"],
-            capture_output=True, timeout=120,
+            capture_output=True, timeout=budget,
         )
-        return r.returncode == 0
-    except Exception:
-        return False
+        ok = r.returncode == 0
+        if not ok:
+            err = r.stderr.decode("utf-8", "replace").strip().splitlines()
+            _ST_PROBE_STATE["reason"] = (
+                "探测返回 rc=%d%s" % (r.returncode, ("；" + err[-1]) if err else "（无 stderr，疑硬崩溃）")
+            )
+    except subprocess.TimeoutExpired:
+        ok = False
+        _ST_PROBE_STATE["reason"] = "探测超时（>%ds）——并非未安装 sentence_transformers" % budget
+    except Exception as e:
+        ok = False
+        _ST_PROBE_STATE["reason"] = "探测异常：%s: %s" % (type(e).__name__, e)
+    _ST_PROBE_STATE["ok"] = ok
+    return ok
+
+
+def _st_unavailable_detail() -> str:
+    _st_importable()
+    return _ST_PROBE_STATE.get("reason", "原因未记录")
+
 
 
 def _load_reference_backend(model_name: str):
@@ -100,6 +131,7 @@ def _load_reference_backend(model_name: str):
         pytest.skip(
             "sentence_transformers 不可用，无法作为等价参考"
             "（transformers 参考词表不全，已禁用；请在有 ST 的环境运行本测试）"
+            "｜探测详情：%s" % _st_unavailable_detail()
         )
     # 预热 torch/transformers 后再 import ST，规避本沙箱 ST 单独 import 崩溃
     import torch  # noqa: F401
@@ -285,7 +317,8 @@ def test_backend_selection_onnx_no_torch(monkeypatch):
 def test_backend_selection_st(monkeypatch):
     """embedding_engine='st' 时返回 LocalEmbeddingBackend（sentence-transformers）"""
     if not _st_importable():
-        pytest.skip("sentence_transformers 不可用，跳过 st 路径验证")
+        pytest.skip("sentence_transformers 不可用，跳过 st 路径验证"
+                    "｜探测详情：%s" % _st_unavailable_detail())
     import torch  # 预热，规避本沙箱 ST 单独 import 崩溃
     import transformers  # noqa: F401
     from xianyu_hunter.modules.chatbot.embedding_service import EmbeddingService
