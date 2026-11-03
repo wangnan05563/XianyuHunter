@@ -1364,6 +1364,23 @@ def _build_live_search_error_sse(err_msg: str) -> dict:
     return {"stage": "error", "detail": f"闲鱼搜索失败: {err_msg}", "status": 502}
 
 
+def _live_unavailable_response(code: str, detail: str) -> StreamingResponse:
+    """依赖不可用时仍以 200 开流，用单条 SSE error 事件表达「暂不可用」（E3）
+
+    为什么不再抛 503：采集器关闭 / 浏览器未初始化是部署期或启动态，不是这次请求的错。
+    恒定的 HTTP 503 会把长跑与线上监控的 5xx 指标灌满 —— 30 min 耐久里全部 795 次 5xx
+    都来自这个前置检查，真实故障反而被淹没。事件里的 status/code/detail 与原先的 HTTP
+    错误体逐字段一致，前端 dispatchSSEEvent 会把它还原成 makeHttpError(status, {detail,
+    code})，错误分类（liveSearchError.ts 按 code 优先）与提示文案都不变。
+    """
+    event = {"stage": "error", "status": 503, "code": code, "detail": detail}
+
+    async def _one_event():
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(_one_event(), media_type="text/event-stream")
+
+
 def _check_live_cache(task_id: str, live_start: float) -> dict | None:
     """检查 live 缓存，命中时返回归一化结果，未命中返回 None"""
     cached = _live_cache.get(task_id)
@@ -1574,22 +1591,18 @@ async def live_links(
     """
     # 多用户隔离：live 主用途为查询（返回搜索结果），用 None
     user_id = getattr(request.state, "user_id", None)
-    # 前置检查（快速失败，返回正常 HTTP 错误码）
+    # 前置检查：404/400 是请求本身的问题，保留真实 HTTP 语义；
+    # 依赖不可用（调度器/浏览器）改为 200 + 流内 error 事件，见 _live_unavailable_response
     task = container.repo.get_task(task_id, user_id=user_id)
     if not task:
         raise HTTPException(status_code=404, detail=_TASK_NOT_FOUND)
     if not container.collector:
-        raise CodedHTTPException(
-            status_code=503,
-            code="scheduler_off",
-            detail="实时搜索需要浏览器实例，请以 XH_WITH_SCHEDULER=1 模式启动",
+        return _live_unavailable_response(
+            "scheduler_off",
+            "实时搜索需要浏览器实例，请以 XH_WITH_SCHEDULER=1 模式启动",
         )
     if not container.browser:
-        raise CodedHTTPException(
-            status_code=503,
-            code="browser_unavailable",
-            detail="浏览器实例未初始化，请重启服务",
-        )
+        return _live_unavailable_response("browser_unavailable", "浏览器实例未初始化，请重启服务")
 
     keyword = task.get("keyword", "")
     if not keyword:

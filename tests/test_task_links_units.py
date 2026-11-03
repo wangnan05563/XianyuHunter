@@ -1311,11 +1311,22 @@ def test_live_links_endpoint(client, container, monkeypatch) -> None:
     container.repo.get_task.return_value = None
     assert client.get("/api/tasks/t1/links/live").status_code == 404
 
+    # E3：依赖不可用不再用 HTTP 503（30 min 长跑里全部 795 次 5xx 都来自这里），
+    # 改 200 + 单条 SSE error 事件；事件字段与旧 HTTP 错误体一致，前端据此还原同样的错误
     container.repo.get_task.return_value = {"id": "t1", "keyword": "iPhone"}
-    assert client.get("/api/tasks/t1/links/live").status_code == 503
+    resp = client.get("/api/tasks/t1/links/live")
+    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/event-stream")
+    assert _sse_payload(resp.text.strip()) == {
+        "stage": "error", "status": 503, "code": "scheduler_off",
+        "detail": "实时搜索需要浏览器实例，请以 XH_WITH_SCHEDULER=1 模式启动",
+    }
 
     container.collector = _collector()
-    assert client.get("/api/tasks/t1/links/live").status_code == 503
+    resp = client.get("/api/tasks/t1/links/live")
+    assert resp.status_code == 200
+    event = _sse_payload(resp.text.strip())
+    assert event["stage"] == "error" and event["status"] == 503
+    assert event["code"] == "browser_unavailable" and "浏览器实例未初始化" in event["detail"]
 
     container.browser = _Browser()
     container.repo.get_task.return_value = {"id": "t1", "keyword": ""}
