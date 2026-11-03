@@ -1,0 +1,149 @@
+{
+ "label": "before_r1",
+ "port": 64983,
+ "pid": 20796,
+ "sql_warm_single": [
+  "SELECT * FROM users WHERE user_id=?",
+  "SELECT orders.id, orders.task_id, orders.item_id, orders.seller_id, orders.order"
+ ],
+ "sql_steady_3x": [
+  "SELECT * FROM users WHERE user_id=?",
+  "SELECT orders.id, orders.task_id, orders.item_id, orders.seller_id, orders.order",
+  "SELECT * FROM users WHERE user_id=?",
+  "SELECT orders.id, orders.task_id, orders.item_id, orders.seller_id, orders.order",
+  "SELECT * FROM users WHERE user_id=?",
+  "SELECT orders.id, orders.task_id, orders.item_id, orders.seller_id, orders.order"
+ ],
+ "ladder": [
+  {
+   "concurrency": 1,
+   "n": 96,
+   "avg": 9.0,
+   "p50": 8.1,
+   "p95": 12.0,
+   "p99": 29.0,
+   "max": 29.0,
+   "codes": {
+    "200": 96
+   },
+   "defect_rate": 0.0
+  },
+  {
+   "concurrency": 16,
+   "n": 96,
+   "avg": 115.4,
+   "p50": 108.6,
+   "p95": 177.4,
+   "p99": 216.6,
+   "max": 216.6,
+   "codes": {
+    "200": 96
+   },
+   "defect_rate": 0.0
+  },
+  {
+   "concurrency": 48,
+   "n": 96,
+   "avg": 256.2,
+   "p50": 318.5,
+   "p95": 403.9,
+   "p99": 432.9,
+   "max": 432.9,
+   "codes": {
+    "200": 96
+   },
+   "defect_rate": 0.0
+  },
+  {
+   "concurrency": 96,
+   "n": 96,
+   "avg": 315.6,
+   "p50": 342.5,
+   "p95": 428.7,
+   "p99": 440.5,
+   "max": 440.5,
+   "codes": {
+    "200": 96
+   },
+   "defect_rate": 0.0
+  }
+ ],
+ "control_ladder": {
+  "/api/auth/me/refresh": [
+   {
+    "concurrency": 1,
+    "avg": 5.3,
+    "p50": 5.1,
+    "p95": 6.1,
+    "codes": {
+     "200": 96
+    }
+   },
+   {
+    "concurrency": 16,
+    "avg": 61.9,
+    "p50": 62.1,
+    "p95": 74.8,
+    "codes": {
+     "200": 96
+    }
+   },
+   {
+    "concurrency": 48,
+    "avg": 139.7,
+    "p50": 157.1,
+    "p95": 185.8,
+    "codes": {
+     "200": 96
+    }
+   },
+   {
+    "concurrency": 96,
+    "avg": 221.6,
+    "p50": 241.3,
+    "p95": 328.0,
+    "codes": {
+     "200": 96
+    }
+   }
+  ],
+  "/api/auth/__no_such__": [
+   {
+    "concurrency": 1,
+    "avg": 6.2,
+    "p50": 2.9,
+    "p95": 20.4,
+    "codes": {
+     "401": 96
+    }
+   },
+   {
+    "concurrency": 16,
+    "avg": 32.7,
+    "p50": 34.9,
+    "p95": 42.6,
+    "codes": {
+     "401": 96
+    }
+   },
+   {
+    "concurrency": 48,
+    "avg": 63.6,
+    "p50": 72.4,
+    "p95": 95.6,
+    "codes": {
+     "401": 96
+    }
+   },
+   {
+    "concurrency": 96,
+    "avg": 65.6,
+    "p50": 66.6,
+    "p95": 109.7,
+    "codes": {
+     "401": 96
+    }
+   }
+  ]
+ }
+}

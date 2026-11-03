@@ -28,7 +28,10 @@ from xianyu_hunter.web.deps import get_container
 from xianyu_hunter.web.services.auth_manager import get_auth_manager
 from xianyu_hunter.web.utils import owner_user_id
 from xianyu_hunter.web.routes.auth_helpers import make_auth_response
-from xianyu_hunter.web.services.notification_engine import scan_and_notify
+from xianyu_hunter.web.services.notification_engine import (
+    ORDER_SCAN_MIN_INTERVAL_SEC,
+    scan_and_notify,
+)
 from xianyu_hunter.web.services.cookie_store import get_cookie_store, _GOOFISH_KEY_COOKIES as _KEY_COOKIES
 
 logger = logging.getLogger(__name__)
@@ -400,10 +403,16 @@ def auth_me(request: Request, container: Container = Depends(get_container)):
     # 否则通知落到 A 的名下、A 的列表按自己的命名空间却查不到。
     # /api/auth/* 可能在 PUBLIC_PREFIXES 里（中间件不注入 state.user_id），
     # 此时回退到本地 token 解析，保证"谁掉线就通知谁"。
+    # 身份复用本轮开头解析出的 current_uid：这里原先又调了一次
+    # `_resolve_current_user_id`，而 `verify_session` 全程持 UserManager 的
+    # 进程级 `_lock`（锁范围盖住查库），等于每个 /me 两次串行化点（C2-①）。
+    # min_scan_interval：/me 是控制台每页必经调用，订单超时扫描按用户节流
+    # 30 s，最松一档阈值 5 min 不受影响，却把每请求一条 list_orders 去掉（C2-⑤）。
     scan_and_notify(
         container,
         auth_state=result,
-        user_id=_resolve_current_user_id(request) or owner_user_id(request),
+        user_id=current_uid or owner_user_id(request),
+        min_scan_interval=ORDER_SCAN_MIN_INTERVAL_SEC,
     )
 
     # 已登录时确保浏览器持有 xh_token 认证 cookie

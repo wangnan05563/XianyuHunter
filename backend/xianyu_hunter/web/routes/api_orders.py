@@ -171,8 +171,10 @@ def list_orders(
         if o.get("status") == OrderStatus.TAKEOVER_PENDING.value:
             _apply_takeover_deadline(o, now)
     # H-05 修复：通知扫描从 list_orders 移至按需端点，避免每次列表请求都触发全量扫描。
-    # scan_and_notify 现在仅由 /api/notifications/scan 显式触发或定时任务调用，
-    # 不再随订单列表请求自动执行（消除不必要的 DB 开销）。
+    # 实况更正（C2 取证）：注释里指向的 /api/notifications/scan 端点并不存在，
+    # 当前唯一的顺手触发点是 GET /api/auth/me（按用户节流 30 s，见
+    # notification_engine.ORDER_SCAN_MIN_INTERVAL_SEC）。
+    # 若将来恢复别的触发点，别再挂回订单列表——那是本接口最高频的读路径。
     by_status = container.repo.count_orders_by_status(
         task_id=task_id, item_id=item_id, user_id=user_id)
     return {"items": rows, "count": len(rows), "total": total,

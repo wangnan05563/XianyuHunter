@@ -10,10 +10,15 @@
 2. AuthDownRule：检测登录态从"已登录" → "未登录"时告警（首次 + 重复提醒分级）
 
 调用入口：scan_and_notify() → 聚合所有规则
-由 list_orders / auth_me 等高频接口顺手触发
+`list_orders` 已不再顺手触发（H-05），现在唯一的顺手触发点是 `GET /api/auth/me`
+——它是控制台每个页面加载的必经调用。为了不把这个扫描变成"每请求一条 SQL"，
+`/me` 传入 `min_scan_interval`（见 ORDER_SCAN_MIN_INTERVAL_SEC）：同一用户在窗口内
+只做一次全量扫描。节流放在请求路径而不是另起 cron，正是本模块「零侵入」原则的延续。
 """
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 from loguru import logger
@@ -33,8 +38,41 @@ ORDER_TIMEOUT_RULES: list[tuple[int, str, str]] = [
     (30, "err", "30min"),
 ]
 
+# 顺手触发的扫描窗口（秒）。取 30 s 的判据：最松的一档阈值是 5 min，
+# 30 s 窗口最多让一条超时提醒晚 30 s 出现（1% 的阈值跨度），却能把
+# 「每个 /me 请求一条 list_orders(limit=200)」压成「每用户每 30 s 一条」。
+ORDER_SCAN_MIN_INTERVAL_SEC = 30.0
 
-def scan_order_timeouts(container: Container, user_id: str | None = None) -> int:
+# 各用户上轮扫描时刻（monotonic）。锁只为保护这个字典本身，
+# 不用 `dict.setdefault` 之类的原子写法是因为读取与写回必须成对比较。
+_last_scan_at: dict[str, float] = {}
+_scan_gate_lock = threading.Lock()
+
+
+def _scan_gate_allowed(key: str, min_interval: float) -> bool:
+    """判断本轮扫描是否放行，并在放行时登记时刻（min_interval<=0 恒放行）"""
+    if min_interval <= 0:
+        return True
+    now = time.monotonic()
+    with _scan_gate_lock:
+        last = _last_scan_at.get(key)
+        if last is not None and now - last < min_interval:
+            return False
+        _last_scan_at[key] = now
+    return True
+
+
+def reset_scan_gate() -> None:
+    """清空节流窗口（供测试与其他显式触发方使用）"""
+    with _scan_gate_lock:
+        _last_scan_at.clear()
+
+
+def scan_order_timeouts(
+    container: Container,
+    user_id: str | None = None,
+    min_interval: float = 0.0,
+) -> int:
     """扫描超时订单，按阈值生成/更新业务通知。
 
     user_id（T02618）：扫描范围与通知归属同一个值——只扫这个用户的订单，
@@ -42,8 +80,14 @@ def scan_order_timeouts(container: Container, user_id: str | None = None) -> int
     与路由侧 `owner_user_id` 同源，否则「扫描按 A、通知落 default、列表按 A 过滤」
     三方错位，A 永远看不到自己的超时提醒。
 
+    min_interval > 0 时按用户节流：窗口内的重复调用直接返回 0，不再触碰 orders 表
+    （None 归入 "*" 一档）。默认 0 = 每次都扫，保持显式调用方（测试、按需扫描端点）
+    的原有语义不变。
+
     Returns: 新增/刷新的通知数（仅统计本轮实际触发的）。
     """
+    if not _scan_gate_allowed(user_id or "*", min_interval):
+        return 0
     orders = container.repo.list_orders(limit=200, user_id=user_id) or []
     now = _utcnow()
     triggered = 0
@@ -142,6 +186,7 @@ def scan_and_notify(
     container: Container,
     auth_state: dict[str, Any] | None = None,
     user_id: str | None = None,
+    min_scan_interval: float = 0.0,
 ) -> dict[str, int]:
     """聚合入口：执行所有规则，返回各类触发数
 
@@ -153,10 +198,14 @@ def scan_and_notify(
             原先既不传范围也不传归属，等于"用 A 的请求给全体订单生成归属 default 的
             通知"，两头都不对：会话用户在自己的通知中心看不到本该属于他的提醒。
             None 时由仓储层兜底 default（单用户安装的行为完全不变）。
+        min_scan_interval: 透传给订单超时扫描的节流窗口（秒）。高频请求路径
+            （`GET /api/auth/me`）传 `ORDER_SCAN_MIN_INTERVAL_SEC`，显式触发方传 0。
     """
     stats: dict[str, int] = {}
     try:
-        stats["order_timeout"] = scan_order_timeouts(container, user_id=user_id)
+        stats["order_timeout"] = scan_order_timeouts(
+            container, user_id=user_id, min_interval=min_scan_interval
+        )
     except Exception as e:  # noqa: BLE001
         # 通知规则失败不能让业务 API 跟着 500
         logger.warning(f"[notify] 订单超时扫描失败: {e}")

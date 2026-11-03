@@ -305,13 +305,19 @@ def test_auth_down_rule_stamps_user(repo, tmp_path, monkeypatch):
 
 
 def test_scan_and_notify_threads_user_to_both_rules(repo, monkeypatch):
-    """聚合入口必须把 user_id 透传给每条规则，漏一条就又是一次同类漂移"""
+    """聚合入口必须把 user_id 透传给每条规则，漏一条就又是一次同类漂移
+
+    这里连 min_interval 一起断言，不只是顺手多测一个参数：`scan_and_notify` 对每条
+    规则都包了 `except Exception → 记 WARNING、该档计 0`，替身签名一旦漂移，异常被
+    吞掉后 `stats` 看起来仍然正常（只有 seen 少一项）。把入参放进断言，让「静默吞掉
+    的 TypeError」必须显式变红。
+    """
     from xianyu_hunter.web.services import notification_engine as eng
 
     seen: list = []
 
-    def _spy_orders(container, user_id=None):
-        seen.append(("order", user_id))
+    def _spy_orders(container, user_id=None, min_interval=0.0):
+        seen.append(("order", user_id, min_interval))
         return 0
 
     def _spy_auth(container, auth_state, user_id=None):
@@ -323,9 +329,10 @@ def test_scan_and_notify_threads_user_to_both_rules(repo, monkeypatch):
 
     stats = eng.scan_and_notify(
         _ContainerShim(repo), auth_state={"logged_in": False}, user_id="alice",
+        min_scan_interval=7.5,
     )
     assert stats == {"order_timeout": 0, "auth_down": 0}
-    assert seen == [("order", "alice"), ("auth", "alice")]
+    assert seen == [("order", "alice", 7.5), ("auth", "alice")]
 
 
 def test_price_drop_notification_follows_task_user(repo):
