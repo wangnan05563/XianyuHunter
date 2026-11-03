@@ -114,15 +114,30 @@ hiddenimports += [
     'xianyu_hunter.infra.repo_sellers',
 ]
 
+# 构建期/测试期专用依赖（T04104 卫生项）：运行期 0 处 import，但 PyInstaller 会经
+# 间接 import 链把它们收进 PYZ（实测 onnx 266 个模块 + _pytest 78 + pluggy 8 + iniconfig 3）。
+# - onnx：仅 scripts/export_embedding_onnx.py 在构建期使用；onnxruntime 运行期不依赖它
+# - pytest 家族：backend/ 与 scripts/launcher.py 均无 import，纯属 numpy.testing 等可选链拉入
+# - PIL.AvifImagePlugin：托盘图标是 Image.new 现画的 RGBA，从不 open 外部图片；
+#   且 Pillow 的 Image.init() 对单个插件 ImportError 是宽容的（只 debug 日志）
+_build_only_excludes = [
+    'onnx',
+    '_pytest', 'pytest', 'pluggy', 'iniconfig',
+    'PIL.AvifImagePlugin',
+]
+
 # onnx 模式：排除 torch / sentence_transformers / transformers（约 -320MB）
 # 注意保留 tokenizers（ONNX 后端运行期仍需分词，由上面的 hiddenimports 收集）
 # 追加 scipy / sklearn：二者仅被 sentence-transformers 链路需要（pip show Required-by 实测），
 # 但 PyInstaller 会经间接 import 链（非 ST 路径的潜在 import）继续收集（实测 -320MB 后仍占 67MB），故显式排除。
 if _EMBEDDING_ENGINE == "onnx":
-    _excludes = ['torch', 'sentence_transformers', 'transformers', 'scipy', 'sklearn']
+    _excludes = _build_only_excludes + [
+        'torch', 'sentence_transformers', 'transformers', 'scipy', 'sklearn',
+    ]
     print("[spec] embedding_engine=onnx：exclude torch/sentence_transformers/transformers/scipy/sklearn")
 else:
-    _excludes = []
+    _excludes = list(_build_only_excludes)
+print(f"[spec] 卫生排除：{', '.join(_build_only_excludes)}")
 
 a = Analysis(
     [os.path.join(repo_root, 'scripts', 'launcher.py')],
@@ -140,6 +155,11 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# ===== UPX 决策（T04104）：显式关闭 =====
+# 原配置 upx=True，但构建机 PATH 无 upx 且 spec 未配 upx_dir，实际收益恒为 0（空转）；
+# 若真启用，DLL 经 UPX 压缩有杀软误报前科（旧评估文档 P1 第 5 条），而 PyInstaller 的
+# PYZ 已用 lzma 压缩，UPX 对 DLL 的边际收益有限。结论：撤掉空转开关，不做「看起来开了
+# 其实没开」的配置。
 exe = EXE(
     pyz,
     a.scripts,
@@ -149,7 +169,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
@@ -166,7 +186,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='xianyu-hunter',
 )
