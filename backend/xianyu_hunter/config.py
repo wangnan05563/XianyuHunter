@@ -214,8 +214,11 @@ def _persist_to_env(updates: dict[str, str]) -> None:
         if stripped and not stripped.startswith("#") and "=" in stripped:
             key = stripped.split("=", 1)[0].strip()
             if key in updates:
-                new_lines.append(f"{key}={updates[key]}")
-                updated_keys.add(key)
+                # 同名 key 可能已有多行（历史追加造成，见 T04183）：只在首次出现处落新值，
+                # 其余重复行丢弃。逐行改写的话一次 upsert 会留下 N 行同值，文件永远收敛不下来。
+                if key not in updated_keys:
+                    new_lines.append(f"{key}={updates[key]}")
+                    updated_keys.add(key)
                 continue
         new_lines.append(line)
 
@@ -232,15 +235,9 @@ def _persist_to_env(updates: dict[str, str]) -> None:
 
 
 def _generate_and_persist_token() -> str:
-    """生成随机 token 并追加到 .env 文件"""
+    """生成随机 token 并写入 .env（走 upsert 通道，同名行原地替换而非追加）"""
     token = _secrets.token_urlsafe(32)
-    env_path = get_env_file()
-    try:
-        line = f"\nWEB_TOKEN={token}\n"
-        with env_path.open("a", encoding="utf-8") as f:
-            f.write(line)
-    except OSError as e:
-        # token 写入失败时仅警告，不阻断启动（用户可手动写入 .env 或通过 /api/auth/verify 设置）
-        import logging
-        logging.getLogger(__name__).warning("WEB_TOKEN 写入 .env 失败: %s", e)
+    # 写失败只警告、不阻断启动（用户可手动写 .env 或经 /api/auth/verify 设置）：
+    # 该语义由 _persist_to_env 内部吞 OSError 提供，不要再在这里另开一条 open("a") 旁路。
+    _persist_to_env({"WEB_TOKEN": token})
     return token
