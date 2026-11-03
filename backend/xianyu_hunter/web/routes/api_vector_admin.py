@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -175,6 +176,88 @@ async def get_status() -> dict[str, Any]:
         "data_size_display": _format_size(main_size),
         "snapshot_count": len(snapshots),
         "last_snapshot_at": snapshots[0]["created_at"] if snapshots else None,
+    }
+
+
+# ============== 只读检索探针 ==============
+
+@router.get("/search-probe")
+async def search_probe(
+    q: str = Query(..., min_length=1, max_length=500, description="检索文本"),
+    top_k: int | None = Query(None, ge=1, le=20, description="覆盖 RAG top_k，缺省用配置值"),
+) -> dict[str, Any]:
+    """只读向量检索探针：分阶段证明 embed → count → search，不落任何写入。
+
+    为什么不走 RAGEngine.retrieve：它把「embed 失败」「集合为空」「全部低于阈值」统统
+    返回空列表（rag_engine.py:124 起），验收时读不出链路断在哪一环。发布验收要证的正是
+    冻结包内 embedding→query 这条运行期链路被真正跑通，所以这里拆开调三个阶段。
+    """
+    chatbot = _get_chatbot_or_403()
+    vector_store = chatbot["vector_store"]
+    embedding_service = chatbot["embedding_service"]
+    rag_cfg = chatbot["config"].rag
+
+    from xianyu_hunter.config import get_settings
+
+    settings = get_settings()
+    k = top_k if top_k is not None else rag_cfg.top_k
+    count_before = await vector_store.count()
+
+    t0 = time.perf_counter()
+    query_vec = await embedding_service.embed(q)
+    embed_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    payload: dict[str, Any] = {
+        "query": q,
+        "engine": settings.embedding_engine,
+        "collection_name": vector_store.collection_name,
+        "persist_path": str(vector_store.persist_path),
+        "chunk_count_before": count_before,
+        "embedding_dim": len(query_vec),
+        "embed_ms": embed_ms,
+        "top_k": k,
+        "similarity_threshold": rag_cfg.similarity_threshold,
+        "raw_hits": [],
+        "hits": [],
+    }
+
+    if not query_vec:
+        return {**payload, "outcome": "EMBEDDING_UNAVAILABLE",
+                "message": "向量化失败：embedding 引擎不可用（详见 EmbeddingService 日志）"}
+    if count_before == 0:
+        # 集合为空时 chroma 的 query 必然零命中，检索本身没有信息量——但 embed 已经跑通，
+        # 这仍是「引擎可用」的证据，所以把两件事分开报，别让空库把探针整体判成失败。
+        return {**payload, "outcome": "EMPTY_COLLECTION",
+                "message": "向量化成功但集合为空，检索无结果（需先重建知识库才能有命中）"}
+
+    raw = await vector_store.search(query_vec, top_k=k)
+    hits = [c for c in raw if c.get("similarity", 0.0) >= rag_cfg.similarity_threshold]
+    # 三种「没结果」的排障方向完全不同，不塌成一个：
+    # NO_MATCH = 集合有内容但 chroma 一条都没召回；BELOW_THRESHOLD = 召回了但全部低于阈值。
+    outcome = "OK" if hits else ("BELOW_THRESHOLD" if raw else "NO_MATCH")
+    return {
+        **payload,
+        "raw_hits": [
+            {
+                "source_file": c["source_file"],
+                "section_path": c["section_path"],
+                "similarity": round(c["similarity"], 4),
+                "snippet": c["content"][:200],
+            }
+            for c in raw
+        ],
+        "hits": [
+            {
+                "source_file": c["source_file"],
+                "section_path": c["section_path"],
+                "line_start": c["line_start"],
+                "line_end": c["line_end"],
+                "similarity": round(c["similarity"], 4),
+            }
+            for c in hits
+        ],
+        "outcome": outcome,
+        "chunk_count_after": await vector_store.count(),
     }
 
 
