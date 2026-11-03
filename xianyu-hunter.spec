@@ -59,7 +59,26 @@ def safe_collect_submodules(pkg_name):
 
 # (c) 含 C 扩展的依赖全量子模块收集（缺失则跳过）
 hiddenimports = []
-hiddenimports += safe_collect_submodules('chromadb')
+_chroma_mods = safe_collect_submodules('chromadb')
+# chromadb 1.5.9 的默认后端是 chromadb.api.rust.RustBindingsAPI（chromadb/__init__.py 实测）。
+# 该子树一旦没进包，冻结包的向量检索/RAG 会在运行期才炸，而构建期一片绿灯——
+# T04093 取证到的正是这种形态（构建 venv 里 python-dotenv 只剩 dist-info 壳，
+# collect_submodules 抛 ModuleNotFoundError 被 safe_collect_submodules 吞成空列表）。
+# 断言按「收集结果」而非「是否抛异常」：collect_submodules 对可选子树
+# （chromadb.server.fastapi 缺 opentelemetry）只告警不抛，全量 raise 会误伤正常构建。
+if "chromadb.api.rust" not in _chroma_mods:
+    raise RuntimeError(
+        "[spec] chromadb 子模块收集缺少 chromadb.api.rust（仅收到 %d 个），"
+        "打包版向量检索会断链，构建中止。根因通常是构建 venv 依赖残缺"
+        "（dist-info 壳在、包体已被删；pip 会判为已安装而跳过修复）。修复命令：\n"
+        "  .venv-build\\Scripts\\python -m pip install --force-reinstall --no-deps "
+        "python-dotenv protobuf python-dateutil\n"
+        "自检命令：\n"
+        "  .venv-build\\Scripts\\python -c \"import chromadb.api.rust; print('ok')\""
+        % len(_chroma_mods)
+    )
+print(f"[spec] chromadb 收集 {len(_chroma_mods)} 个子模块（含 chromadb.api.rust）")
+hiddenimports += _chroma_mods
 hiddenimports += safe_collect_submodules('onnxruntime')
 # tokenizers：ONNX 后端运行期需要分词，两种引擎模式都保留（不 exclude）
 hiddenimports += safe_collect_submodules('tokenizers')

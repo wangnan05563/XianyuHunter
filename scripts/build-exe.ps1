@@ -232,6 +232,18 @@ if (-not (Test-Path ".venv-build\Scripts\pyinstaller.exe")) {
     Invoke-BuildPip -PipArgs @("install", "pyinstaller", "--quiet") -FailureMessage "PyInstaller 安装失败"
 }
 
+# 依赖完整性自检（按「能不能 import」判，不按 pip 是否认为已装判）
+# 为什么必须走 import：构建 venv 可能出现「dist-info 壳还在、包体已被删」的残缺态
+# （T04102 实测：python-dotenv/protobuf/python-dateutil 均为此态）。此时
+# `pip install -e .[build]` 会判定「已安装」直接跳过（实测复现：装完仍 ModuleNotFoundError），
+# 于是 chromadb 收集不到 chromadb.api.rust，向量检索要到冻结包运行期才炸。
+Write-Host "  校验构建 venv 依赖可导入性..." -ForegroundColor DarkGray
+& $buildPython -c "import dotenv, yaml, chromadb, chromadb.api.rust, onnxruntime, tokenizers" 2>&1 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+if ($LASTEXITCODE -ne 0) {
+    throw "构建 venv 依赖残缺（上方 import 失败）。修复命令：`n  .venv-build\Scripts\python -m pip install --force-reinstall --no-deps python-dotenv protobuf python-dateutil pyyaml`n或整体重建：删除 .venv-build 后重跑本脚本"
+}
+Write-Host "  依赖可导入性校验通过" -ForegroundColor Green
+
 # ============== 2. 锁定依赖 ==============
 Write-Host "`n[2/6] 锁定依赖..." -ForegroundColor Yellow
 & $buildPython -m pip freeze > requirements-lock.txt
