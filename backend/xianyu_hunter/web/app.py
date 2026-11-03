@@ -485,11 +485,12 @@ def create_app() -> FastAPI:
         contact={"name": "GitHub Issues", "url": "https://github.com/xianyu-hunter/xianyu-hunter/issues"},
         # 开源协议
         license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
-        # 术语服务器（占位，便于后续扩展）
-        openapi_extra={
-            "x-logo": {"url": "/favicon.ico", "altText": "闲鱼猎人 Logo"},
-        },
     )
+
+    # OpenAPI 附加字段只能构造后赋值，不能写成 FastAPI(openapi_extra=...) 参数：
+    # 构建 venv 的 fastapi 0.162 去掉了 __init__ 的 **kwargs，未知关键字当场 TypeError；
+    # 运行 venv 的 0.136 还有 **kwargs 兜着，于是源码一切正常、冻结包启动即崩（T04179）。
+    app.openapi_extra = {"x-logo": {"url": "/favicon.ico", "altText": "闲鱼猎人 Logo"}}
 
     # Token 认证中间件（C-01：所有 API 端点鉴权）
     setup_auth_middleware(app)

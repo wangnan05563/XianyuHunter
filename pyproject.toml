@@ -9,7 +9,9 @@ description = "闲鱼自动捡漏与抢单系统"
 requires-python = ">=3.10"
 dependencies = [
     # Web 框架
-    "fastapi>=0.110",
+    # 上界照 playwright 的先例钉到已验证 minor：fastapi 0.137+ 移除了 FastAPI.__init__
+    # 的 **kwargs，运行 venv 与构建 venv 各自解析到不同大版本时，冻结包会启动即崩（T04179）
+    "fastapi>=0.110,<0.137",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.6",      # FastAPI UploadFile 支持
     # CLI

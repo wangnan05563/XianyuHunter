@@ -257,6 +257,22 @@ Write-Host "  校验构建 venv 依赖可导入性..." -ForegroundColor DarkGray
 if ($LASTEXITCODE -ne 0) {
     throw "构建 venv 依赖残缺（上方 import 失败）。修复命令：`n  .venv-build\Scripts\python -m pip install --force-reinstall --no-deps python-dotenv protobuf python-dateutil pyyaml`n或整体重建：删除 .venv-build 后重跑本脚本"
 }
+# 冻结包真实入口自检（T04179）：依赖「装没装」不等于入口「起不起得来」。
+# fastapi 这类 Web 层大版本漂移（0.137+ 移除 FastAPI.__init__ 的 **kwargs）只在导入
+# 入口时暴露；少了这一步就是构建期一片绿灯、崩溃推迟到用户双击安装包。
+# 这里必须临时把 EAP 放回 Continue：本脚本顶部是 Stop，而 `2>&1` 会把 stderr 变成
+# ErrorRecord——入口导入只要往 stderr 写过一行日志就会被当成 terminating error，
+# 于是既拿不到下面的可诊断文案，还可能因无害告警误杀构建。
+Write-Host "  校验冻结包 Web 入口可导入..." -ForegroundColor DarkGray
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$entryProbe = & $buildPython -c "import sys; sys.path.insert(0, 'backend'); from xianyu_hunter.web.app import app; print('[entry] Web 入口可导入，路由数 =', len(app.routes))" 2>&1
+$entryProbeCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+$entryProbe | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+if ($entryProbeCode -ne 0) {
+    throw "冻结包 Web 入口在构建 venv 中导入失败（上方为原始异常，退出码 $entryProbeCode）。多为运行 venv 与构建 venv 的 Web 层版本漂移，先比对：`n  .venv-build\Scripts\python -c ""import fastapi; print(fastapi.__version__)""  vs  .venv\Scripts\python -c ""import fastapi; print(fastapi.__version__)""`n再按 pyproject.toml 的上界对齐（fastapi>=0.110,<0.137）"
+}
 Write-Host "  依赖可导入性校验通过" -ForegroundColor Green
 
 # ============== 2. 锁定依赖 ==============

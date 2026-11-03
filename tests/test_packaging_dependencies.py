@@ -21,6 +21,34 @@ def test_playwright_dependency_is_pinned_to_verified_minor() -> None:
     assert playwright_specs == ["playwright>=1.60,<1.61"]
 
 
+def test_fastapi_dependency_is_pinned_to_verified_minor() -> None:
+    """T04179：fastapi 必须有已验证上界。
+
+    0.137+ 移除了 FastAPI.__init__ 的 **kwargs；没有上界时运行 venv 与构建 venv 会
+    各自解析到不同大版本（实测 0.136.3 / 0.162.0），构建期全绿、冻结包启动即崩。
+    """
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = pyproject["project"]["dependencies"]
+
+    fastapi_specs = [dep for dep in dependencies if dep.lower().startswith("fastapi")]
+
+    assert fastapi_specs == ["fastapi>=0.110,<0.137"]
+
+
+def test_web_entry_does_not_pass_unknown_kwargs_to_fastapi_constructor() -> None:
+    """T04179：入口构造只传两边都存在的参数，多余字段用属性赋值。
+
+    判据不是风格：`FastAPI(openapi_extra=...)` 在旧版被 **kwargs 静默吸收、
+    在新版当场 TypeError，正是「源码正常、包内崩」的形态。
+    """
+    source = (ROOT / "backend" / "xianyu_hunter" / "web" / "app.py").read_text(encoding="utf-8")
+    call = re.search(r"app\s*=\s*FastAPI\((.*?)\n    \)", source, re.S)
+    assert call, "未找到 FastAPI(...) 构造块"
+    assert "openapi_extra=" not in call.group(1), "openapi_extra 必须以 app.openapi_extra 赋值，不能进构造参数"
+    assert re.search(r"^\s*app\.openapi_extra\s*=", source, re.M), "app.openapi_extra 赋值缺失"
+
+
+
 # ---------------------------------------------------------------------------
 # T04104：spec 卫生排除 + UPX 明确决策
 # ---------------------------------------------------------------------------
