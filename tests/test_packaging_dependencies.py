@@ -122,3 +122,37 @@ def test_excluded_modules_are_not_needed_at_runtime() -> None:
     assert result.returncode == 0, f"探针失败：\n{result.stdout}\n{result.stderr}"
     assert "PROBE_OK" in result.stdout, result.stdout
 
+
+# ---------------------------------------------------------------------------
+# T04110：requirements-lock.txt 必须是可读文本（PowerShell 的 `>` 会写成 UTF-16 LE）
+# ---------------------------------------------------------------------------
+
+_LOCK = ROOT / "requirements-lock.txt"
+_BUILD_PS1 = ROOT / "scripts" / "build-exe.ps1"
+
+
+def test_requirements_lock_is_utf8_text() -> None:
+    raw = _LOCK.read_bytes()
+    assert not raw.startswith((b"\xff\xfe", b"\xfe\xff")), "锁文件是 UTF-16，git 会当二进制、diff/grep 全废"
+    assert not raw.startswith(b"\xef\xbb\xbf"), "锁文件带 UTF-8 BOM，pip -r 解析易出错"
+    text = raw.decode("utf-8")  # 非 UTF-8 时这里就抛
+    lines = [line for line in text.splitlines() if line.strip()]
+    assert len(lines) > 50, f"锁文件行数异常：{len(lines)}"
+    assert "\r" not in text, "锁文件应统一 LF，避免与 git 的 text 归一化打架"
+
+
+def test_build_script_does_not_redirect_pip_freeze_with_shell() -> None:
+    """守门：`pip freeze > file` 这一行就是缺陷本体，别让它回来。
+
+    Windows PowerShell 的重定向落 UTF-16 LE + BOM，与 python 侧写出的字节完全不同；
+    只有跑完整构建才看得见，所以按源码形态判。
+    """
+    text = _BUILD_PS1.read_text(encoding="utf-8")
+    offenders = [
+        line.strip()
+        for line in text.splitlines()
+        if re.search(r"pip\s+freeze\s*>", line)
+    ]
+    assert not offenders, f"build-exe.ps1 用 shell 重定向写锁文件：{offenders}"
+
+

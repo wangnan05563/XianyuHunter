@@ -261,8 +261,12 @@ Write-Host "  依赖可导入性校验通过" -ForegroundColor Green
 
 # ============== 2. 锁定依赖 ==============
 Write-Host "`n[2/7] 锁定依赖..." -ForegroundColor Yellow
-& $buildPython -m pip freeze > requirements-lock.txt
-Write-Host "  依赖已锁定到 requirements-lock.txt"
+# 不能让 PowerShell 的 `>` 写这份锁文件：PS 5.1 的重定向产出 UTF-16 LE + BOM，
+# git 会把它当二进制（diff 直接 "Binary files differ"）、python 用 utf-8 读会抛
+# UnicodeDecodeError，锁文件等于没有（T04110）。改由 python 自己落 UTF-8 无 BOM + LF。
+& $buildPython -c "import subprocess,sys,pathlib; pathlib.Path('requirements-lock.txt').write_bytes(subprocess.check_output([sys.executable,'-m','pip','freeze']).replace(b'\r\n', b'\n'))"
+if ($LASTEXITCODE -ne 0) { throw "依赖锁定失败（pip freeze 退出码 $LASTEXITCODE）" }
+Write-Host "  依赖已锁定到 requirements-lock.txt（UTF-8 无 BOM）"
 
 if ($DepsOnly) {
     Write-Host "`n[DepsOnly] 构建 venv 与 Python 依赖验证完成" -ForegroundColor Green
