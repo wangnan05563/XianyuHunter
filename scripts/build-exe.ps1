@@ -7,8 +7,11 @@
 #   powershell -File scripts/build-exe.ps1 -SkipDeps  # 跳过 pip/npm 依赖安装（仅依赖无变更时用）
 #   powershell -File scripts/build-exe.ps1 -DepsOnly  # 仅验证/修复构建 venv 与 Python 依赖
 #   powershell -File scripts/build-exe.ps1 -Clean     # 清理所有缓存重新下载（怀疑缓存损坏时用）
+#   powershell -File scripts/build-exe.ps1 -FailOnSizeRegression   # 体积回归即失败（发布流水线用）
 #
 # 产物：release/xianyu-hunter/ 目录 + release/XianyuHunter-Setup-v*.exe
+#       体积归因报表：.cache/size-report/size-<UTC>-<engine>.json（当次）
+#                     .cache/size-report/latest.json（下次构建的基线）
 #
 # 缓存策略（避免重复下载）：
 # - .venv-build/         venv 增量更新（pip install 自动跳过已安装包）
@@ -23,6 +26,7 @@
 # 4. PyInstaller 打包
 # 5. 复制外置资源（SPA + 子进程脚本 + Chromium + 模型）
 # 6. 制作安装包（Inno Setup）
+# 7. 体积归因报表 + 版本间体积回归门禁（scripts/analyze_bundle_size.py）
 
 param(
     [switch]$SkipSPA,
@@ -36,7 +40,10 @@ param(
     # 默认不随包（Lite）：运行时优先复用系统 Edge/Chrome，缺失则首启下载。
     # 指定 -BundleBrowser 时产出 Full 包，并额外产出一个 Lite 安装包（同一份 dist，
     # 仅在 Inno Setup 层排除 playwright_browsers，无需二次 PyInstaller 构建）。
-    [switch]$BundleBrowser
+    [switch]$BundleBrowser,
+    # 步骤 7 的体积回归门禁：任一顶层组件较上次落盘基线 +50MB 或 +5%（先到为准）即非零退出。
+    # 默认只打印 WARN 不阻断，避免归因报表本身把一次正常构建打成失败。
+    [switch]$FailOnSizeRegression
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,6 +80,9 @@ $modelCacheDir = "$cacheDir\models\bge-small-zh-v1.5"
 #   迁出后 release 只含纯产物（整目录删除可由脚本完整重建），且 workpath 增量缓存得以保留，
 #   减少 release 体积（约 -257MB）与磁盘压力。
 $pyiWorkDir = "$cacheDir\pyinstaller-work"
+# 体积归因报表落盘目录：刻意放在 .cache 下（不进 dist、不进安装包），
+# latest.json 作为下一次构建的回归基线（T04106）
+$sizeReportDir = "$cacheDir\size-report"
 $buildVenv = ".venv-build"
 $buildPython = "$buildVenv\Scripts\python.exe"
 $buildVenvReadyMarker = "$buildVenv\.xh-build-ready"
@@ -187,7 +197,7 @@ if ($EmbeddingEngine -eq "onnx") { Write-Host "Embedding 引擎: onnx（排除 t
 else { Write-Host "Embedding 引擎: st（sentence-transformers + torch，默认行为）" }
 
 # ============== 1. venv 增量更新 + 依赖安装 ==============
-Write-Host "`n[1/6] 准备构建 venv..." -ForegroundColor Yellow
+Write-Host "`n[1/7] 准备构建 venv..." -ForegroundColor Yellow
 # 为什么不每次删除重建：pip install 对已安装包会自动跳过，删除重建会让所有包重新解压
 # 仅在 venv 不存在或 -Clean 时创建
 if (-not (Test-Path $buildPython)) {
@@ -250,7 +260,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "  依赖可导入性校验通过" -ForegroundColor Green
 
 # ============== 2. 锁定依赖 ==============
-Write-Host "`n[2/6] 锁定依赖..." -ForegroundColor Yellow
+Write-Host "`n[2/7] 锁定依赖..." -ForegroundColor Yellow
 & $buildPython -m pip freeze > requirements-lock.txt
 Write-Host "  依赖已锁定到 requirements-lock.txt"
 
@@ -262,7 +272,7 @@ if ($DepsOnly) {
 # ============== 3. 构建 SPA ==============
 # 默认每次都重建：避免前端源码已修改但 SPA 产物未更新导致打包后行为不一致
 # 用 -SkipSPA 跳过（仅当确信前端无变更时使用，可省 1-3 分钟）
-Write-Host "`n[3/6] 构建 SPA..." -ForegroundColor Yellow
+Write-Host "`n[3/7] 构建 SPA..." -ForegroundColor Yellow
 $spaIndex = "release\spa\index.html"
 if ($SkipSPA -and (Test-Path $spaIndex)) {
     Write-Host "  SPA 已存在且 -SkipSPA 已指定，跳过构建" -ForegroundColor DarkGray
@@ -346,6 +356,8 @@ if ($SkipSPA -and (Test-Path $spaIndex)) {
     }
 
     Write-Host "  构建 SPA..."
+    # 记录本次 SPA 构建起始时间，供步骤 7 区分「当次活跃资源」与「目录历史残留」（T04180）
+    $script:SpaBuiltAfter = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     npm run build
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "SPA 构建失败" }
     Pop-Location
@@ -354,7 +366,7 @@ if ($SkipSPA -and (Test-Path $spaIndex)) {
 
 # ============== 4. PyInstaller 打包 ==============
 Assert-BuildDiskSpace
-Write-Host "`n[4/6] 运行 PyInstaller 打包..." -ForegroundColor Yellow
+Write-Host "`n[4/7] 运行 PyInstaller 打包..." -ForegroundColor Yellow
 Write-Host "  预计耗时：约 1-3 分钟" -ForegroundColor DarkGray
 # 清理旧产物（dist 每次重建，但缓存独立在 .cache/ 不受影响）
 if (Test-Path "release\xianyu-hunter") {
@@ -386,7 +398,7 @@ if ($EmbeddingEngine -eq "onnx") {
 }
 
 # ============== 5. 复制外置资源 ==============
-Write-Host "`n[5/6] 复制外置资源..." -ForegroundColor Yellow
+Write-Host "`n[5/7] 复制外置资源..." -ForegroundColor Yellow
 
 # 5.1 静态资源（外置到 exe 同级 static 目录，app.py 打包模式经 get_app_dir()/"static" 定位）
 # SPA 单一来源 = 前端编译产物 release/spa（vite outDir）。严禁再从 backend/.../static/spa 拷贝，
@@ -626,7 +638,7 @@ if ($leakFound) {
 Write-Host "    敏感信息扫描通过（无 API Key 痕迹）" -ForegroundColor Green
 
 # ============== 6. 制作安装包（Inno Setup） ==============
-Write-Host "`n[6/6] 构建安装包（Inno Setup）..." -ForegroundColor Yellow
+Write-Host "`n[6/7] 构建安装包（Inno Setup）..." -ForegroundColor Yellow
 
 # 6.1 查找 iscc.exe（Inno Setup 编译器）
 function Find-ISCC {
@@ -757,6 +769,58 @@ if (-not $iscc) {
             }
         }
     }
+}
+
+# ============== 7. 体积归因报表 + 版本间体积回归门禁 ==============
+# 为什么放在安装包之后：报表要同时覆盖 PyInstaller 清单、外置资源与安装包实际内容，
+# 前面任何一步跳过都看不到全貌（T04106）。
+# 落盘目录是 .cache\size-report\，不在 release 下，[Files] 段拷不到它，不会进发布包。
+Write-Host "`n[7/7] 体积归因报表与回归门禁..." -ForegroundColor Yellow
+if (-not (Test-Path $sizeReportDir)) { New-Item -ItemType Directory -Path $sizeReportDir | Out-Null }
+$stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+$sizeSnapshot = Join-Path $sizeReportDir "size-$stamp-$EmbeddingEngine.json"
+$sizeBaseline = Join-Path $sizeReportDir "latest.json"
+if ($pyiWorkDir.StartsWith($repoRoot)) {
+    $pyiWorkRel = $pyiWorkDir.Substring($repoRoot.Length).TrimStart('\', '/') + "\xianyu-hunter"
+} else {
+    $pyiWorkRel = "$cacheDir\pyinstaller-work\xianyu-hunter"
+}
+$analyzerArgs = @(
+    "scripts\analyze_bundle_size.py",
+    "--workpath", $pyiWorkRel,
+    "--json-out", $sizeSnapshot,
+    "--baseline", $sizeBaseline
+)
+if ($script:SpaBuiltAfter) {
+    $analyzerArgs += @("--spa-built-after", $script:SpaBuiltAfter)
+}
+# 版本号与安装包同源：从 __init__.py 读，仅写进 JSON 便于把报表和发布版本对上
+$versionFile = "backend\xianyu_hunter\__init__.py"
+$appVersion = "0.0.0.0"
+if (Test-Path $versionFile) {
+    $vLine = Get-Content $versionFile | Where-Object { $_ -match '__version__' } | Select-Object -First 1
+    if ($vLine -match '"([^"]+)"') { $appVersion = $matches[1] }
+}
+$analyzerArgs += @("--version", $appVersion)
+if ($FailOnSizeRegression) { $analyzerArgs += "--fail-on-regression" }
+& $buildPython @analyzerArgs
+$sizeExit = $LASTEXITCODE
+
+if ($sizeExit -eq 0) {
+    # 只有「无回归」才把本次结果立为下次的基线：否则一旦回归，基线会被污染，
+    # 后续构建都拿膨胀后的体积当正常值比对，门禁就永久失效。
+    Copy-Item $sizeSnapshot $sizeBaseline -Force
+    Write-Host "  体积基线已更新：$sizeBaseline" -ForegroundColor Green
+} elseif (Test-Path $sizeSnapshot) {
+    Copy-Item $sizeSnapshot (Join-Path $sizeReportDir "failed-$stamp-$EmbeddingEngine.json") -Force
+    Write-Host "  [WARN] 本次报表未设为基线（回归或脚本失败）；历史快照保留在 $sizeReportDir" -ForegroundColor Yellow
+}
+
+if ($sizeExit -eq 2) {
+    Write-Host "  [FAIL] 体积回归门禁命中（-FailOnSizeRegression）" -ForegroundColor Red
+    throw "打包产物体积较基线超阈值上涨（+50MB 或 +5%），构建按门禁失败终止。报表：$sizeSnapshot"
+} elseif ($sizeExit -ne 0) {
+    Write-Host "  [WARN] 体积归因脚本退出码 $sizeExit，不阻断构建" -ForegroundColor Yellow
 }
 
 # ============== 完成 ==============
