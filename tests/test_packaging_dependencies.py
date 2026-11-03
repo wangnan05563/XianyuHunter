@@ -36,16 +36,17 @@ def test_fastapi_dependency_is_pinned_to_verified_minor() -> None:
 
 
 def test_web_entry_does_not_pass_unknown_kwargs_to_fastapi_constructor() -> None:
-    """T04179：入口构造只传两边都存在的参数，多余字段用属性赋值。
+    """T04179：入口构造只传两边都存在的参数，不留「靠宽容签名才活着」的字段。
 
     判据不是风格：`FastAPI(openapi_extra=...)` 在旧版被 **kwargs 静默吸收、
     在新版当场 TypeError，正是「源码正常、包内崩」的形态。
+    `app.openapi_extra` 赋值同样禁止——它不进 `app.openapi()`，两个 venv 实测都是死配置。
     """
     source = (ROOT / "backend" / "xianyu_hunter" / "web" / "app.py").read_text(encoding="utf-8")
     call = re.search(r"app\s*=\s*FastAPI\((.*?)\n    \)", source, re.S)
     assert call, "未找到 FastAPI(...) 构造块"
-    assert "openapi_extra=" not in call.group(1), "openapi_extra 必须以 app.openapi_extra 赋值，不能进构造参数"
-    assert re.search(r"^\s*app\.openapi_extra\s*=", source, re.M), "app.openapi_extra 赋值缺失"
+    assert "openapi_extra" not in call.group(1), "FastAPI 构造参数里不得出现版本间签名不一致的关键字"
+    assert not re.search(r"^\s*app\.openapi_extra\s*=", source, re.M), "openapi_extra 属性赋值无消费方，属死配置"
 
 
 

@@ -442,6 +442,8 @@ def _collect_health_checks(container: Any) -> tuple[dict[str, Any], bool]:
 
 
 def create_app() -> FastAPI:
+    # 这里只准传 fastapi 各版本都声明了的参数：0.136 的 `__init__` 还有 `**kwargs` 兜底，
+    # 0.162 已删掉，未知关键字当场 TypeError——运行 venv 一切正常而冻结包启动即崩就是这么来的（T04179）。
     app = FastAPI(
         title="XianyuHunter Web API",
         description=(
@@ -486,11 +488,6 @@ def create_app() -> FastAPI:
         # 开源协议
         license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
     )
-
-    # OpenAPI 附加字段只能构造后赋值，不能写成 FastAPI(openapi_extra=...) 参数：
-    # 构建 venv 的 fastapi 0.162 去掉了 __init__ 的 **kwargs，未知关键字当场 TypeError；
-    # 运行 venv 的 0.136 还有 **kwargs 兜着，于是源码一切正常、冻结包启动即崩（T04179）。
-    app.openapi_extra = {"x-logo": {"url": "/favicon.ico", "altText": "闲鱼猎人 Logo"}}
 
     # Token 认证中间件（C-01：所有 API 端点鉴权）
     setup_auth_middleware(app)
