@@ -328,7 +328,8 @@ def scan_tree(tmp_path, monkeypatch):
     扫描根目录由 get_project_root() 决定（不再跟着 cwd 走），因此这里把锚点
     指到临时目录；大小取 1.5 MB 级别，保证 MB 保留 2 位后不为 0。
     """
-    for rel in ("pkg", "pkg/sub", ".venv/lib", "node_modules/x", "data/chroma"):
+    for rel in ("pkg", "pkg/sub", ".venv/lib", "node_modules/x", "data/chroma",
+                ".venv-build/Lib/site-packages/x"):
         (tmp_path / rel / "__pycache__").mkdir(parents=True)
         (tmp_path / rel / "__pycache__" / "m.pyc").write_bytes(b"\x00" * 1_572_864)
     monkeypatch.setattr(api_maintenance, "get_project_root", lambda: tmp_path)
@@ -363,6 +364,8 @@ def test_pycache_cleanup_preview_and_real_run_hit_real_dirs(scan_tree):
     assert not (scan_tree / "pkg" / "__pycache__").exists()
     assert not (scan_tree / "pkg" / "sub" / "__pycache__").exists()
     assert (scan_tree / ".venv" / "lib" / "__pycache__").exists(), "第三方依赖缓存不该被动"
+    assert (scan_tree / ".venv-build" / "Lib" / "site-packages" / "x" / "__pycache__").exists(), (
+        "构建 venv（.venv-build）的 pycache 不属于应用缓存，不统计也不清理")
 
 
 def test_pycache_real_run_reports_locked_dir_instead_of_fake_success(scan_tree, monkeypatch):

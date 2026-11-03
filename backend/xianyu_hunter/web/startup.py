@@ -799,7 +799,7 @@ def _run_tunnel_autostart(container: Any) -> None:
 async def _warm_stats_cache(container: Any) -> None:
     """P4-3：启动时预热 stats 缓存
 
-    调用 4 个核心计算函数填充 TTL 缓存，避免首个用户请求冷启动。
+    调用 5 个核心计算函数填充 TTL 缓存，避免首个用户请求冷启动。
     每个调用独立 try/except：一个失败不影响其他预热。
     """
     from loguru import logger
@@ -826,6 +826,14 @@ async def _warm_stats_cache(container: Any) -> None:
     # 4. stats_trend (metric=events, range_hours=24)
     from xianyu_hunter.web.routes.trend import _compute_stats_trend
     await _warm_one("stats_trend:events:24", _compute_stats_trend, metric="events", range_hours=24, task_id=None, container=container)
+
+    # 5. maintenance/status（A4）：它是同步 def，要做 6 张表计数 + 日志目录 + `__pycache__`
+    #    全树遍历（实测 ~0.5 s）。不预热时首个打开「清理」页的请求要付这份钱，并且占住一个
+    #    anyio 线程令牌；所以预热也走 to_thread，别把事件循环卡在启动阶段。
+    #    这里拿到的是「扫描进行中」的合法快照：前端会在 /cache-scan 轮询到 done，
+    #    完成瞬间该接口会失效本 key（api_maintenance.py:cache_scan_progress）。
+    from xianyu_hunter.web.routes.api_maintenance import maintenance_status
+    await _warm_one("maintenance_status", asyncio.to_thread, maintenance_status, container=container)
 
 
 def setup_startup_hooks(app: FastAPI) -> None:

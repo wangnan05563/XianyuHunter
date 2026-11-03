@@ -16,7 +16,7 @@
 | A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
 | C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `\U0001F4F7` 转义，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
 | B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
-| A4 | `maintenance/status` 计数降本 | **高** | 单发 1.6 s → ≤200 ms；消除 60 s 超时（曾致 P95 60 033 ms / 37.5% 超时） | 低 |
+| A4 | `maintenance/status` 计数降本 | **高** ✅ **已落地（2026-11-03）** | 完整重算 **2 235 / 5 205 ms → 188 / 170 ms**（「≤200 ms」在重算路径成立），消除 60 s 超时（曾致 P95 60 033 ms / 37.5%）。**归因修正**：6 张表 `COUNT(*)` 每张仅 ~0.1 ms，真正成本是漏排除的 `.venv-build/` pycache（1 578 个目录 / 131.7 MB）；原文 ①②（近似行数/后台计数）因此不成立 | 低 |
 | A1 | 补齐 5 个过滤列索引 | 中 | `prices/category-comparison` 长跑 avg 580.2 → ≤200 ms | 低 |
 | C3 | `_load_yaml` 走单例缓存 | 中 ✅ **部分落地（config memo）** | `config/raw` 132.4 → ≤15 ms 的预期**过高**：实测解析 52 ms、脱敏+序列化另占 ~33 ms，memo 只砍前者（→ 约 80~90 ms）。写侧 `preview/save` 各去掉一次全量读 | 低 |
 | C1 | `_dir_size` 双调用合并 | 中 | ✅ 已落地（2026-11-03）：实测降幅 **43%**（不是 50%，一遍里还有 26% 固定开销），另把 `/status` 的同步走盘移出事件循环；`vector-admin/snapshots` 233.8 → 待复跑（≤120 ms 未证实） | 极低 |
@@ -54,10 +54,22 @@
 **验证方式**：同一 JMX 复跑 + `sqlite3 .stats` 或 `EXPLAIN QUERY PLAN`；比对事件表行数翻倍后的 P95（抗增长才是真收益）。
 
 ### A4. `maintenance/status` 计数降本 — 优先级 **高**
-**具体优化内容**：`web/routes/api_maintenance.py:236-250` 对 `tasks/items/task_links/events/orders/notifications` 逐张 `SELECT COUNT(*)`（`:245`），再 glob 日志目录 + `_cache_scan.snapshot()` 全树遍历。改为：① 用 `PRAGMA`/`sqlite_stat1` 近似行数或维护计数器表；② 全量精确计数移到后台调度任务，接口只读快照；③ 现有 `@cached_ttl(60, …)`（`:235`）把 TTL 提到 300 s 并启用 `stale_while_revalidate` 命中优先。
+**原建议（①② 后被实测修正，见下方落地状态）**：`web/routes/api_maintenance.py:236-250` 对 `tasks/items/task_links/events/orders/notifications` 逐张 `SELECT COUNT(*)`（`:245`），再 glob 日志目录 + `_cache_scan.snapshot()` 全树遍历。改为：① 用 `PRAGMA`/`sqlite_stat1` 近似行数或维护计数器表；② 全量精确计数移到后台调度任务，接口只读快照；③ 现有 `@cached_ttl(60, …)`（`:235`）把 TTL 提到 300 s 并启用 `stale_while_revalidate` 命中优先。
 **证据**：单发探针 1.6 s；**v1 负载轮中该接口 P95 = 60 033 ms（= 客户端 60 s 超时判 000，超时率 37.5%）**，直接把 `baseline_light` 整轮数据打废（该轮已作废重跑）。为控制影响面，最终分层把它判为 `probe_single`（见 `tier-rules.json` 修正规则「单请求耗时 >60 s … 留在负载轮会把整轮 TPS 稀释成假瓶颈」）。
 **量化预期收益**：接口自身 avg **1.6 s → ≤200 ms**；更重要的是**消除 60 s 级超时长尾**，使任何并发档位不再出现整轮污染。
 **验证方式**：把它重新放回 `reads_light` 负载轮复跑，确认 000 计数为 0。
+
+**落地状态（2026-11-03）**：✅ 已落地，但**原文的成本归因被实测推翻**，落地的杠杆也与 ①②③ 不同。`maintenance_cost_probe.py` 在真实库（`mode=ro`）上逐段计时：
+
+- 6 张表 `SELECT COUNT(*)`（events 18 386 行、items 最大）**每张 ~0.1 ms** —— ①「`sqlite_stat1` 近似行数」与 ②「计数移到后台计数器表」**都不成立**：精确计数本来就不要钱，换成近似只是白丢正确性。
+- 增量扫描 `_cache_scan.snapshot(budget=0.5)` 冷 **19~32 ms**、热 **0 ms** —— 预算是上限不是成本。
+- 日志目录：每文件 3 次系统调用（`is_file()` + 两次 `stat()`），8 个文件 **5.7 ms → 1 次 stat 后 1.6 ms**（本机单次 `stat` ≈1.6 ms）。
+- **真正的 1.6 s+ 是 `__pycache__` 全树遍历**：`_EXCLUDE_SCAN_DIRS` 漏了构建虚拟环境 `.venv-build/`，把第二套 site-packages 的 1 578 个缓存目录算进「应用编译缓存」（1 596 → 排除后 18 个目录、131.7 → 9.4 MB、1 860 → 167 ms）。这同时是个**正确性 bug**：界面上的「Python 编译缓存」原本几乎全是打包 venv 的数字，清理也够不着它。
+- 完整函数（`bypass_cache=True`，含冷扫描）**2 235 / 5 205 ms → 188 / 170 ms**；缓存命中 ≈0。`≤200 ms` 在「重算」路径达成，命中路径远低于它。
+
+落地的三项：① `_EXCLUDE_SCAN_DIRS` 补 `.venv-build`；② 日志统计合并为每文件 1 次 `stat`（同时不再因单个文件读不到而整段失败）；③ `@cached_ttl` **60 → 300 + SWR** —— 前提是失效点本来就在：三个清理入口（cache/database/logs）写盘后各调一次 `invalidate_stats_cache()`，增量扫描 `/cache-scan` 到 `done` 时也失效一次；另在 `_warm_stats_cache` 里加第 5 个预热 key，且**走 `asyncio.to_thread`**（它是同步 `def`，直接 await 会在启动期卡住事件循环）。
+
+回归：`tests/test_maintenance_status_cost.py`（TTL/SWR AST 门禁、三入口失效门禁、每文件 1 次 stat、空/缺目录、预热落在线程池且失败隔离）+ `tests/test_maintenance_cleanup.py` 新增 `.venv-build` 不统计/不清理断言。变异验证 5 腿各自翻红（去掉 `.venv-build` 排除 → 4 例；日志退回 3 次 stat → 1 例；TTL 写回 60 → 1 例；去掉预热 → 2 例；预热不走 `to_thread` → 1 例），负对照（改同一集合里另一条排除项 `dist`）保持全绿，文件按 sha256 还原。**残余边界**：`_iter_pycache_dirs` 仍是全树 `os.walk`，在「缓存过期 + 恰好有并发」时每个 TTL 窗口仍会付 ~170 ms；若后续再把其它构建产物目录引入仓库，需要同步补进 `_EXCLUDE_SCAN_DIRS`，否则成本会重演。
 
 ### A5. 日志/错误检索避免前后通配 — 优先级 **中**
 **具体优化内容**：`infra/repo_error_logs.py:63-65` 对 `error_type` / `request_path` 使用 `%keyword%` 通配（索引不可用）；`web/routes/api_logs.py:127-162` 的 `logs/search` 先取 1 000 条事件再在 Python 侧做子串过滤。改为：前缀匹配 `keyword%` + 索引，或引入 SQLite FTS5 虚拟表；过滤条件下推到 SQL。
@@ -114,7 +126,7 @@
 **证据**（专项探针 `swr_probe.py`，非负载观测；被测函数人为设为重算耗时 0.6 s、TTL 1 s）：
 - 同步 + SWR：冷路径 `0.600 s` → 过期后首次调用 `0.602 s` 且返回**旧值 1**（承诺的 ≈0 未兑现）；再调用一次才 `0.000 s / 2`。即 `/api/maintenance/status` 每 60 s 窗口后的那一个请求付全款、还给客户端过期数据。
 - 异步 + SWR：过期后连续 6 次调用全部返回 `1`，底层重算次数恒为 `1` —— 值被冻结。
-- 现网影响面：全仓只有 `api_maintenance.py:235`（同步 `def`）在用 SWR，所以修复前**只表现为「过期请求被阻塞」，冻结那条尚未被触发**；但它是给下一个吃 `stale_while_revalidate` 的 `async def` 端点挖好的坑，也正是 B2 原建议里要鼓励的用法。
+- 现网影响面：全仓只有 `api_maintenance.py` 的 `maintenance_status`（同步 `def`；A4 后 TTL 300 s）在用 SWR，所以修复前**只表现为「过期请求被阻塞」，冻结那条尚未被触发**；但它是给下一个吃 `stale_while_revalidate` 的 `async def` 端点挖好的坑，也正是 B2 原建议里要鼓励的用法。
 **量化预期收益**：`/api/maintenance/status` 过期后首次调用 **1 600 ms（表 A 实测冷路径）→ ≈0**（返回旧值、刷新在后台），并把「SWR 用一次就静默失效」这一类潜在事故清零。
 **落地状态**：已按上述修法改动 `web/cache.py`（同步分支起 `cache-swr-refresh` 守护线程、异步分支 `create_task` 并把任务强引用挂在 `_bg_tasks` 上，asyncio 对任务只持弱引用）。两条分支的重算都改走 B1 的 `_single_flight` / `_single_flight_async`，因此后台刷新与「同时到达的冷请求」互并而非各算一次；刷新失败只记 WARNING、保留旧值并释放名额（下次 TTL 窗口可重试）。回归为 `tests/test_cache_swr_refresh.py`（6 例：过期调用不被阻塞、后台写回、同 key 只刷一次、失败保留旧值且可重试、SWR 下 `bypass_cache` 仍强制重算、异步不再冻结）；变异验证把两条分支退回修复前实现后，6 例中 4 例失败（阻塞判据、惊群判据、异步冻结、异步失败重试），恢复后 49 例缓存用例全绿。`swr_probe.py` 保留为可读判据，其打印已变为「过期请求被重算阻塞 = False / 值被冻结 = False」；表 A/A4 的 1.6 s 数字仍是修复前基线，待复跑。
 **落地时确立的两条约束**：① 后台刷新线程可能在响应早已返回之后才跑完，因此被 `cached_ttl` 装饰的函数只能依赖进程级资源（`/api/maintenance/status` 用的是 `container.repo.engine.connect()`，连接池线程安全，合规），不能依赖随请求结束而关闭的会话；② 现有端点级测试（`test_maintenance_cleanup.py`）一律走 `maintenance_status.__wrapped__(...)` 绕开装饰器，所以 SWR 快路径从来只由装饰器级用例覆盖——B5 的两条判据补在 `tests/test_cache_swr_refresh.py`，不在路由测试里。
@@ -252,7 +264,7 @@
 
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
-| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ ~~C4 探测降本~~ ✅（2026-11-03 落地 ①③，关闭态每请求省 905 ms；②短 TTL 因需配对失效不落；「≤30 ms」作废 → 约 190~250 ms，待复跑）+ A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
+| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ ~~C4 探测降本~~ ✅（2026-11-03 落地 ①③，关闭态每请求省 905 ms；②短 TTL 因需配对失效不落；「≤30 ms」作废 → 约 190~250 ms，待复跑）+ ~~A4 计数降本~~ ✅（2026-11-03 落地：完整重算 2 235/5 205 → 188/170 ms，归因改为 `.venv-build` pycache 漏排除 + 日志 3 次 stat + TTL 60→300；①② 计数近似不成立）+ E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
 | **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 

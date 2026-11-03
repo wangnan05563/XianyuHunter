@@ -66,6 +66,11 @@ def _log_dir() -> Path:
 _EXCLUDE_SCAN_DIRS = frozenset({
     ".venv", "node_modules", ".git", "data",
     "dist", "build", "target", ".cache", "release",
+    # 打包用的构建虚拟环境（scripts/build-exe.ps1，cleanup-config.yaml 的 preserve 项）：
+    # 它自带一整套 site-packages，`__pycache__` 有 1 500+ 个、130+ MB。不排除时
+    # `/status` 的「Python 编译缓存」统计几乎全是它（实测 1 596 → 18 个目录、1 860 → 400 ms），
+    # 界面上的数字也不再代表应用自身的缓存。
+    ".venv-build",
 })
 # 命中 __pycache__ 后不再往下走（里面只有 .pyc，没有第二层缓存目录）
 _NO_DESCEND_DIRS = _EXCLUDE_SCAN_DIRS | {"__pycache__"}
@@ -232,7 +237,12 @@ def _remove_tree(path: Path) -> list[str]:
 
 # ============== 清理前状态查询 ==============
 @router.get("/status")
-@cached_ttl(60, key_fn=lambda container: "maintenance_status", stale_while_revalidate=True)
+# TTL 300（原 60）：本接口的固定成本是「数 6 张表 + 日志目录 + __pycache__ 全树遍历」，
+# 其中 `__pycache__` 那段在本机实测 0.4 s（未排除 `.venv-build` 时 1.9~3.8 s），而清理动作
+# 的三个入口都会 `invalidate_stats_cache()`、增量扫描 `/cache-scan` 到 done 时也会失效一次，
+# 因此拉长 TTL 不会让用户看到自己刚清理完的旧数字。并发下的 60 s 超时长尾正是「TTL 短 +
+# 每请求都在线程池里走一遍全树」的叠加，B1 单飞只能合并同一瞬间的 miss。
+@cached_ttl(300, key_fn=lambda container: "maintenance_status", stale_while_revalidate=True)
 def maintenance_status(
     container: Container = Depends(get_container),
 ) -> dict[str, Any]:
@@ -261,10 +271,21 @@ def maintenance_status(
         if log_dir.exists():
             log_files = list(log_dir.glob("*.log*"))
             log_stats["file_count"] = len(log_files)
-            total_size = sum(f.stat().st_size for f in log_files if f.is_file())
+            # 一次 stat 同时喂「总大小」与「最早时间」：原先 is_file()+stat() 两次、
+            # 取 oldest 又 stat() 一次，每个文件 3 次系统调用（本机单次 ≈1.6 ms，
+            # 8 个日志文件实测 5.7 → 1.6 ms）。stat 本身就能分辨文件与目录，
+            # 不需要 is_file()；读不到的文件跳过而不是让整段统计失败。
+            total_size = 0
+            oldest = None
+            for f in log_files:
+                try:
+                    st = f.stat()
+                except OSError:
+                    continue
+                total_size += st.st_size
+                oldest = st.st_mtime if oldest is None else min(oldest, st.st_mtime)
             log_stats["total_size_mb"] = round(total_size / 1024 / 1024, 2)
-            if log_files:
-                oldest = min(f.stat().st_mtime for f in log_files if f.is_file())
+            if oldest is not None:
                 log_stats["oldest"] = datetime.fromtimestamp(oldest).strftime("%Y-%m-%d")
     except Exception:
         pass
