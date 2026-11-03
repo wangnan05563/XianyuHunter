@@ -254,11 +254,11 @@ docs/
 | 需求评审报告 | 全面需求评审 | [需求评审报告.md](./requirements/需求评审报告.md) |
 | PRD：UX 优化 | 2026-10-18（T02324/T02335） | [PRD-UX优化-20261018.md](./requirements/PRD-UX优化-20261018.md) |
 | PRD：竞品对标优化 | 2026-10-10（T01719，结论已内联） | [PRD-竞品对标优化-20261010.md](./requirements/PRD-竞品对标优化-20261010.md) |
-| 打包体积优化评估报告 | 2026-11-02（T04093，实测体积归因 + 裁剪/替代方案） | [打包体积优化评估报告-20261102.md](./requirements/打包体积优化评估报告-20261102.md) |
+| 打包体积优化评估报告 | 2026-11-02（T04093，实测体积归因 + 裁剪/替代方案；**打包体积的唯一权威口径**） | [打包体积优化评估报告-20261102.md](./requirements/打包体积优化评估报告-20261102.md) |
 
 ### 归档与历史（archive / superpowers / plans）
 
-- **archive/**：[Web界面设计方案](./archive/Web界面设计方案.md) · [冲刺历史记录](./archive/冲刺历史记录.md) · [潮汐觅食者设计哲学](./archive/潮汐觅食者设计哲学.md) · [用户体验优化方案](./archive/用户体验优化方案.md) · [评估项目打包 EXE 安装包可行性](./archive/评估项目打包EXE安装包可行性.md)
+- **archive/**：[Web界面设计方案](./archive/Web界面设计方案.md) · [冲刺历史记录](./archive/冲刺历史记录.md) · [潮汐觅食者设计哲学](./archive/潮汐觅食者设计哲学.md) · [用户体验优化方案](./archive/用户体验优化方案.md) · [评估项目打包 EXE 安装包可行性](./archive/评估项目打包EXE安装包可行性.md)（v1.3：正文 2026-08 的体积估算已在文首「实测口径校正」中逐条推翻，体积数字以上方《打包体积优化评估报告》为准；可行性论证与路径改造清单仍有效）
 - **superpowers/plans/**：统一采集服务、登录模块优化 MU2、任务价格区间评估、Tailscale Funnel 通知（4 份）
 - **superpowers/specs/**：[统一采集服务设计](./superpowers/specs/2026-07-01-unified-collection-service-design.md)
 - **plans/**：[Tailscale Funnel 通知设计](./plans/2026-07-10-tailscale-funnel-notifications-design.md)

@@ -6,6 +6,26 @@
 > **修订记录**：
 > - v1.1 补充数据路径改造清单、Edge 浏览器依赖、依赖锁定、体积估算修正、数据迁移方案、概要设计章节
 > - v1.2 P0 第 2 步 PyInstaller 实际打包验证完成：总体积 855.81 MB，补充实测体积对照表与 P1 体积优化清单
+> - v1.3（2026-11-03，T04107）追加下方「实测口径校正」：本文 2026-08 的体积估算已被 2026-11-02 的实测归因推翻。**当前体积基线、优化路线与执行计划以 [打包体积优化评估报告-20261102](../requirements/打包体积优化评估报告-20261102.md) 为唯一权威口径**，本文正文按原样存档、不再更新。
+
+## 实测口径校正（2026-11-03，T04107）
+
+> 本文写于 2026-08，正文数字是「首次打包结果 + 若干未经验证的估算」。T04093 对现网发布产物做了逐项文件级实测，下列差异会直接误导读者，集中在文首校正；正文对应章节保留原貌，仅作历史对照。
+
+| 位置 | 本文写法 | 现况（实测 / 已落地） |
+|---|---|---|
+| §三.6 汇总 | 总体积 855.81 MB、优化后 839.10 MB（-16.71 MB） | 现网发布形态为**解包 1321.72 MB / 安装包 400.60 MB**，构成为 EXE 76.29 + `_internal` 733.06 + `playwright_browsers` 415.85 + `models` 91.83 + `spa` 4.61。855.81 MB 是「未含 Chromium 二进制、模型与 SPA 外置资源」的中间态，不能与安装包体积直接比较 |
+| §三.6 表格末行 | 「~856 MB……最终预计 ~1.2 GB」 | 1.2 GB 量级已被证实（解包 1321.72 MB）；但压缩路线不是 7z，而是 Inno Setup `lzma2 + SolidCompression`，实测安装包 400.60 MB、整体压缩比 30.3% |
+| §二 表格 / §三.6 表格 | Playwright Chromium「~150-200 MB」「实测 102.28 MB」 | 两个数字都不是随包浏览器体积：102.28 MB 是 **playwright 的 Python 包**（`driver/node.exe` 单个 87.4 MB）；随包 Chromium 二进制实测 **415.85 MB**（chromium-1223 412.25 + ffmpeg 3.35 + winldd 0.25）。`chromium_headless_shell-1223`（267.34 MB）已由构建脚本第 5.4 步剔除，这项瘦身此前已生效 |
+| §三.3 方案 2 | 模型权重「约 100 MB」 | `models/bge-small-zh-v1.5/` 实测 91.83 MB（`st` 引擎）。T04101 已把引擎开关外置到 `scripts/config.publish.json`（`build_pipeline.embedding_engine`），`-EmbeddingEngine onnx` 时改发 int8 ONNX 工件 **55.05 MB** 并整条排除 torch 链 |
+| §三.6 表格 | torch + scipy + sklearn + transformers = 478.68 MB（torch 359.74） | torch 链合计 478.57 MB，torch 实测 360.03 MB、占 `_internal` 的 49.1%，是最大单项抓手，且可由 onnx 引擎整体替换（减 568.73 MB 解包） |
+| §三.6 表格 | 「chromadb + onnxruntime + duckdb = 128.14 MB（已含 `chromadb_rust_bindings` 60.46）」 | **该数字不成立**：构建 venv 缺 `python-dotenv`，`collect_submodules('chromadb')` 抛错被 spec 的防御 `try/except` 静默吞掉，2026-11-01 那次构建产物中 `chromadb.api.rust` 与 60.46 MB 的 `chromadb_rust_bindings.pyd` **并未进包**，而 chromadb 1.5.9 的 `PersistentClient` 默认实现正是 `RustBindingsAPI` —— 打包版向量检索存在断链风险。T04102 已加两道构建期防线（spec 收集结果断言 + 构建脚本 import 级自检），修复方向是**回补** 60.46 MB，正确性优先于体积 |
+| §三.6 P1 清单第 1 项 | 排除 pytest 家族「预计节省 ~15 MB」 | 实测约 1.4 MB。pytest 家族 90 个模块确实进了生产 PYZ，但这是卫生项，不构成体积抓手 |
+| §三.6 P1 清单第 3 项 | scipy 子模块精简「预计节省 ~30 MB」 | 未经验证；scipy 整条（含 `scipy.libs`）实测 70.31 MB，且 onnx 模式已整体排除 scipy/sklearn，无需再做子模块级白名单 |
+| §三.6 P1 清单第 5 项 / §3 spec 设计 | 「UPX 已启用」（`upx=True`） | 配置为真、收益为 0：本机 PATH 无 `upx`、spec 未设 `upx_dir`，实际从未压缩过任何文件。该决策由 T04104 承接 |
+| §7 P1 阶段验证项 | 「安装包体积 < 300 MB（7z 压缩后）」 | 口径本身有误（发布用 Inno Setup，非 7z）。按实测口径换算：目标 <300 MB 需 P0（切 onnx + 补 dotenv，外推约 247 MB）；约 121 MB 需 P0 + 浏览器不随包（复用系统 Edge 或首启下载，T04103）同时落地 |
+
+**用法约定**：查体积基线、优化方案、执行计划与派生单进度 → 看 [打包体积优化评估报告-20261102](../requirements/打包体积优化评估报告-20261102.md)；查打包可行性论证、硬编码路径改造清单（§三.4）与概要设计（§1–§6）→ 本文这些内容仍然有效，未受本次校正影响。
 
 ---
 
