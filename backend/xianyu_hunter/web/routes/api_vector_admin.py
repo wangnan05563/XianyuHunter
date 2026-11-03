@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +87,20 @@ def _snapshot_dir(vector_store: Any) -> Path:
     return Path(vector_store.persist_path) / "snapshots"
 
 
+def _main_data_size(persist_path: Path) -> int:
+    """主数据目录大小（排除 snapshots 子目录，避免快照膨胀统计）"""
+    main_size = 0
+    if persist_path.exists():
+        for item in persist_path.iterdir():
+            if item.name == "snapshots":
+                continue
+            if item.is_dir():
+                main_size += _dir_size(item)
+            else:
+                main_size += item.stat().st_size
+    return main_size
+
+
 def _list_snapshots(vector_store: Any) -> list[dict[str, Any]]:
     """列出所有快照，按创建时间 DESC 排序"""
     root = _snapshot_dir(vector_store)
@@ -98,10 +113,13 @@ def _list_snapshots(vector_store: Any) -> list[dict[str, Any]]:
         stat = d.stat()
         # 目录的 mtime 作为创建时间近似值（快照创建后不再修改）
         created_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).astimezone()
+        # 一次遍历同时喂 size_bytes 与 size_display：原先各调一次 _dir_size，
+        # 等于每个快照目录把整棵子树走两遍（性能测试实测该接口 avg 233.8 ms 的主因）
+        size_bytes = _dir_size(d)
         items.append({
             "id": d.name,
-            "size_bytes": _dir_size(d),
-            "size_display": _format_size(_dir_size(d)),
+            "size_bytes": size_bytes,
+            "size_display": _format_size(size_bytes),
             "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S"),
             "is_manual": d.name.startswith("manual_"),
         })
@@ -142,17 +160,13 @@ async def get_status() -> dict[str, Any]:
     vector_store = chatbot["vector_store"]
     chunk_count = await vector_store.count()
     persist_path = Path(vector_store.persist_path)
-    # 主数据目录大小（排除 snapshots 子目录，避免快照膨胀统计）
-    main_size = 0
-    if persist_path.exists():
-        for item in persist_path.iterdir():
-            if item.name == "snapshots":
-                continue
-            if item.is_dir():
-                main_size += _dir_size(item)
-            else:
-                main_size += item.stat().st_size
-    snapshots = _list_snapshots(vector_store)
+
+    def _disk_footprint() -> tuple[int, list[dict[str, Any]]]:
+        return _main_data_size(persist_path), _list_snapshots(vector_store)
+
+    # 两处都是 rglob 全量 stat 的磁盘遍历；本 handler 是 async 的，直接在循环里走会
+    # 占住事件循环 —— TTL 到点后同时到达的请求，单飞 lead 的这一跳会让跟随者一起等
+    main_size, snapshots = await asyncio.to_thread(_disk_footprint)
     return {
         "collection_name": vector_store.collection_name,
         "persist_path": str(persist_path),

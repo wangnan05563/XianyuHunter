@@ -14,12 +14,12 @@
 | C4 | 反爬策略探测降本 + 缓存 | **高** | avg 1 094.7 → ≤30 ms；96 并发 2 511.8 → ≤100 ms | 低 |
 | D1 | 慢同步接口独立线程池 | **高** | 48/96 并发轻组 P95 2 064/3 893 → ≤1 000 ms；缺陷率 2.03/3.17% → <0.5% | 中 |
 | A2 | `eval.*` 事件查询下推 | **高** | `/api/evaluations` avg 195.9 → ≤60 ms；P99 858 → ≤250 ms | 中 |
-| C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `📷`，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
+| C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `\U0001F4F7` 转义，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
 | B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
 | A4 | `maintenance/status` 计数降本 | **高** | 单发 1.6 s → ≤200 ms；消除 60 s 超时（曾致 P95 60 033 ms / 37.5% 超时） | 低 |
 | A1 | 补齐 5 个过滤列索引 | 中 | `prices/category-comparison` 长跑 avg 580.2 → ≤200 ms | 低 |
 | C3 | `_load_yaml` 走单例缓存 | 中 ✅ **部分落地（config memo）** | `config/raw` 132.4 → ≤15 ms 的预期**过高**：实测解析 52 ms、脱敏+序列化另占 ~33 ms，memo 只砍前者（→ 约 80~90 ms）。写侧 `preview/save` 各去掉一次全量读 | 低 |
-| C1 | `_dir_size` 双调用合并 | 中 | `vector-admin/snapshots` 233.8 → ≤120 ms（B2 的快照缓存已撤回，不再有「叠加后 ≤20 ms」） | 极低 |
+| C1 | `_dir_size` 双调用合并 | 中 | ✅ 已落地（2026-11-03）：实测降幅 **43%**（不是 50%，一遍里还有 26% 固定开销），另把 `/status` 的同步走盘移出事件循环；`vector-admin/snapshots` 233.8 → 待复跑（≤120 ms 未证实） | 极低 |
 | D2 | 打破 `cache_scan` 进程级 RLock 串行 | 中 | `maintenance/cache-scan` 96 并发 avg 1 822.8 → ≤400 ms | 中 |
 | D3 | 写侧批量 UPSERT + 池/超时调优 | 中 | 16 并发写 TPS 51.9 → ≥66（回到峰值档）；P95 635.8 → ≤400 ms | 中 |
 | D4 | 大结果集流式导出 | 中 | `db-admin/tables/items/export` P99 1 827.7 → ≤600 ms；私有内存峰值 617.7 MB 下降 | 中 |
@@ -153,7 +153,7 @@
 - 序列化：`_dump_yaml` 中位 **32.9 ms** → `CSafeDumper` 中位 **6.3 ms**；在 `config.yaml` 这一份上输出逐字节相同（中文不转义、`sort_keys=False` 的插入顺序、`{}` / `''` / `null` 的写法）。
 - 读文件本身不是成本：`read_text` 中位 0.36 ms。
 
-**⚠️ 「逐字节相同」当时被我过度泛化了 —— 所以只有读侧能落地**：把上面那条断言从「一份文件」升级成「仓库里 7 份真实 YAML 逐份比对」（`config_memo_probe.py` 已改成逐份打印）之后，**6/7 相同、`preset_templates.yaml` 不同**。原因是 `CSafeDumper` 对**超出 BMP 的字符**（emoji，模板图标 `📷` = 📷）不遵守 `allow_unicode=True`，写成 `"📷"` 转义，而纯 Python dumper 写原字符。两种写法都能被任一侧 loader 读回同一个值，但**磁盘产物会变**：写盘、备份、`_diff` 都建立在「同一个 dict 两次 dump 结果一致」之上，而模板 `icon` 是用户可见、可手改的字段。因此本轮只切读侧，**dump 继续走 `yaml.safe_dump`**（那 21~27 ms 不拿）。这条分歧钉在 `tests/test_yaml_io_equivalence.py::test_c_dumper_would_mangle_astral_chars_so_dump_stays_python` —— 它断言的是「两边确实不一致」，将来 libyaml 修了这个行为时用例会红并提示重新评估写侧。
+**⚠️ 「逐字节相同」当时被我过度泛化了 —— 所以只有读侧能落地**：把上面那条断言从「一份文件」升级成「仓库里 7 份真实 YAML 逐份比对」（`config_memo_probe.py` 已改成逐份打印）之后，**6/7 相同、`preset_templates.yaml` 不同**。原因是 `CSafeDumper` 对**超出 BMP 的字符**（emoji，模板图标 `📷`（码位 U+1F4F7））不遵守 `allow_unicode=True`，写成 `"\U0001F4F7"` 转义，而纯 Python dumper 写原字符。两种写法都能被任一侧 loader 读回同一个值，但**磁盘产物会变**：写盘、备份、`_diff` 都建立在「同一个 dict 两次 dump 结果一致」之上，而模板 `icon` 是用户可见、可手改的字段。因此本轮只切读侧，**dump 继续走 `yaml.safe_dump`**（那 21~27 ms 不拿）。这条分歧钉在 `tests/test_yaml_io_equivalence.py::test_c_dumper_would_mangle_astral_chars_so_dump_stays_python` —— 它断言的是「两边确实不一致」，将来 libyaml 修了这个行为时用例会红并提示重新评估写侧。
 **落地状态（2026-11-01）**：✅ 新增 `backend/xianyu_hunter/infra/yaml_io.py`（只导出 `safe_load`；`_LOADER = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader`，libyaml 缺失时退回纯 Python —— 精简镜像里这是真实形态，不是想象的场景），9 个读盘点改为经它：`api_config._load_yaml`、`infra/yaml_config.load_yaml`、`infra/repo_param_rules`、`infra/ai_usage`、`web/services/menu_manager`、`web/routes/api_templates`、`api_tunnel`、`api_notifier`、`api_batch_refresh`。写侧 7 处 dump 一字未动。
 - **实测落点**（同机、只读真实 `config.yaml`，15 次采样取中位）：`yaml.safe_load` 47.7 ms → `yaml_io.safe_load` **6.5 ms（7.4×）**；`yaml_config.load_yaml`（含开文件）12.0 ms。启动与每次 `reload_config()` 都要走的这条路径同享。
 - **前置等价性用例先行**（`tests/test_yaml_io_equivalence.py`，56 例）：结构相等（10 种真实形状 × 仓库在用的 3 组 dump 参数 × 交叉读写）、空文档返回 `None`、异常**类**与纯 Python 一致（`menu_manager` 的 `except yaml.YAMLError` 覆盖面不能缩；实测两侧同为 `ScannerError` 子类，只有消息文本不同，而仓库里没有代码断言消息文本）、`!!python/object` 照旧被拒、文件对象入参仍支持（`load_yaml` / `_load_presets` 传的是句柄）、仓库 7 份真实 YAML 逐份读出结构相等、后端选择跟 `hasattr(yaml, "CSafeLoader")` 走（防止悄悄退回纯 Python 而用例全绿）。
@@ -161,11 +161,19 @@
 **量化预期收益**：`config/raw` 132.4 → **约 90 ms**（只省解析 41~48 ms；dump 那 27 ms 留在原地，与 C3 的 80~90 ms 口径一致）；`config/share`、`config/export` 同量级；`config/preview`、`config/save` 各省一次解析（叠在 B2 的 memo 之上时读侧收益只在冷的那一次 —— **但启动/reload 路径的 `yaml_config.load_yaml` 每次都吃这条收益**）。**注意**：这是「砍掉常量项」，不改变并发下的排队，因此不能替代 D1/B1。
 **验证方式**：`tests/test_yaml_io_equivalence.py`（56 例）+ `tests/test_config_yaml_memo.py`（13 例，计数 shim 的 patch 目标随之内移到 `api_config.yaml_io`）+ 受影响面（config/tunnel/notifier/menu/templates/param_rules/ai_usage/yaml_config）全绿 + 全量回归。`config_memo_probe.py` 保留为成本判据，现已含逐份 dump 比对。变异验证两腿各自翻红（把 `_LOADER` 硬编码成纯 Python `SafeLoader` → 1 例；换成 `FullLoader` → 3 例）—— **第二腿最初只翻 1 例**，暴露出「拒绝 python 标签」那条对 FullLoader 是无效的（`!!python/object/apply` 连 FullLoader 都拒），于是补了 `test_rejection_is_not_vacuous` 正面断言「FullLoader 接受 `!!python/name`、我们拒」，判据本身才成立。真实数字待同一 JMX 复跑替换。
 
-### C1. 快照目录体积重复遍历合并 — 优先级 **中**
+### C1. 快照目录体积重复遍历合并 — 优先级 **中** ✅ **已于 2026-11-03 落地（并多做了一件原文归到「证据」里的事）**
 **具体优化内容**：`web/routes/api_vector_admin.py:103-104` 对同一目录连续调用 `_dir_size(d)` 两次（分别填 `size_bytes` 与 `size_display`）。改为一次求值后复用。
 **证据**：`GET /api/vector-admin/snapshots` 基线 avg **233.8 ms**（P95 630.2），长跑 450.7 ms；其成本主要是磁盘遍历（`:64-72` 的 `rglob` 还跑在 async handler 内，会阻塞事件循环）。
 **量化预期收益**：**直接减半** → avg ≤120 ms。（原写「叠加 B2 缓存后 ≤20 ms」已作废：B2 对本接口撤回，理由是删/建/恢复快照后列表必须立刻反映磁盘现状，见 §B2 第 2 条。）
 **验证方式**：单接口阶梯复跑，比较 `size_bytes` 一致性。
+
+**落地记录（2026-11-03）**
+- **已做**：`_list_snapshots` 内先 `size_bytes = _dir_size(d)`，`size_display` 由同一个值格式化（`api_vector_admin.py:101-107`）。主目录体积抽成 `_main_data_size(persist_path)`，`/status` 的「主目录 + 全部快照」两次遍历合并成**一次 `asyncio.to_thread` 跳转**。
+- **两处必须订正**：① 原文「`rglob` 跑在 async handler 内，会阻塞事件循环」对 **`/snapshots` 不成立** —— 它是同步 `def` handler，FastAPI 把它投进 anyio 线程池，代价是占一个线程令牌（D1 的账），不是占事件循环；真正占事件循环的是 `async def get_status`（它 `await vector_store.count()` 之后直接在循环里走全量 `rglob`）。② 探针实测降幅是 **43%**，不是干净的 50%：一遍遍历里除了 `stat` 还有 `iterdir`/`st_mtime`/排序/建字典的固定开销，实测 3 200 次 stat 的单遍 5.03 ms 折算 + 固定 1.75 ms（占比约 26%）。因此 **≤120 ms 这个目标本轮不能宣布达成** —— 真实快照目录只有几百个文件时遍历在 233.8 ms 里占多少并未测过，必须用同一 JMX 复跑替换。
+- **判据**：`perf/2026-10-31-full-api/dir_size_probe.py`（合成 8 目录 × 400 文件；两遍 11 811 ms → 一遍 6 777 ms，降到 57%，两侧结果逐字段相同）。[B] 段直接量到「遍历期间事件循环的心跳推进次数」：修前中位 **1 次**、修后 **376 次** —— 这就是 B1 单飞救不了的那一段：lead 在循环里同步走盘时，同一 key 的跟随者连「等结果」都做不到，整个循环都停着。
+- **回归**：`tests/test_vector_admin_snapshot_size.py` 19 例（每个目录只遍历一次 ×2 条路径、display 与 bytes 同源、两个快照不串体积、嵌套目录计入而目录本身不计、缺根目录返回空、`_main_data_size` 排除 `snapshots`、`/status` 遍历不在工作线程之外、`/status` 全字段与空快照两种终态）。三条变异各自翻红：改回双调用 → 2 例（只统计遍历次数，不校验数值，所以「同样的值走两遍」这种退化只有计数能抓）；去掉 `to_thread` → 1 例；`_main_data_size` 不再排除 snapshots → 2 例。
+- **顺带记录的环境事实**：这台机器上单次 `Path.stat()` 约 **1.6 ms**（3 200 次 ≈ 5 s），比正常 NVMe 高一个数量级，几乎肯定是安全软件逐文件扫描。**凡是「glob 目录 + 逐个 stat」的接口都要按这个量级估成本**（A4 的日志统计、`_cache_scan` 的用户数据目录扫描都在此列）。
+
 
 ### C5. 评估列表市场统计去 N+1 — 优先级 **中**
 **具体优化内容**：`web/routes/evaluations_list.py:69-80` 的 `compute_market_stats_batch` 在缓存 miss 时**按 task_id 逐个**调用 `_compute_sold_range`。改为单条 `IN (...)` / 分组聚合一次取回。
@@ -234,7 +242,7 @@
 
 | 阶段 | 内容 | 预期累计效果 |
 |---|---|---|
-| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ C1 双调用合并 + C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
+| **第 1 周（低风险高收益）** | ~~B1 单飞~~ ✅ + ~~B2 慢接口缓存~~（4/5 撤回，残留 config memo ✅）+ ~~C6 换 libyaml 后端~~ ✅（2026-11-01 落地读侧；写侧因 emoji 分歧撤回）+ ~~C1 双调用合并~~ ✅（2026-11-03 落地，实测 -43%；顺带把 `/status` 的同步走盘挪出事件循环）+ C4 探测降本 + A4 计数降本 + E3 503 语义 | 混合场景 avg 200.5 → **≤90 ms**；消除 60 s 超时与 503 噪声；轻组 96 并发 P95 3 893 → **≤1 500 ms**；配置族 132.4 → **约 90 ms**（只有读侧能换 C 后端，dump 留原地；B2 原写的 ≤25 ms 不成立，见 §B2 第 5 条） |
 | **第 2–4 周（结构性）** | C2 `/me` 去重 + A2 事件下推 + D1 线程池隔离 + D2 解锁 + ~~C3/YAML 单例~~（config 侧已随 B2 残留落地，剩 `api_templates`）+ **B4 缓存容量上限** + **≥4 h 长跑复测** | 48/96 并发缺陷率 2.03/3.17% → **<0.5%**；`/me` 全站收益；廉价接口高并发不再被拖到 2 s；RSS 斜率 +75.9 MB/h 得到定论（缓存 or 泄漏） |
 | **季度内（容量形态）** | D3 写批量 + D4 流式 + A1 索引 + A5 FTS + E1 多 worker（须先完成 B1/B3） | 读吞吐 80 → **≥150 rps**；写侧 16 并发不再回落；内存峰值收敛；随数据增长的劣化斜率变缓 |
 
