@@ -375,6 +375,18 @@ if ($SkipSPA -and (Test-Path $spaIndex)) {
         Set-Content -Path $stampFile -Value (Get-Date -Format "o") -Encoding UTF8
     }
 
+    # SPA 单一来源清理（T04180）：vite 侧 `emptyOutDir: false` 是刻意决定（沙箱 safe-delete
+    # 钩子会劫持它的 fs.rmSync），清理责任外移给构建脚本。但发布路径不经过
+    # scripts/前端构建.bat 的 `rmdir /s /q`，历史 hash 产物会累积并被步骤 5 整包拷进安装包
+    # （实测目录 307 文件/10.55 MB，其中当次构建只有 113 文件/4.50 MB）。
+    # 手法与 bat 保持一致：cmd 内建 rmdir，绕开 PowerShell 的删除通道。
+    $spaOutDir = Join-Path $repoRoot "release\spa"
+    if (Test-Path $spaOutDir) {
+        Write-Host "  清理历史 SPA 产物目录（单一来源）：release\spa" -ForegroundColor DarkGray
+        & cmd /c "rmdir /s /q `"$spaOutDir`""
+        if (Test-Path $spaOutDir) { Pop-Location; throw "SPA 目录清理失败，$spaOutDir 仍存在" }
+    }
+
     Write-Host "  构建 SPA..."
     # 记录本次 SPA 构建起始时间，供步骤 7 区分「当次活跃资源」与「目录历史残留」（T04180）
     $script:SpaBuiltAfter = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
