@@ -29,6 +29,16 @@ from loguru import logger
 
 from xianyu_hunter.config import get_settings, is_ai_disabled
 
+# 只属于远程 API provider 的模型名。本地后端会把它们当 HF 仓库 id 去拉权重，必然失败
+# （历史配置的默认值就是 text-embedding-3-small），所以在本地模式下换成随包的中文模型。
+# 白名单而非通用兜底：用户显式写下的其它名字错了要照常报错，不能被悄悄换掉。
+_REMOTE_ONLY_MODELS = frozenset({
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+    "text-embedding-ada-002",
+})
+_LOCAL_FALLBACK_MODEL = "BAAI/bge-small-zh-v1.5"
+
 
 class EmbeddingService:
     """向量化服务：单例，通过 container 注入
@@ -70,8 +80,17 @@ class EmbeddingService:
             # 本地模式不需要 HTTP 客户端和 API Key
             self._api_key = ""
             self._embeddings_url = ""
+            if model.strip() in _REMOTE_ONLY_MODELS:
+                # 否则本地后端会拿这个名字去联网，embed 恒返回空、
+                # 知识库检索静默「没有上下文」而不报错
+                logger.warning(
+                    f"本地 embedding 模式下模型名 '{model}' 属于远程 API provider，"
+                    f"已改用本地模型 '{_LOCAL_FALLBACK_MODEL}'；"
+                    f"如需继续用远程 embedding，请配置 EMBEDDING_BASE_URL"
+                )
+                self._model = _LOCAL_FALLBACK_MODEL
             logger.info(
-                f"EmbeddingService 启用本地 backend（model={model}），"
+                f"EmbeddingService 启用本地 backend（model={self._model}），"
                 f"模型将在首次调用时加载"
             )
         else:

@@ -66,8 +66,14 @@ class LocalEmbeddingBackend:
                     "请运行: pip install torch --index-url https://download.pytorch.org/whl/cpu"
                     " && pip install sentence-transformers"
                 ) from e
-            # device='cpu' 显式指定：避免在无 CUDA 环境下自动探测失败
-            self._model = SentenceTransformer(self._model_name, device="cpu")
+            from xianyu_hunter.paths import resolve_bundled_model_path
+
+            # 随包 models/ 命中时用绝对路径加载：裸名会被当 Hub id 联网，
+            # 冻结包里那条路必失败（dim=0 → 检索静默无上下文）
+            bundled = resolve_bundled_model_path(self._model_name)
+            if bundled:
+                logger.info(f"使用随包模型目录: {bundled}")
+            self._model = SentenceTransformer(bundled or self._model_name, device="cpu")
             # sentence-transformers 5.x 重命名 get_sentence_embedding_dimension
             # → get_embedding_dimension，兼容新旧版本
             get_dim = getattr(

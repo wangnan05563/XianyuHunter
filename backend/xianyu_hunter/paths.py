@@ -33,6 +33,33 @@ def get_app_dir() -> Path:
     return Path(".")
 
 
+def get_models_dir() -> Path:
+    """随包只读模型目录（构建期由 build-exe.ps1 把权重拷到 exe 同级 models/）"""
+    return get_app_dir() / "models"
+
+
+def resolve_bundled_model_path(model_name: str | Path) -> str | None:
+    """把模型名解析成随包 models/ 下的绝对路径；没命中返回 None。
+
+    transformers 会把不带路径分隔符的名字当 Hub 仓库 id 去联网拉，所以「权重已经在包里」
+    并不等于「包里的权重会被读到」——只有绝对路径才确定走本地。
+    `BAAI/bge-small-zh-v1.5` 这类带 org 前缀的名字，随包目录通常只存末段 `bge-small-zh-v1.5`，
+    因此两种写法都试。
+    """
+    name = str(model_name or "").strip()
+    if not name or Path(name).is_absolute():
+        return None
+    models_dir = get_models_dir()
+    for candidate in (name, Path(name).name):
+        # 配置里的名字可能含 ".."，拼接前先排除，避免跳出 models/ 读别处
+        if ".." in Path(candidate).parts:
+            continue
+        path = models_dir / candidate
+        if path.is_dir():
+            return str(path.resolve())
+    return None
+
+
 def get_project_root() -> Path:
     """项目根目录（含 frontend/、backend/、pyproject.toml）
 
