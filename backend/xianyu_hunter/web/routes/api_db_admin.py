@@ -19,7 +19,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -799,6 +799,26 @@ def batch_delete_rows(
 
 # ============== 导入/导出 ==============
 
+# 攒到约 256 KB 再交给传输层：StreamingResponse 对同步迭代器每块一次线程池往返，
+# 逐行 yield 会把 1.8 万行导出变成 1.8 万次调度（实测 2.4 s，见 perf/2026-10-31-full-api）
+_EXPORT_CHUNK_CHARS = 256 * 1024
+
+
+def _chunked(pieces: Iterator[str]) -> Iterator[str]:
+    """把逐行片段攒成约 256 KB 的块，块数与行数解耦"""
+    buf: list[str] = []
+    size = 0
+    for piece in pieces:
+        buf.append(piece)
+        size += len(piece)
+        if size >= _EXPORT_CHUNK_CHARS:
+            yield "".join(buf)
+            buf.clear()
+            size = 0
+    if buf:
+        yield "".join(buf)
+
+
 @router.get("/tables/{table}/export")
 def export_rows(
     table: str,
@@ -807,59 +827,73 @@ def export_rows(
 ) -> StreamingResponse:
     """导出表数据：CSV 或 JSON（不限制行数上限，但单文件大小由 max_export 控制）
 
-    CSV 用 UTF-8 BOM 头，Excel 打开不乱码；JSON 用 streaming 序列化避免大对象内存压力。
+    CSV 用 UTF-8 BOM 头，Excel 打开不乱码。
     注意（T02576）：本接口没有筛选参数，导出的是全表 —— 界面上的搜索条件只作用于
     rows 查询，导出按钮文案必须如实写「全表」，不能让用户以为导出了筛选结果。
     """
     _validate_table(table)
     cols = _get_columns(container, table)
     col_names = [c["name"] for c in cols]
-
-    with container.repo.engine.connect() as conn:
-        result = conn.execute(text(f"SELECT * FROM {table}"))
-        rows = result.mappings().all()
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{table}_{timestamp}.{format}"
 
+    # 连接必须活到响应消费完：旧实现用 .all() 把整表复制进内存，
+    # 现改为「先 COUNT 拿行数回执，再用游标逐行取」，峰值不再随表大小线性增长
+    conn = container.repo.engine.connect()
+    try:
+        total = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0
+    except Exception:
+        conn.close()
+        raise
+
+    def _rows():
+        yield from conn.execute(text(f"SELECT * FROM {table}")).mappings()
+
+    def _guarded(pieces: Iterator[str]) -> Iterator[str]:
+        # finally 兜底：客户端中途断开时也必须把连接还回池子
+        try:
+            yield from _chunked(pieces)
+        finally:
+            conn.close()
+
     if format == "json":
         # 每行一个 JSON 记录（NDJSON 风格），流式输出降低内存峰值
-        def json_iter():
+        def json_pieces():
             yield "[\n"
-            for i, r in enumerate(rows):
+            for i, r in enumerate(_rows()):
                 if i:
                     yield ",\n"
                 yield json.dumps(_serialize_row(dict(r), cols), ensure_ascii=False, default=str)
             yield "\n]\n"
         return StreamingResponse(
-            json_iter(),
+            _guarded(json_pieces()),
             media_type="application/json",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 # 与 /api/export 同口径回带真实行数，前端才能区分「0 行」与正常导出（T02707）
-                "X-Export-Rows": str(len(rows)),
+                "X-Export-Rows": str(total),
             },
         )
 
     # CSV
-    def csv_iter():
+    def csv_pieces():
         # UTF-8 BOM 让 Excel 自动识别编码
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(col_names)
         yield "\ufeff" + buf.getvalue()
         buf.seek(0); buf.truncate()
-        for r in rows:
+        for r in _rows():
             row = _serialize_row(dict(r), cols)
             w.writerow([row.get(c) for c in col_names])
             yield buf.getvalue()
             buf.seek(0); buf.truncate()
     return StreamingResponse(
-        csv_iter(),
+        _guarded(csv_pieces()),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Export-Rows": str(len(rows)),
+            "X-Export-Rows": str(total),
         },
     )
 

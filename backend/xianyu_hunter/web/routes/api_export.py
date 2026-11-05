@@ -13,7 +13,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -23,6 +23,9 @@ from xianyu_hunter.web.deps import get_container
 from xianyu_hunter.web.utils import to_datetime
 
 router = APIRouter(prefix="/api/export", tags=["export"])
+
+# 攒到约 256 KB 再交给传输层：块太小会让线程池调度成本盖过 CSV 序列化本身
+_CSV_CHUNK_CHARS = 256 * 1024
 
 # 每种数据集对应的列定义（顺序即 CSV 列顺序）
 _DATASET_COLUMNS: dict[str, list[str]] = {
@@ -73,22 +76,40 @@ def _filter_by_time(
     return out
 
 
+def _iter_csv_text(rows: list[dict[str, Any]], columns: list[str]) -> Iterator[str]:
+    """逐块生成 CSV 文本，避免把整份导出内容先拼进内存
+
+    块大小选 256 KB 而不是逐行 yield：StreamingResponse 对同步迭代器走
+    `iterate_in_threadpool`，每次 `next()` 都是一次线程切换，5 万行逐行产出
+    会让一次导出多出 5 万次调度；攒块后线程切换次数与行数解耦。
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    # UTF-8 BOM：让 Excel/Numbers 正确识别编码；它必须跟表头一起出现在第一块
+    buf.write("\ufeff")
+    writer.writerow(columns)
+    yield buf.getvalue()
+    buf.seek(0)
+    buf.truncate(0)
+    for r in rows:
+        writer.writerow([_row_value(r, c) for c in columns])
+        if buf.tell() >= _CSV_CHUNK_CHARS:
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+    if buf.tell():
+        yield buf.getvalue()
+
+
 def _build_csv_response(
     rows: list[dict[str, Any]],
     columns: list[str],
     dataset: str,
 ) -> StreamingResponse:
     """构造 CSV 流式响应（含 BOM 头，确保 Excel 正确识别 UTF-8）"""
-    buf = io.StringIO()
-    # UTF-8 BOM：让 Excel/Numbers 正确识别编码
-    buf.write("\ufeff")
-    writer = csv.writer(buf)
-    writer.writerow(columns)
-    for r in rows:
-        writer.writerow([_row_value(r, c) for c in columns])
     fname = f"xh-{dataset}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        _iter_csv_text(rows, columns),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{fname}"',

@@ -22,7 +22,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterator
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -318,6 +318,44 @@ def untag_event(
 
 
 # ============== F-08 导出（CSV） ==============
+# 攒到约 256 KB 再交给传输层：StreamingResponse 对同步迭代器逐次走线程池，
+# 逐行 yield 会把一次 10 000 行导出变成 10 000 次线程切换
+_LOG_CSV_CHUNK_CHARS = 256 * 1024
+# 原始日志按 1M 字符分块读：首字节尽快出去，又不至于把整份日志读进内存
+_LOG_FILE_BLOCK_CHARS = 1024 * 1024
+
+
+def _iter_log_csv(candidates: list[dict[str, Any]]) -> Iterator[str]:
+    """逐块生成日志 CSV，避免整份内容先拼进内存
+
+    列与转义规则必须与原实现保持一致（前端按表头索引取列）：
+    message 截断 500 字符、tags 用逗号连接、空 task_id/item_id 输出空串。
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "created_at", "level", "stage", "task_id", "item_id", "message", "tags"])
+    yield buf.getvalue()
+    buf.seek(0)
+    buf.truncate(0)
+    for e in candidates:
+        writer.writerow([
+            e.get("id", ""),
+            e.get("created_at", ""),
+            e.get("level", ""),
+            e.get("stage", ""),
+            e.get("task_id", "") or "",
+            e.get("item_id", "") or "",
+            (e.get("message") or "")[:500],
+            ",".join(_event_tags(e)),
+        ])
+        if buf.tell() >= _LOG_CSV_CHUNK_CHARS:
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+    if buf.tell():
+        yield buf.getvalue()
+
+
 @router.get("/export")
 def export_logs(
     request: Request,
@@ -365,41 +403,48 @@ def export_logs(
         candidates = [e for e in candidates if to_datetime(e.get("created_at")) >= start_dt]
     if end_dt:
         candidates = [e for e in candidates if to_datetime(e.get("created_at")) <= end_dt]
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["id", "created_at", "level", "stage", "task_id", "item_id", "message", "tags"])
-    for e in candidates:
-        writer.writerow([
-            e.get("id", ""),
-            e.get("created_at", ""),
-            e.get("level", ""),
-            e.get("stage", ""),
-            e.get("task_id", "") or "",
-            e.get("item_id", "") or "",
-            (e.get("message") or "")[:500],
-            ",".join(_event_tags(e)),
-        ])
     fname = f"xh-logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        _iter_log_csv(candidates),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
 
-def _export_log_file() -> StreamingResponse:
-    """导出原始 log 文件拼接流"""
+def _iter_log_file_chunks() -> Iterator[str]:
+    """按块产出两个运行日志文件的拼接流
+
+    逐字节复刻原 `"\\n".join([header, content, ...])` 的语义：元素之间插一个
+    "\\n"，空文件也算一个元素（因此会在结尾留下多余换行）。
+
+    读取用与 `Path.read_text` 同参的 TextIOWrapper：`newline=None` 负责通用换行
+    转换（`\\r\\n` → `\\n`），其内部增量解码保证块边界不会切开多字节字符——
+    两点任一缺失，导出内容就不再与旧实现逐字节相同。
+    """
     base = Path(os.getcwd())
-    chunks: list[str] = []
+    prefix = ""
     for fname in (STDOUT_LOG_FILENAME, STDERR_LOG_FILENAME):
         p = base / fname
-        if p.exists():
-            chunks.append(f"===== {fname} =====\n")
-            chunks.append(p.read_text(encoding="utf-8", errors="replace"))
-    body = "\n".join(chunks)
+        if not p.exists():
+            continue
+        yield prefix + f"===== {fname} =====\n"
+        prefix = "\n"
+        yield prefix
+        with p.open("rb") as raw, io.TextIOWrapper(
+            raw, encoding="utf-8", errors="replace", newline=None
+        ) as f:
+            while True:
+                text = f.read(_LOG_FILE_BLOCK_CHARS)
+                if not text:
+                    break
+                yield text
+
+
+def _export_log_file() -> StreamingResponse:
+    """导出原始 log 文件拼接流（分块读，不把整份日志读进内存）"""
     fname = f"xh-logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     return StreamingResponse(
-        iter([body]),
+        _iter_log_file_chunks(),
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )

@@ -10,8 +10,8 @@
 
 ## 0. 一句话现状
 
-「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4）。
-剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（D3、D4、E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
+「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4/D4）。
+剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（D3、E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
 唯一的**未定论风险**是 RSS 长跑爬升（+75.9 MB/h，停载不回落）——B4 已证明它**不是**缓存值驻留，定论仍缺 4 h 长跑 + `tracemalloc`。
 
 ---
@@ -60,7 +60,7 @@
 | 条目 | 落点 | 预期 | 必须先做的事 / 风险 |
 |---|---|---|---|
 | **D3 写侧批量 + 池/超时** | `infra/db_models.py:901-902`（`pool_size=20/max_overflow=10`）、`:912-913`（`busy_timeout=10 000`、`synchronous=NORMAL`） | 16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms | ①「批量 UPSERT」要先清点 `writes_idem` 场景里**哪些**写是可批量的（`infra/repo_items.py:50` 已有 `batch_upsert_items` 先例，可作模式）；②`busy_timeout` 10 s→2 s 要配「等锁时间」指标，否则只是把隐藏的饱和换成报错；③**扩池不是解药**（SQLite WAL 单写者，20 已 > anyio 40 的一半） |
-| **D4 真流式导出** | `web/routes/api_export.py:76-98`（先拼满 `io.StringIO` 再单元素 yield）、`web/routes/api_logs.py:127-128` | 导出类 P99 1 827.7 → ≤600 ms；私有内存峰值 617.7 MB 下降 | 判据要**两份数据量**（774 行副本 vs 5 万行副本）比 RSS 峰值差；过滤条件下推会动 `api_logs` 的子串/标签/stage 语义，需回归 |
+| ~~**D4 真流式导出**~~ ✅ **2026-11-06 已落地** | `web/routes/api_export.py` / `api_logs.py` / `api_db_admin.py` | 3 处导出改按块产出或游标取数：50 000 行 items 峰值 38.27 → **2.52 MB**、40 MB 日志峰值 190.48 → **9.29 MB**、18 403 行 events 导出 2 433 → **285 ms** | **原文「`db-admin` 也是全内存拼 CSV」被实测推翻**：它本来就是流式，慢在逐行 yield × 线程池往返（1.8 万行 = 2.4 s）。判据 `d4_export_probe.py` 用 774 行 / 5 万行、2 MB / 40 MB 两档比峰值；`api_logs` 的过滤条件下推仍不落（A5 已证）。详见 OPTIMIZATIONS §D4 |
 | **E1 多 worker** | `backend/xianyu_hunter/__main__.py:280-284`（`--workers` 默认 1）、`:309-312`（注释自陈 51→80 req/s） | 读吞吐 ≈80 → ≥150 rps；96 并发 P99 4 296.9 → ≤1 500 ms | **硬约束：必须排在 B3 之后**。进程内 TTL 缓存会按 worker 分裂成 N 份，直接开多 worker 会把命中率打散、把击穿变 N 倍。采集/浏览器留单进程调度器，Web 侧 `--no-with-scheduler` |
 | **E2 SSE 隔离** | `web/sse_stream.py`（`_MAX_SSE_CONNECTIONS` / `_sse_gate`） | 长连接不再挤占短请求（稳定性收益，非直接量化项） | 属于「有则更好」，优先级最低；若要动，至少先把上限与告警暴露到 `/api/metrics` |
 
@@ -68,7 +68,7 @@
 
 | 缺口 | 具体内容 | 做法 |
 |---|---|---|
-| **同一套 JMX 复跑** | D1/D2/B4 的**接口级 avg 与 48/96 并发数字**本轮都没发布；`results/per_endpoint.json` 等仍是优化前基线 | `jmeter-config-v2.yml` + 技能侧 `python_replay_engine.py --all` + `aggregate.py`（链路见 §6）；前后两轮要同机、同数据、同预热 |
+| **同一套 JMX 复跑** | D1/D2/B4/D4 的**接口级 avg 与 48/96 并发数字**本轮都没发布；`results/per_endpoint.json` 等仍是优化前基线 | `jmeter-config-v2.yml` + 技能侧 `python_replay_engine.py --all` + `aggregate.py`（链路见 §6）；前后两轮要同机、同数据、同预热 |
 | **≥4 h 长跑 + `tracemalloc`** | RSS +75.9 MB/h、停载不回落、句柄恒定（627~631）；B4 已排除「缓存值驻留」（差 3~4 个数量级） | `jmeter-config-v2.yml` 里 `soak_mixed.duration_override` 改 `14400` 后原样跑；同时开 `tracemalloc` 快照差分（或按对象类型排行）。**不能由 B4 宣布关闭** |
 | **D1 判据在外部负载下自抖** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 硬化方向：把 `hold_ms` 抬到明显高于调度抖动（如 150/300 ms）并放宽峰值判据，或改为「同轮内相对比值」而非绝对在途峰值。改完要重跑 D1 变异验证（12 腿）确认判据仍能翻红 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
@@ -100,6 +100,8 @@
 - 每条腿**无条件按原始字节恢复**，结束逐文件 sha256 核对；CRLF 文件的多行锚点先做换行归一化。
 - 必含两条**应为绿**的腿：①「接错对象」（改了个看似相关其实不管用的地方）；②只改 docstring 措辞。缺了这两条，全红只能说明脚本自嗨。
 - 摘要要保留 `FAILED` / `ERROR` 与 `E   ` 断言行，否则只剩 「N failed」不知为何红。
+- **大文本断言必须先比长度再定位首个差异**：1 MB 级 `assert got == expected` 失败时 pytest 会渲染整份 diff，单腿从 9 s 拖到 9 分钟（D4 实测踩到，`tests/test_export.py::_assert_same_text` 是正确写法）。
+- **变异脚本自己写日志文件**，不要靠 PowerShell 管道落盘（见 §7）。
 - `tests/test_slow_lane.py`（时序用例）在机器有外部负载时会自抖：D2 探针为此提供 `--drop-slow-lane`（摘掉它，维护侧 3 文件 51 例判据一条不少，文档里要写明这一点）；B4 的跑批（capacity / swr / single_flight / order_stats）本身不含它，但仍可能被同一波环境抖动波及（见 §7）。
 
 ---
@@ -187,6 +189,8 @@ perf/2026-10-31-full-api/
 | `taskkill /IM node.exe` 之类 | 会杀掉别的会话的进程 | 按 PID，且先看命令行确认归属 |
 | pytest 日志里 `N passed` 混着 warning 行 | 摘要抓错行 | `-q --no-header -rf`，摘要只留 `passed/failed/error/FAILED/ERROR/E   ` |
 | 长命令套 `grep` 管道 | 吞退出码 + 丢证据 | 先落文件，再用 Read/Grep 看 |
+| `TMP` 没跟 `TEMP` 一起改到 D 盘 | 临时 SQLite 仍写 C 盘，报 `database or disk is full`（C 盘 0 可用） | 跑 pytest 前 **`TEMP` 和 `TMP` 都要设**到 D 盘，且目录先存在（D4 实测踩到） |
+| PowerShell 管道缓冲外部进程输出 | `... \| Tee-Object log` 时输出要等进程退出才落盘，中途被杀只剩半份进度 | 让脚本自己开文件写日志（`d4_mutation_run.py` 就这么做） |
 
 ---
 
@@ -201,8 +205,9 @@ perf/2026-10-31-full-api/
   tests/test_cache_swr_refresh.py tests/test_order_stats_cache_invalidation.py \
   -o "addopts=" -p no:cacheprovider -q
 
-# 全量（安静机器上约 17~18 min；2 818 passed / 0 failed 是 B4 时的基线）
-.venv/Scripts/python.exe -m pytest -o "addopts=" -p no:cacheprovider -q
+# 全量（安静机器上约 7~18 min；2 857 passed / 0 failed 是 D4 时的基线）
+$env:TEMP='D:\tmp\pytest-temp'; $env:TMP='D:\tmp\pytest-temp'
+.venv/Scripts/python.exe -m pytest -o "addopts=" -p no:cacheprovider -q --basetemp=D:/tmp/full
 
 # 变异验证（逐腿串行；先确认基线绿）
 .venv/Scripts/python.exe perf/2026-10-31-full-api/b4_mutation_run.py

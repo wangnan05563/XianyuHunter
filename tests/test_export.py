@@ -1,9 +1,13 @@
 """P1-5 数据导出 API 单元测试"""
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
+import json
+import types
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -223,3 +227,275 @@ def test_export_items_time_filter(client: TestClient, tmp_repo: Repository) -> N
     rows = list(reader)
     # i1 是 now，i2 是 1 天前，应只返回 i1
     assert len(rows) == 2  # 表头 + i1
+
+
+# ==================== D4：边生成边发，且输出逐字节不变 ====================
+
+def _legacy_csv_text(rows: list[dict], columns: list[str]) -> str:
+    """旧实现（整份 StringIO 再单元素 yield）的独立参照
+
+    刻意在测试里重写一遍，而不是从实现导入：若参照也来自被测模块，
+    「逐字节相同」就退化成同义反复。
+    """
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    for r in rows:
+        writer.writerow(["" if r.get(c) is None else r.get(c) for c in columns])
+    return buf.getvalue()
+
+
+class _TrackingRows(list):
+    """记录迭代进度，用来证明首块产出时还没有把数据行全部取出来"""
+
+    def __init__(self, data) -> None:
+        super().__init__(data)
+        self.seen = 0
+
+    def __iter__(self):
+        for row in super().__iter__():
+            self.seen += 1
+            yield row
+
+
+def test_csv_stream_output_is_byte_identical_to_legacy() -> None:
+    """流式改造不能改变任何一个字节（含 BOM、CRLF、引号转义、None→空串）"""
+    from xianyu_hunter.web.routes.api_export import _DATASET_COLUMNS, _iter_csv_text
+
+    columns = _DATASET_COLUMNS["items"]
+    rows = [
+        {
+            "id": "i1", "task_id": "t1", "title": "iPhone 13, 128G",
+            "price": 3999.0, "publish_time": "2026-11-01T00:00:00",
+            "region": None, "seller_id": "s1", "want_cnt": 3, "view_cnt": 10,
+            "first_seen": "2026-10-31T00:00:00", "last_seen": None,
+        },
+        {
+            # 缺列 + 显式 None 都要落成空串；引号与换行交给 csv 转义
+            "id": "i2", "title": '带"引号"和\n换行', "price": 0.0, "region": "杭州",
+        },
+    ]
+    assert "".join(_iter_csv_text(rows, columns)) == _legacy_csv_text(rows, columns)
+
+
+def test_csv_stream_emits_before_reading_all_rows() -> None:
+    """首块必须早于全量取数：这是「流式」与「先拼满」的分水岭"""
+    from xianyu_hunter.web.routes.api_export import _DATASET_COLUMNS, _iter_csv_text
+
+    columns = _DATASET_COLUMNS["items"]
+    rows = _TrackingRows({"id": f"i{n}", "title": "x" * 40} for n in range(20_000))
+    it = _iter_csv_text(rows, columns)
+
+    first = next(it)
+    assert first.startswith("\ufeffid,"), "BOM 与表头必须在第一块里"
+    assert rows.seen == 0, "首块产出时不应已取过任何数据行"
+
+    next(it)
+    assert 0 < rows.seen < len(rows), "第二块也应是部分取数，而不是全量拼完再发"
+
+
+def test_csv_stream_chunk_size_does_not_scale_with_row_count() -> None:
+    """单块大小有上限：块大小随行数放大就说明仍在攒全量"""
+    from xianyu_hunter.web.routes.api_export import _DATASET_COLUMNS, _iter_csv_text
+
+    columns = _DATASET_COLUMNS["items"]
+    rows = [{"id": f"i{n}", "title": "x" * 40, "price": n} for n in range(50_000)]
+    chunks = list(_iter_csv_text(rows, columns))
+
+    assert sum(len(c) for c in chunks) > 2 * 1024 * 1024, "样本太小则断言无意义"
+    assert len(chunks) > 4
+    assert max(len(c) for c in chunks) < 400_000, (
+        f"单块已达 {max(len(c) for c in chunks)} 字符，仍在攒全量"
+    )
+
+
+def _legacy_log_csv(candidates: list[dict]) -> str:
+    """日志 CSV 旧实现的独立参照（列、截断、tags 拼接都不能变）"""
+    from xianyu_hunter.web.routes.api_logs import _event_tags
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "created_at", "level", "stage", "task_id", "item_id", "message", "tags"])
+    for e in candidates:
+        writer.writerow([
+            e.get("id", ""),
+            e.get("created_at", ""),
+            e.get("level", ""),
+            e.get("stage", ""),
+            e.get("task_id", "") or "",
+            e.get("item_id", "") or "",
+            (e.get("message") or "")[:500],
+            ",".join(_event_tags(e)),
+        ])
+    return buf.getvalue()
+
+
+def test_log_csv_stream_output_is_byte_identical_to_legacy() -> None:
+    from xianyu_hunter.web.routes.api_logs import _iter_log_csv
+
+    candidates = [
+        {"id": 1, "created_at": "2026-11-06T00:00:00", "level": "info", "stage": "run",
+         "task_id": "t1", "item_id": None, "message": "正常,带逗号",
+         "payload": '{"tags": ["a", "b"]}'},
+        # message 超过 500 字符必须被截断；payload 为空时 tags 落空串
+        {"id": 2, "created_at": "", "level": "error", "stage": "", "task_id": None,
+         "item_id": "i1", "message": "长" * 600, "payload": None},
+    ]
+    assert "".join(_iter_log_csv(candidates)) == _legacy_log_csv(candidates)
+
+
+def test_log_csv_stream_emits_before_reading_all_rows() -> None:
+    """日志 CSV 同样不能先拼满：首块（表头）必须在取任何数据行之前产出"""
+    from xianyu_hunter.web.routes.api_logs import _iter_log_csv
+
+    candidates = _TrackingRows({"id": n, "message": "x" * 60} for n in range(20_000))
+    it = _iter_log_csv(candidates)
+
+    assert next(it).startswith("id,"), "表头必须是第一块"
+    assert candidates.seen == 0, "首块产出时不应已取过任何数据行"
+
+    next(it)
+    assert 0 < candidates.seen < len(candidates), "第二块也应是部分取数"
+
+
+def _legacy_log_file_body(root: Path) -> str:
+    """原始日志导出旧实现的独立参照（两个文件的 join 语义）"""
+    chunks: list[str] = []
+    for fname in ("run.stdout.log", "run.stderr.log"):
+        p = root / fname
+        if p.exists():
+            chunks.append(f"===== {fname} =====\n")
+            chunks.append(p.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(chunks)
+
+
+def _assert_same_text(got: str, expected: str) -> None:
+    """长文本比较先比长度、再定位首个差异
+
+    直接 `assert got == expected` 在失败时会让 pytest 渲染整份 diff：
+    1 MB 以上的日志用例会因此把变异验证拖到几分钟（D4 变异验证实测踩到过）。
+    """
+    if got == expected:
+        return
+    assert len(got) == len(expected), f"长度不同：{len(got)} vs {len(expected)}"
+    offset = next((i for i, (a, b) in enumerate(zip(got, expected)) if a != b), 0)
+    raise AssertionError(
+        f"首个差异在偏移 {offset}："
+        f"{got[offset:offset + 40]!r} != {expected[offset:offset + 40]!r}"
+    )
+
+
+async def _collect_body(resp) -> str:
+    return "".join(
+        [c.decode("utf-8") if isinstance(c, bytes) else c async for c in resp.body_iterator]
+    )
+
+
+async def _collect_chunks(resp) -> list[str]:
+    return [c.decode("utf-8") if isinstance(c, bytes) else c async for c in resp.body_iterator]
+
+
+def _db_admin_container(repo: Repository):
+    return types.SimpleNamespace(repo=repo)
+
+
+def _seed_bulk_items(repo: Repository, count: int) -> int:
+    """在 _seed_data 的 2 条之上再灌 count 条，返回导出应有的总行数"""
+    now = datetime.now(timezone.utc)
+    rows = [
+        {"id": f"bulk{i:05d}", "task_id": "t1", "title": f"批量商品 {i}",
+         "price": 100.0 + i, "seller_id": "s1", "first_seen": now}
+        for i in range(count)
+    ]
+    # SQLite 单语句变量有上限，批量插入必须切片
+    for i in range(0, len(rows), 200):
+        repo.batch_upsert_items(rows[i:i + 200])
+    return count + 2
+
+
+def test_db_admin_export_csv_chunks_are_batched_not_per_row(tmp_repo: Repository) -> None:
+    """db-admin 表导出：块数必须与「块」同阶，而不是与「行」同阶
+
+    旧实现逐行 yield，StreamingResponse 每行一次线程池往返：18 403 行 events
+    实测 2.4 s（perf/2026-10-31-full-api/results/d4_export_probe_before_r4.json）。
+    """
+    from xianyu_hunter.web.routes import api_db_admin as admin
+
+    _seed_data(tmp_repo)
+    total = _seed_bulk_items(tmp_repo, 3000)
+
+    resp = admin.export_rows("items", format="csv", container=_db_admin_container(tmp_repo))
+    assert resp.headers["x-export-rows"] == str(total)
+    chunks = asyncio.run(_collect_chunks(resp))
+    body = "".join(chunks)
+
+    assert body.startswith("\ufeff"), "BOM 丢了 Excel 会把中文认成乱码"
+    assert len([ln for ln in body.splitlines() if ln.strip()]) - 1 == total
+    assert len(chunks) < 50, f"chunk 数 {len(chunks)} 与行数同阶，说明仍在逐行 yield"
+    assert max(len(c) for c in chunks) <= 2 * admin._EXPORT_CHUNK_CHARS
+
+
+def test_db_admin_export_json_streams_and_stays_valid(tmp_repo: Repository) -> None:
+    """JSON 分支同样分块：分块只能改传输边界，不能让 JSON 失效"""
+    from xianyu_hunter.web.routes import api_db_admin as admin
+
+    _seed_data(tmp_repo)
+    total = _seed_bulk_items(tmp_repo, 3000)
+
+    resp = admin.export_rows("items", format="json", container=_db_admin_container(tmp_repo))
+    chunks = asyncio.run(_collect_chunks(resp))
+    data = json.loads("".join(chunks))
+
+    assert len(data) == total
+    assert resp.headers["x-export-rows"] == str(total)
+    assert len(chunks) < 50
+    assert max(len(c) for c in chunks) <= 2 * admin._EXPORT_CHUNK_CHARS
+
+
+@pytest.mark.parametrize(
+    "stdout_text,stderr_text",
+    [
+        ("stdout 行1\n中文行2\n", ""),   # 空 stderr 也是一个元素：join 会留一个多余换行
+        ("", "只有 stderr\n"),
+        (None, "stdout 不存在\n"),        # 只存在一个文件
+    ],
+)
+def test_log_file_stream_matches_legacy_bytes(
+    tmp_path: Path, monkeypatch, stdout_text, stderr_text
+) -> None:
+    from xianyu_hunter.web.routes.api_logs import _export_log_file
+
+    monkeypatch.chdir(tmp_path)
+    if stdout_text is not None:
+        (tmp_path / "run.stdout.log").write_text(stdout_text, encoding="utf-8")
+    if stderr_text is not None:
+        (tmp_path / "run.stderr.log").write_text(stderr_text, encoding="utf-8")
+
+    got = asyncio.run(_collect_body(_export_log_file()))
+    _assert_same_text(got, _legacy_log_file_body(tmp_path))
+
+
+def test_log_file_stream_reads_in_blocks_and_matches_whole_file_decode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """多块读取 + 中文 + 混合换行，输出必须与整份 read_text 完全一致
+
+    这里锁两件事：①文件确实被分块读（否则峰值仍随文件大小线性增长）；
+    ②`newline=None` 的通用换行转换与增量解码都没被绕开——只按二进制读再解码，
+    `\\r\\n` 会原样留下；整块 `errors="replace"` 则会把跨边界的汉字换成替换符。
+    """
+    from xianyu_hunter.web.routes import api_logs
+
+    block = api_logs._LOG_FILE_BLOCK_CHARS
+    unit = "中文行\r\n" + "a" * 50 + "\n"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "run.stdout.log").write_text(unit * (block // len(unit) + 10), encoding="utf-8")
+
+    chunks = list(api_logs._iter_log_file_chunks())
+    assert len(chunks) >= 4, "超过一个块大小的文件必须分成多块读取"
+    assert max(len(c) for c in chunks) <= 2 * block
+
+    got = asyncio.run(_collect_body(api_logs._export_log_file()))
+    _assert_same_text(got, _legacy_log_file_body(tmp_path))
+    assert "\ufffd" not in got
