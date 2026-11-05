@@ -11,7 +11,7 @@
 ## 0. 一句话现状
 
 「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4/D4/D3）。
-剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
+剩下的工作：**② 结构性** —— E1 的核心（默认 worker 数 / 吞吐判据）与 E2 的隔离部分**均判定不落**，只落了运维护栏（E1：`--workers > 1` 与 `--with-scheduler` 互斥；E2：SSE 超限告警）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
 唯一的**未定论风险**是 RSS 长跑爬升（+75.9 MB/h，停载不回落）——B4 已证明它**不是**缓存值驻留，定论仍缺 4 h 长跑 + `tracemalloc`。
 
 ---
@@ -34,6 +34,7 @@
 | D2 cache_scan 解锁 | `8cfa9e9b` | **不是原文的「按路径分锁」**（三个调用点同一个目录）；改为「时间片不持锁 + 同键单推进者」；同路径 8 并发 p95 42.4/36.7 → 9.9/2.8 ms，扫完墙钟不变 |
 | B4 缓存容量上限 | `63c2bee2` | 复用 `infra/lru.LRUDict` + `cache_max_entries=2000`，`create_app()` 装配期套用；**RSS 归因被推翻**（全量 GET 扫 106 个 label 只留 7 条 / 23 620 B） |
 | D4 真流式导出 | `a6f05d48` | 3 处导出改按块产出 / 游标取数：5 万行 items 峰值 38.27→2.52 MB、40 MB 日志 190.48→9.29 MB、18 403 行 events 导出 2 433→285 ms；**原文「db-admin 也是全内存拼接」被推翻**（它本来就流式，慢在逐行 yield × 线程池往返） |
+| D3 写侧批量 | `550e299b` | `recompute` 的 payload 改单事务批量写：500 条 **137.5 → 25.4 ms（5.41×）**、UPDATE 500 → 1 条；**写组 TPS 判据不成立**（61.6% 样本是夹具 4xx、真写单发全 <30 ms 且每请求 1 条），UPSERT 分支 / `busy_timeout` 调小 / 扩池判定不落 |
 | C3 残余 模板文件 memo | cb6cd5a8 | 指纹 memo + 写盘配对作废；进程内处理器 2.23 → 0.53~0.58 ms，deepcopy 方案被实测否掉（1.14 ms ≈ 重新 `json.load`）→ 返回浅拷贝；详见 OPTIMIZATIONS §C3 |
 | A2′ 品牌归一化 | `88e614c0` | 正则预编译 + 别名表压缩结果预计算；`_compact_text` 73 251 → 2 367 次、`_enrich_eval_record` 706.9 → 256.3 ms；**请求内 memo 被实测推翻**（377 条只有 363 个唯一 title，memo 版慢 15%） |
 | A1 过滤列索引 | `7665e83e` | 5 条候选落 3 条：`items.price` 15.09 → 7.17 ms、`evaluations.risk_level` 变覆盖索引 3.45 → 2.17 ms、`orders(type, created_at)` 复合 4.08 → 0.50 ms；`price_history.user_id` / `task_links.updated_at` 实测无收益 |
@@ -62,8 +63,8 @@
 |---|---|---|---|
 | ~~**D3 写侧批量 + 池/超时**~~ ✅ **2026-11-06 已落地一半** | `infra/repo_events.py` + `web/routes/evaluations_recompute.py` | `recompute` 的 payload 改单事务批量写：500 条 **137.5 → 25.4 ms（5.41×）**、UPDATE 500 → 1 条 | **写组 TPS 判据不成立**：61.6% 样本是夹具 4xx（不写库），真写接口单发全 <30 ms 且每请求只写 1 条，跨请求批量无处施力。UPSERT 分支、`busy_timeout` 调小、扩池均判定不落（见 OPTIMIZATIONS §D3） |
 | ~~**D4 真流式导出**~~ ✅ **2026-11-06 已落地** | `web/routes/api_export.py` / `api_logs.py` / `api_db_admin.py` | 3 处导出改按块产出或游标取数：50 000 行 items 峰值 38.27 → **2.52 MB**、40 MB 日志峰值 190.48 → **9.29 MB**、18 403 行 events 导出 2 433 → **285 ms** | **原文「`db-admin` 也是全内存拼 CSV」被实测推翻**：它本来就是流式，慢在逐行 yield × 线程池往返（1.8 万行 = 2.4 s）。判据 `d4_export_probe.py` 用 774 行 / 5 万行、2 MB / 40 MB 两档比峰值；`api_logs` 的过滤条件下推仍不落（A5 已证）。详见 OPTIMIZATIONS §D4 |
-| **E1 多 worker** | `backend/xianyu_hunter/__main__.py:280-284`（`--workers` 默认 1）、`:309-312`（注释自陈 51→80 req/s） | 读吞吐 ≈80 → ≥150 rps；96 并发 P99 4 296.9 → ≤1 500 ms | **硬约束：必须排在 B3 之后**。进程内 TTL 缓存会按 worker 分裂成 N 份，直接开多 worker 会把命中率打散、把击穿变 N 倍。采集/浏览器留单进程调度器，Web 侧 `--no-with-scheduler` |
-| **E2 SSE 隔离** | `web/sse_stream.py`（`_MAX_SSE_CONNECTIONS` / `_sse_gate`） | 长连接不再挤占短请求（稳定性收益，非直接量化项） | 属于「有则更好」，优先级最低；若要动，至少先把上限与告警暴露到 `/api/metrics` |
+| ~~**E1 多 worker**~~ ⚠️ **2026-11-06 只落运维护栏** | `backend/xianyu_hunter/__main__.py:280-284`（`--workers` 默认 1）、`:309-312`（注释自陈 51→80 req/s） | `--workers > 1` 与 `--with-scheduler`（默认 True）改为互斥、直接 `Exit(2)`；`--no-with-scheduler` 放行并原样透传 | 默认 worker 数与「80 → ≥150 rps」判定不落：进程内 TTL 缓存会按 worker 分裂（B3 判定不落后无共享缓存兜底），且本机无原生 JMeter。见 OPTIMIZATIONS §E1 |
+| ~~**E2 SSE 隔离**~~ ⚠️ **2026-11-06 只落告警** | `web/sse_stream.py`（`_MAX_SSE_CONNECTIONS` / `_sse_gate`） | 超限时补 WARNING（此前服务端完全无记录），HTTP 语义不变 | 隔离方案判定不落：`/api/metrics` 不存在、新建会改 openapi 快照（D1 判据）；SSE 单独进程属部署变更；塞进 `CapacityLimiter` 会让长连接永久占槽。见 OPTIMIZATIONS §E2 |
 
 ### 2.3 验证缺口（不写代码，但决定前面条目能不能「发布」）
 
@@ -207,7 +208,7 @@ perf/2026-10-31-full-api/
   tests/test_cache_swr_refresh.py tests/test_order_stats_cache_invalidation.py \
   -o "addopts=" -p no:cacheprovider -q
 
-# 全量（安静机器上约 7~18 min；2 857 passed / 0 failed 是 D4 时的基线）
+# 全量（安静机器上约 7~18 min；2 868 passed / 0 failed 是 E1/E2 时的基线）
 $env:TEMP='D:\tmp\pytest-temp'; $env:TMP='D:\tmp\pytest-temp'
 .venv/Scripts/python.exe -m pytest -o "addopts=" -p no:cacheprovider -q --basetemp=D:/tmp/full
 

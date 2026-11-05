@@ -313,6 +313,16 @@ def web(
     if reload and workers > 1:
         typer.echo("⚠ --reload 与 --workers 互斥，已强制 workers=1", err=True)
         workers = 1
+    # 多 worker + 调度器会让每个 worker 各起一套浏览器/调度器实例（4 个 worker =
+    # 4 个 Chromium + 4 份轮询，既抢浏览器锁也重复采集）。这里直接拒绝而不是静默
+    # 降级：静默降级会让用户以为多 worker 生效了，实际仍在单进程跑。
+    if workers > 1 and with_scheduler:
+        typer.echo(
+            "✗ --workers > 1 与 --with-scheduler 互斥：每个 worker 会各起一套"
+            "浏览器/调度器实例。请改用 --no-with-scheduler，或保持 workers=1。",
+            err=True,
+        )
+        raise typer.Exit(2)
     uvicorn.run(web_app, host=host, port=port, reload=reload, workers=workers, log_level="info")
 
 

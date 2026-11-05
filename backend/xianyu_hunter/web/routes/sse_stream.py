@@ -51,10 +51,19 @@ def _load_new_events(container, cursor: int) -> list[dict]:
 
 
 async def _acquire_sse_slot() -> bool:
-    """尝试获取 SSE 连接槽位，成功返回 True，超限返回 False"""
+    """尝试获取 SSE 连接槽位，成功返回 True，超限返回 False
+
+    超限时客户端只会收到一条流内 error 事件，服务端此前没有任何记录 ——
+    运维侧看不到「容量已经打满」这个信号。这里补一条 WARNING（不改 HTTP 语义，
+    也不同于 B7 的 5xx：连接本身仍是 200 + 流内事件）。
+    """
     global _sse_connection_count
     async with _sse_gate:
         if _sse_connection_count >= _MAX_SSE_CONNECTIONS:
+            logger.warning(
+                f"SSE 连接数已达上限 {_MAX_SSE_CONNECTIONS}，拒绝新连接"
+                f"（当前 {_sse_connection_count}）"
+            )
             return False
         _sse_connection_count += 1
         return True
