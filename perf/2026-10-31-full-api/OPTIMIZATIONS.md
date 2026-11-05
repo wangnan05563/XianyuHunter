@@ -356,6 +356,32 @@
 **量化预期收益**：16 并发写 TPS **51.9 → ≥66**（持平峰值档，不再回落），P95 **635.8 → ≤400 ms**；写侧长尾（`baseline_write` max 4 387 ms）收敛。
 **验证方式**：`stress_write_t16` 复跑 + 单独统计写接口 avg，验证「吞吐不再回落」。
 
+**D3 落地状态（2026-11-06）：✅ 已落地 `recompute` 的 payload 批量写；原文的写组 TPS 判据不成立，「批量 UPSERT」的第二条路径判定不落**
+
+取证分两步，先清点再测写：
+
+1. `d3_write_inventory.py` 按响应码拆 `writes_idem` 的 26 个接口（数据源是 `results/agg_phases.json`，不重压）：16 并发 3 170 样本里 **61.6% 是夹具 4xx**（400/404/422 在 FastAPI 校验层返回、一次库都不碰），真写只占 38.4%（服务端耗时份额 43.4%）。真写接口**单发全部 <30 ms**：`tasks` 18.7、`evaluations/batch-evaluate` 17.4、`recompute` 16.4、`preferences` 9.7、`menu/reset` 9.3、`tasks/control` 8.6；只有配置类是 `templates` 200.9 / `config/preview` 151.0 / `config/save` 115.0。16 并发下**写库接口放大 15~17×**（`tasks` 18.7 → 326.6、`recompute` 16.4 → 259.6），配置类只放大 2.9~3.5× —— 排队确实发生在 SQLite 写事务上。
+2. 但「每请求只写 1 条」意味着**跨请求批量 UPSERT 无处施力**（要合并就得改响应语义：写请求必须等自己的写落库才能返回）。真实存在的 N+1 在 `recompute`：`update_event_payload` 每条一个 `engine.begin()`。
+
+`d3_write_probe.py`（临时库，5 轮中位；只量仓储层两种写形态）：
+
+| 写形态 | 数据量 | 逐条独立事务 | 单事务 executemany | 加速 |
+|---|---|---|---|---|
+| events payload UPDATE | 500 | 99.4 ms / 500 SQL | **6.0 ms / 1 SQL** | 16.5× |
+| events payload UPDATE | 2 000 | 402.2 ms / 2 000 SQL | **32.9 ms / 1 SQL** | 12.2× |
+| items UPSERT | 500 | 405.3 ms / 500 SQL | **95.1 ms / 1 SQL** | 4.3× |
+| items UPSERT | 2 000 | 1 750.9 ms / 2 000 SQL | **425.2 ms / 1 SQL** | 4.1× |
+
+端到端 `d3_recompute_probe.py`（500 条 `eval.scored`、fake evaluator、两臂共用同一份数据与同一段重算循环，差异只在写侧）：**137.5 → 25.4 ms（5.41×），UPDATE 500 → 1 条**。
+
+落地两处：新增 `repo_events.batch_update_event_payloads(updates, user_id=None)`（单事务 executemany，按 500 条切片，`user_id` 过滤语义与单条版一致）；`evaluations_recompute` 主循环改为「循环内只登记 `(event_id, payload)`」，结束后一次批量写 —— `notify=True` 的通知有顺序语义，仍留在循环内发。
+
+**判定不落的三件**：① `recompute` 的 **UPSERT 分支**（无 eval 事件时按 500 条 task_link 逐条 `upsert_item` + `upsert_eval_event`）—— `upsert_item` 的 `user_id or "default"` 归属、items 列默认值、以及「逐条 try/except 部分成功」三处语义要一起改，风险高于收益，且它只在「旧版本写了 task_links 但没写评估」的兜底场景触发；② **`busy_timeout` 10 s→2 s** —— 不提升吞吐，只是把「隐藏的等待」换成「显式报错」，原文自己要求配「等锁时间」指标，本轮不引入（无指标就调小超时 = 把饱和藏成故障）；③ **扩池** —— 原文已否掉（SQLite WAL 单写者，20 已 > anyio 40 的一半）。
+
+**原文判据「16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms」不发布**：写组 61.6% 的样本根本不写库，TPS 由夹具请求与排队共同决定；本条交付的是「单次 recompute 内 500 条写」的前后对照（5.41×）。接口级写吞吐仍须同一 JMX 复跑。
+
+**回归**：`tests/test_recompute_batch_payload.py` 5 例（单事务、逐行落库、`user_id` 隔离、空列表 no-op、端到端 200 条只发 1 条 UPDATE + AST 接线门禁）；变异验证 `d3_mutation_run.py` **4 红 2 绿**、2 文件逐字节还原。全量后端 **2 861 passed / 1 failed**：唯一失败是 `test_anticrawl_integration.py::TestFreqDisguiseIntegration::test_request_pattern_not_robot_like`（随机分布断言 `0.353 < 0.3`），与写侧改动无关；隔离复跑 3 次全绿，判环境抖动（同 D1/D2 的既有结论）。
+
 ### D4. 大结果集流式化 — 优先级 **中**
 **具体优化内容**：`web/routes/api_export.py:76-98` 虽返回 `StreamingResponse`，但先把最多 5 万行整份 CSV 拼进 `io.StringIO`（`:82-88`），再以 `iter([buf.getvalue()])`（`:91`）单元素「流式」发出 —— 等价于全内存拼接；`web/routes/api_logs.py:127-128` 先取 `min(limit*10, 1000)` 条事件，再在 Python 侧做子串/标签/stage 过滤（`:133-162`，注释自陈 SQLite 无原生 JSON 查询）。改为生成器逐块产出 + 服务端游标分批，过滤条件下推。
 **证据**：`GET /api/db-admin/tables/items/export` 基线 35.0 → 长跑 **558.2 ms（P95 1 278.6 / P99 1 827.7）**；`GET /api/config/export` 107.5 → 288.4 ms；`GET /api/export` 16.2 → 134.4 ms。私有内存峰值 617.7 MB（RSS 414.5 MB）。

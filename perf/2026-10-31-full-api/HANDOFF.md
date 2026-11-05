@@ -10,8 +10,8 @@
 
 ## 0. 一句话现状
 
-「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4/D4）。
-剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（D3、E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
+「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4/D4/D3）。
+剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
 唯一的**未定论风险**是 RSS 长跑爬升（+75.9 MB/h，停载不回落）——B4 已证明它**不是**缓存值驻留，定论仍缺 4 h 长跑 + `tracemalloc`。
 
 ---
@@ -33,6 +33,7 @@
 | D1 慢接口专用道 | `35fc236e` | 16 条实测最重的同步接口走 `CapacityLimiter(4)`；廉价接口 p50 3 509.6/1 153.9 → 34.3/59.8 ms；`queue_p95` 974.4 → 6.7 ms 而 `work_p50` 恒 ~4 ms |
 | D2 cache_scan 解锁 | `8cfa9e9b` | **不是原文的「按路径分锁」**（三个调用点同一个目录）；改为「时间片不持锁 + 同键单推进者」；同路径 8 并发 p95 42.4/36.7 → 9.9/2.8 ms，扫完墙钟不变 |
 | B4 缓存容量上限 | `63c2bee2` | 复用 `infra/lru.LRUDict` + `cache_max_entries=2000`，`create_app()` 装配期套用；**RSS 归因被推翻**（全量 GET 扫 106 个 label 只留 7 条 / 23 620 B） |
+| D4 真流式导出 | `a6f05d48` | 3 处导出改按块产出 / 游标取数：5 万行 items 峰值 38.27→2.52 MB、40 MB 日志 190.48→9.29 MB、18 403 行 events 导出 2 433→285 ms；**原文「db-admin 也是全内存拼接」被推翻**（它本来就流式，慢在逐行 yield × 线程池往返） |
 | C3 残余 模板文件 memo | cb6cd5a8 | 指纹 memo + 写盘配对作废；进程内处理器 2.23 → 0.53~0.58 ms，deepcopy 方案被实测否掉（1.14 ms ≈ 重新 `json.load`）→ 返回浅拷贝；详见 OPTIMIZATIONS §C3 |
 | A2′ 品牌归一化 | `88e614c0` | 正则预编译 + 别名表压缩结果预计算；`_compact_text` 73 251 → 2 367 次、`_enrich_eval_record` 706.9 → 256.3 ms；**请求内 memo 被实测推翻**（377 条只有 363 个唯一 title，memo 版慢 15%） |
 | A1 过滤列索引 | `7665e83e` | 5 条候选落 3 条：`items.price` 15.09 → 7.17 ms、`evaluations.risk_level` 变覆盖索引 3.45 → 2.17 ms、`orders(type, created_at)` 复合 4.08 → 0.50 ms；`price_history.user_id` / `task_links.updated_at` 实测无收益 |
@@ -59,7 +60,7 @@
 
 | 条目 | 落点 | 预期 | 必须先做的事 / 风险 |
 |---|---|---|---|
-| **D3 写侧批量 + 池/超时** | `infra/db_models.py:901-902`（`pool_size=20/max_overflow=10`）、`:912-913`（`busy_timeout=10 000`、`synchronous=NORMAL`） | 16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms | ①「批量 UPSERT」要先清点 `writes_idem` 场景里**哪些**写是可批量的（`infra/repo_items.py:50` 已有 `batch_upsert_items` 先例，可作模式）；②`busy_timeout` 10 s→2 s 要配「等锁时间」指标，否则只是把隐藏的饱和换成报错；③**扩池不是解药**（SQLite WAL 单写者，20 已 > anyio 40 的一半） |
+| ~~**D3 写侧批量 + 池/超时**~~ ✅ **2026-11-06 已落地一半** | `infra/repo_events.py` + `web/routes/evaluations_recompute.py` | `recompute` 的 payload 改单事务批量写：500 条 **137.5 → 25.4 ms（5.41×）**、UPDATE 500 → 1 条 | **写组 TPS 判据不成立**：61.6% 样本是夹具 4xx（不写库），真写接口单发全 <30 ms 且每请求只写 1 条，跨请求批量无处施力。UPSERT 分支、`busy_timeout` 调小、扩池均判定不落（见 OPTIMIZATIONS §D3） |
 | ~~**D4 真流式导出**~~ ✅ **2026-11-06 已落地** | `web/routes/api_export.py` / `api_logs.py` / `api_db_admin.py` | 3 处导出改按块产出或游标取数：50 000 行 items 峰值 38.27 → **2.52 MB**、40 MB 日志峰值 190.48 → **9.29 MB**、18 403 行 events 导出 2 433 → **285 ms** | **原文「`db-admin` 也是全内存拼 CSV」被实测推翻**：它本来就是流式，慢在逐行 yield × 线程池往返（1.8 万行 = 2.4 s）。判据 `d4_export_probe.py` 用 774 行 / 5 万行、2 MB / 40 MB 两档比峰值；`api_logs` 的过滤条件下推仍不落（A5 已证）。详见 OPTIMIZATIONS §D4 |
 | **E1 多 worker** | `backend/xianyu_hunter/__main__.py:280-284`（`--workers` 默认 1）、`:309-312`（注释自陈 51→80 req/s） | 读吞吐 ≈80 → ≥150 rps；96 并发 P99 4 296.9 → ≤1 500 ms | **硬约束：必须排在 B3 之后**。进程内 TTL 缓存会按 worker 分裂成 N 份，直接开多 worker 会把命中率打散、把击穿变 N 倍。采集/浏览器留单进程调度器，Web 侧 `--no-with-scheduler` |
 | **E2 SSE 隔离** | `web/sse_stream.py`（`_MAX_SSE_CONNECTIONS` / `_sse_gate`） | 长连接不再挤占短请求（稳定性收益，非直接量化项） | 属于「有则更好」，优先级最低；若要动，至少先把上限与告警暴露到 `/api/metrics` |
@@ -191,6 +192,7 @@ perf/2026-10-31-full-api/
 | 长命令套 `grep` 管道 | 吞退出码 + 丢证据 | 先落文件，再用 Read/Grep 看 |
 | `TMP` 没跟 `TEMP` 一起改到 D 盘 | 临时 SQLite 仍写 C 盘，报 `database or disk is full`（C 盘 0 可用） | 跑 pytest 前 **`TEMP` 和 `TMP` 都要设**到 D 盘，且目录先存在（D4 实测踩到） |
 | PowerShell 管道缓冲外部进程输出 | `... \| Tee-Object log` 时输出要等进程退出才落盘，中途被杀只剩半份进度 | 让脚本自己开文件写日志（`d4_mutation_run.py` 就这么做） |
+| 随机性用例在全量里偶发翻红 | `test_anticrawl_integration.py::TestFreqDisguiseIntegration::test_request_pattern_not_robot_like` 断言请求间隔分布 `< 0.3`，机器负载变化时偶发 `0.353`；隔离复跑 3 次全绿 | 先隔离复跑；全绿即判环境抖动，不要为它改随机阈值 |
 
 ---
 

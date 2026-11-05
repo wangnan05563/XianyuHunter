@@ -272,16 +272,22 @@ def _update_recompute_payload(payload: dict, eval_result) -> None:
 def _persist_recomputed_eval(
     e: dict, container: Container, payload: dict, eval_result,
     detail, seller, effective_task_id: str, item_id: str, notify: bool,
+    pending: list[tuple[int, str]],
 ) -> str:
-    """更新 events 表，按需触发 EVAL_PASSED 事件
+    """登记待写入的 payload，按需触发 EVAL_PASSED 事件
 
     返回 recomputed/notified/noop。
     为什么 notify 默认 False：recompute 是历史回算，可能批量重算大量历史数据，
-    默认关闭避免刷爆群；用户主动回算想验证通知链路时由调用方传 True"""
+    默认关闭避免刷爆群；用户主动回算想验证通知链路时由调用方传 True。
+
+    为什么只登记不直接写：逐条 `update_event_payload` 每条一个事务，500 条实测
+    99.4 ms / 500 SQL；主循环结束后一次 executemany 只要 6.0 ms / 1 SQL
+    （perf/2026-10-31-full-api/d3_write_probe.py）。通知有顺序语义，仍留在循环内发。
+    """
     event_id = e.get("id")
     if not event_id:
         return "noop"
-    container.repo.update_event_payload(event_id, json.dumps(payload, ensure_ascii=False, default=str))
+    pending.append((int(event_id), json.dumps(payload, ensure_ascii=False, default=str)))
     if notify and eval_result.is_passed:
         publish_eval_passed_event(
             container, effective_task_id, item_id, detail, seller, eval_result,
@@ -300,6 +306,7 @@ def _do_recompute_single_eval(
     evaluator,
     task_id: str | None,
     notify: bool,
+    pending: list[tuple[int, str]],
 ) -> str:
     """实际重算逻辑
 
@@ -330,7 +337,7 @@ def _do_recompute_single_eval(
 
     return _persist_recomputed_eval(
         e, container, payload, eval_result, detail, seller,
-        effective_task_id, item_id, notify,
+        effective_task_id, item_id, notify, pending,
     )
 
 
@@ -343,6 +350,7 @@ def _recompute_single_eval(
     evaluator,
     task_id: str | None,
     notify: bool = False,
+    pending: list[tuple[int, str]] | None = None,
 ) -> str:
     """重新计算单条评估事件
 
@@ -351,6 +359,7 @@ def _recompute_single_eval(
         return _do_recompute_single_eval(
             e, container, item_map, seller_map,
             get_price_strategy, evaluator, task_id, notify,
+            pending if pending is not None else [],
         )
     except Exception:
         return "error"
@@ -398,12 +407,13 @@ def recompute_evaluations(
     skipped = 0
     errors = 0
     notified = 0
+    pending: list[tuple[int, str]] = []
 
     for e in eval_events:
         result = _recompute_single_eval(
             e, container, item_map, seller_map,
             get_price_strategy, evaluator, task_id,
-            notify=notify,
+            notify=notify, pending=pending,
         )
         if result == "recomputed":
             recomputed += 1
@@ -415,6 +425,10 @@ def recompute_evaluations(
         elif result == "error":
             errors += 1
         # "noop"：无 event_id，不增加任何计数
+
+    # 整批一次事务写完：逐条 UPDATE 是「每条一个 engine.begin()」，
+    # 500 条实测 99.4 ms / 500 SQL → 6.0 ms / 1 SQL（d3_write_probe.py）
+    container.repo.batch_update_event_payloads(pending)
 
     return {
         "ok": True,

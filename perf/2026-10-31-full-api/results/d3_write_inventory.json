@@ -1,0 +1,1380 @@
+{
+  "phases": {
+    "baseline_write": {
+      "threads": 1,
+      "overall": {
+        "n": 5975,
+        "tps": 32.8,
+        "avg": 30.0,
+        "p50": 10.0,
+        "p90": 98.7,
+        "p95": 148.7,
+        "p99": 253.6,
+        "max": 4387.0,
+        "defect_pct": 0.02,
+        "c4_pct": 61.52,
+        "c5_pct": 0.0,
+        "codes": {
+          "200": 2298,
+          "400": 1840,
+          "404": 1378,
+          "422": 458,
+          "000": 1
+        }
+      },
+      "n_total": 5975,
+      "n_real": 2298,
+      "n_fixture": 3677,
+      "real_sample_share": 0.38460251046025107,
+      "real_cost_share": 0.7384243469887253,
+      "real": [
+        {
+          "label": "POST /api/templates",
+          "n": 230,
+          "avg": 200.9,
+          "p95": 332.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 46207.0,
+          "cost_share": 0.25749865140187334
+        },
+        {
+          "label": "POST /api/config/preview",
+          "n": 230,
+          "avg": 151.0,
+          "p95": 243.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 34730.0,
+          "cost_share": 0.19354054933640055
+        },
+        {
+          "label": "POST /api/config/save",
+          "n": 230,
+          "avg": 115.0,
+          "p95": 186.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 26450.0,
+          "cost_share": 0.147398431613815
+        },
+        {
+          "label": "POST /api/notifications/read_all",
+          "n": 230,
+          "avg": 29.2,
+          "p95": 17.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 6716.0,
+          "cost_share": 0.03742638437498607
+        },
+        {
+          "label": "POST /api/tasks",
+          "n": 230,
+          "avg": 18.7,
+          "p95": 18.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 4301.0,
+          "cost_share": 0.023968266705898612
+        },
+        {
+          "label": "POST /api/evaluations/batch-evaluate-unevaluated",
+          "n": 230,
+          "avg": 17.4,
+          "p95": 26.7,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 4001.9999999999995,
+          "cost_share": 0.022302023565916353
+        },
+        {
+          "label": "POST /api/evaluations/recompute",
+          "n": 230,
+          "avg": 16.4,
+          "p95": 23.1,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 3771.9999999999995,
+          "cost_share": 0.02102029807362231
+        },
+        {
+          "label": "PUT /api/preferences",
+          "n": 229,
+          "avg": 9.7,
+          "p95": 18.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 229
+          },
+          "work_ms": 2221.2999999999997,
+          "cost_share": 0.0123786818957946
+        },
+        {
+          "label": "POST /api/menu/reset",
+          "n": 229,
+          "avg": 9.3,
+          "p95": 12.5,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 229
+          },
+          "work_ms": 2129.7000000000003,
+          "cost_share": 0.011868220786689672
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/control",
+          "n": 230,
+          "avg": 8.6,
+          "p95": 11.9,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 230
+          },
+          "work_ms": 1978.0,
+          "cost_share": 0.011022839233728774
+        }
+      ],
+      "fixture": [
+        {
+          "label": "POST /api/config/rollback",
+          "n": 230,
+          "avg": 29.6,
+          "p95": 52.2,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 230
+          },
+          "work_ms": 6808.0,
+          "cost_share": 0.03793907457190369
+        },
+        {
+          "label": "POST /api/config/restore-backup",
+          "n": 230,
+          "avg": 29.6,
+          "p95": 49.8,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 230
+          },
+          "work_ms": 6808.0,
+          "cost_share": 0.03793907457190369
+        },
+        {
+          "label": "POST /api/notifications/1/read",
+          "n": 230,
+          "avg": 13.3,
+          "p95": 29.1,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 230
+          },
+          "work_ms": 3059.0,
+          "cost_share": 0.01704694904751078
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/deps",
+          "n": 230,
+          "avg": 12.6,
+          "p95": 22.9,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 230
+          },
+          "work_ms": 2898.0,
+          "cost_share": 0.016149741202904945
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/dry-run",
+          "n": 230,
+          "avg": 11.8,
+          "p95": 20.4,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2714.0,
+          "cost_share": 0.015124360809069712
+        },
+        {
+          "label": "POST /api/notifications",
+          "n": 230,
+          "avg": 11.2,
+          "p95": 22.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2576.0,
+          "cost_share": 0.014355325513693286
+        },
+        {
+          "label": "POST /api/notifications/batch-delete",
+          "n": 230,
+          "avg": 11.2,
+          "p95": 17.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2576.0,
+          "cost_share": 0.014355325513693286
+        },
+        {
+          "label": "POST /api/notifications/batch-read",
+          "n": 230,
+          "avg": 10.7,
+          "p95": 17.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2461.0,
+          "cost_share": 0.013714462767546265
+        },
+        {
+          "label": "POST /api/evaluations/1000915580797/feedback",
+          "n": 230,
+          "avg": 10.2,
+          "p95": 14.6,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 229,
+            "000": 1
+          },
+          "work_ms": 2346.0,
+          "cost_share": 0.013073600021399243
+        },
+        {
+          "label": "PATCH /api/tasks/t0134ee45",
+          "n": 230,
+          "avg": 10.1,
+          "p95": 14.9,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2323.0,
+          "cost_share": 0.012945427472169839
+        },
+        {
+          "label": "PUT /api/menu",
+          "n": 229,
+          "avg": 10.1,
+          "p95": 13.5,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 229
+          },
+          "work_ms": 2312.9,
+          "cost_share": 0.012889143004899534
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/links",
+          "n": 230,
+          "avg": 9.4,
+          "p95": 17.7,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 2162.0,
+          "cost_share": 0.012048219627564008
+        },
+        {
+          "label": "PUT /api/prompts/1",
+          "n": 229,
+          "avg": 9.1,
+          "p95": 11.9,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 229
+          },
+          "work_ms": 2083.9,
+          "cost_share": 0.011612990232137205
+        },
+        {
+          "label": "POST /api/config/import",
+          "n": 230,
+          "avg": 8.6,
+          "p95": 12.5,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 1978.0,
+          "cost_share": 0.011022839233728774
+        },
+        {
+          "label": "POST /api/tasks/batch-control",
+          "n": 230,
+          "avg": 8.5,
+          "p95": 11.8,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 230
+          },
+          "work_ms": 1955.0,
+          "cost_share": 0.01089466668449937
+        },
+        {
+          "label": "POST /api/prompts/1/reset",
+          "n": 229,
+          "avg": 8.2,
+          "p95": 11.9,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 229
+          },
+          "work_ms": 1877.7999999999997,
+          "cost_share": 0.010464452736651106
+        }
+      ]
+    },
+    "stress_write_t4": {
+      "threads": 4,
+      "overall": {
+        "n": 3523,
+        "tps": 57.3,
+        "avg": 67.2,
+        "p50": 33.0,
+        "p90": 167.9,
+        "p95": 259.3,
+        "p99": 441.6,
+        "max": 835.8,
+        "defect_pct": 0.03,
+        "c4_pct": 61.51,
+        "c5_pct": 0.0,
+        "codes": {
+          "200": 1355,
+          "400": 1089,
+          "404": 809,
+          "422": 269,
+          "000": 1
+        }
+      },
+      "n_total": 3523,
+      "n_real": 1355,
+      "n_fixture": 2168,
+      "real_sample_share": 0.38461538461538464,
+      "real_cost_share": 0.6065092208256525,
+      "real": [
+        {
+          "label": "POST /api/templates",
+          "n": 135,
+          "avg": 292.8,
+          "p95": 509.5,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 135
+          },
+          "work_ms": 39528.0,
+          "cost_share": 0.16704743406722974
+        },
+        {
+          "label": "POST /api/config/preview",
+          "n": 137,
+          "avg": 239.5,
+          "p95": 465.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 137
+          },
+          "work_ms": 32811.5,
+          "cost_share": 0.13866314720949477
+        },
+        {
+          "label": "POST /api/config/save",
+          "n": 136,
+          "avg": 192.3,
+          "p95": 357.1,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 136
+          },
+          "work_ms": 26152.800000000003,
+          "cost_share": 0.11052312623136629
+        },
+        {
+          "label": "POST /api/evaluations/batch-evaluate-unevaluated",
+          "n": 136,
+          "avg": 63.5,
+          "p95": 177.3,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 136
+          },
+          "work_ms": 8636.0,
+          "cost_share": 0.03649619612944232
+        },
+        {
+          "label": "POST /api/tasks",
+          "n": 137,
+          "avg": 61.1,
+          "p95": 183.1,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 137
+          },
+          "work_ms": 8370.7,
+          "cost_share": 0.03537502419415504
+        },
+        {
+          "label": "POST /api/evaluations/recompute",
+          "n": 136,
+          "avg": 58.3,
+          "p95": 140.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 136
+          },
+          "work_ms": 7928.799999999999,
+          "cost_share": 0.03350753124955098
+        },
+        {
+          "label": "POST /api/notifications/read_all",
+          "n": 135,
+          "avg": 50.1,
+          "p95": 134.8,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 135
+          },
+          "work_ms": 6763.5,
+          "cost_share": 0.028582911361913287
+        },
+        {
+          "label": "POST /api/menu/reset",
+          "n": 133,
+          "avg": 37.8,
+          "p95": 109.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 133
+          },
+          "work_ms": 5027.4,
+          "cost_share": 0.021246060261829357
+        },
+        {
+          "label": "PUT /api/preferences",
+          "n": 133,
+          "avg": 35.3,
+          "p95": 103.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 133
+          },
+          "work_ms": 4694.9,
+          "cost_share": 0.0198408975460999
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/control",
+          "n": 137,
+          "avg": 26.3,
+          "p95": 54.3,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 137
+          },
+          "work_ms": 3603.1,
+          "cost_share": 0.015226892574570824
+        }
+      ],
+      "fixture": [
+        {
+          "label": "POST /api/tasks/t0134ee45/deps",
+          "n": 137,
+          "avg": 61.0,
+          "p95": 134.7,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 137
+          },
+          "work_ms": 8357.0,
+          "cost_share": 0.035317127264213696
+        },
+        {
+          "label": "POST /api/config/restore-backup",
+          "n": 136,
+          "avg": 54.7,
+          "p95": 129.3,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 136
+          },
+          "work_ms": 7439.200000000001,
+          "cost_share": 0.03143845556347236
+        },
+        {
+          "label": "POST /api/config/rollback",
+          "n": 136,
+          "avg": 51.0,
+          "p95": 121.4,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 136
+          },
+          "work_ms": 6936.0,
+          "cost_share": 0.02931190555278045
+        },
+        {
+          "label": "PATCH /api/tasks/t0134ee45",
+          "n": 137,
+          "avg": 46.5,
+          "p95": 134.4,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 137
+          },
+          "work_ms": 6370.5,
+          "cost_share": 0.026922072422720277
+        },
+        {
+          "label": "POST /api/notifications/batch-read",
+          "n": 135,
+          "avg": 46.0,
+          "p95": 142.7,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 135
+          },
+          "work_ms": 6210.0,
+          "cost_share": 0.02624379087121779
+        },
+        {
+          "label": "POST /api/notifications/batch-delete",
+          "n": 135,
+          "avg": 45.8,
+          "p95": 130.7,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 135
+          },
+          "work_ms": 6183.0,
+          "cost_share": 0.026129687432647278
+        },
+        {
+          "label": "POST /api/notifications/1/read",
+          "n": 135,
+          "avg": 44.8,
+          "p95": 112.5,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 135
+          },
+          "work_ms": 6048.0,
+          "cost_share": 0.025559170239794714
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/dry-run",
+          "n": 137,
+          "avg": 43.0,
+          "p95": 127.8,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 137
+          },
+          "work_ms": 5891.0,
+          "cost_share": 0.02489567987477359
+        },
+        {
+          "label": "POST /api/evaluations/1000915580797/feedback",
+          "n": 136,
+          "avg": 43.3,
+          "p95": 114.6,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 136
+          },
+          "work_ms": 5888.799999999999,
+          "cost_share": 0.02488638255755673
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/links",
+          "n": 137,
+          "avg": 42.3,
+          "p95": 117.6,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 137
+          },
+          "work_ms": 5795.099999999999,
+          "cost_share": 0.02449040136518425
+        },
+        {
+          "label": "POST /api/notifications",
+          "n": 135,
+          "avg": 41.6,
+          "p95": 133.6,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 135
+          },
+          "work_ms": 5616.0,
+          "cost_share": 0.02373351522266652
+        },
+        {
+          "label": "POST /api/tasks/batch-control",
+          "n": 137,
+          "avg": 37.0,
+          "p95": 107.5,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 137
+          },
+          "work_ms": 5069.0,
+          "cost_share": 0.021421864078293554
+        },
+        {
+          "label": "PUT /api/menu",
+          "n": 133,
+          "avg": 36.9,
+          "p95": 84.5,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 133
+          },
+          "work_ms": 4907.7,
+          "cost_share": 0.020740201684166754
+        },
+        {
+          "label": "POST /api/config/import",
+          "n": 136,
+          "avg": 32.3,
+          "p95": 91.3,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 136
+          },
+          "work_ms": 4392.799999999999,
+          "cost_share": 0.01856420685009428
+        },
+        {
+          "label": "PUT /api/prompts/1",
+          "n": 133,
+          "avg": 31.7,
+          "p95": 94.0,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 133
+          },
+          "work_ms": 4216.099999999999,
+          "cost_share": 0.017817463235449485
+        },
+        {
+          "label": "POST /api/prompts/1/reset",
+          "n": 133,
+          "avg": 28.5,
+          "p95": 78.6,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 132,
+            "000": 1
+          },
+          "work_ms": 3790.5,
+          "cost_share": 0.016018854959315786
+        }
+      ]
+    },
+    "stress_write_t8": {
+      "threads": 8,
+      "overall": {
+        "n": 4042,
+        "tps": 66.4,
+        "avg": 118.0,
+        "p50": 68.0,
+        "p90": 277.2,
+        "p95": 378.6,
+        "p99": 577.3,
+        "max": 1495.0,
+        "defect_pct": 0.0,
+        "c4_pct": 61.55,
+        "c5_pct": 0.0,
+        "codes": {
+          "200": 1554,
+          "400": 1251,
+          "404": 928,
+          "422": 309
+        }
+      },
+      "n_total": 4042,
+      "n_real": 1554,
+      "n_fixture": 2488,
+      "real_sample_share": 0.38446313706086094,
+      "real_cost_share": 0.5395730575894686,
+      "real": [
+        {
+          "label": "POST /api/templates",
+          "n": 152,
+          "avg": 408.8,
+          "p95": 777.1,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 152
+          },
+          "work_ms": 62137.6,
+          "cost_share": 0.13032479897346905
+        },
+        {
+          "label": "POST /api/config/preview",
+          "n": 158,
+          "avg": 348.8,
+          "p95": 590.5,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 158
+          },
+          "work_ms": 55110.4,
+          "cost_share": 0.11558624409934515
+        },
+        {
+          "label": "POST /api/config/save",
+          "n": 157,
+          "avg": 284.7,
+          "p95": 459.3,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 157
+          },
+          "work_ms": 44697.9,
+          "cost_share": 0.09374750283300647
+        },
+        {
+          "label": "POST /api/tasks",
+          "n": 160,
+          "avg": 112.2,
+          "p95": 354.7,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 160
+          },
+          "work_ms": 17952.0,
+          "cost_share": 0.03765177269755698
+        },
+        {
+          "label": "POST /api/evaluations/batch-evaluate-unevaluated",
+          "n": 155,
+          "avg": 107.1,
+          "p95": 297.5,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 155
+          },
+          "work_ms": 16600.5,
+          "cost_share": 0.03481719321890567
+        },
+        {
+          "label": "POST /api/evaluations/recompute",
+          "n": 157,
+          "avg": 94.4,
+          "p95": 213.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 157
+          },
+          "work_ms": 14820.800000000001,
+          "cost_share": 0.031084524999774536
+        },
+        {
+          "label": "POST /api/notifications/read_all",
+          "n": 152,
+          "avg": 88.4,
+          "p95": 215.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 152
+          },
+          "work_ms": 13436.800000000001,
+          "cost_share": 0.028181781382716892
+        },
+        {
+          "label": "PUT /api/preferences",
+          "n": 152,
+          "avg": 85.3,
+          "p95": 200.5,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 152
+          },
+          "work_ms": 12965.6,
+          "cost_share": 0.027193506243730212
+        },
+        {
+          "label": "POST /api/menu/reset",
+          "n": 152,
+          "avg": 65.8,
+          "p95": 185.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 152
+          },
+          "work_ms": 10001.6,
+          "cost_share": 0.020976936821072073
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/control",
+          "n": 159,
+          "avg": 60.0,
+          "p95": 181.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 159
+          },
+          "work_ms": 9540.0,
+          "cost_share": 0.020008796319891574
+        }
+      ],
+      "fixture": [
+        {
+          "label": "POST /api/notifications/batch-read",
+          "n": 152,
+          "avg": 111.9,
+          "p95": 314.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 152
+          },
+          "work_ms": 17008.8,
+          "cost_share": 0.035673544533099774
+        },
+        {
+          "label": "POST /api/config/restore-backup",
+          "n": 157,
+          "avg": 103.7,
+          "p95": 202.5,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 157
+          },
+          "work_ms": 16280.9,
+          "cost_share": 0.03414687756860826
+        },
+        {
+          "label": "PATCH /api/tasks/t0134ee45",
+          "n": 160,
+          "avg": 101.6,
+          "p95": 233.2,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 160
+          },
+          "work_ms": 16256.0,
+          "cost_share": 0.034094653351798475
+        },
+        {
+          "label": "POST /api/config/rollback",
+          "n": 157,
+          "avg": 102.1,
+          "p95": 199.4,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 157
+          },
+          "work_ms": 16029.699999999999,
+          "cost_share": 0.033620021212679874
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/links",
+          "n": 158,
+          "avg": 101.1,
+          "p95": 290.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 158
+          },
+          "work_ms": 15973.8,
+          "cost_share": 0.033502778894620965
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/deps",
+          "n": 158,
+          "avg": 100.6,
+          "p95": 274.4,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 158
+          },
+          "work_ms": 15894.8,
+          "cost_share": 0.03333708760434095
+        },
+        {
+          "label": "POST /api/notifications/batch-delete",
+          "n": 152,
+          "avg": 96.0,
+          "p95": 261.2,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 152
+          },
+          "work_ms": 14592.0,
+          "cost_share": 0.030604649465393905
+        },
+        {
+          "label": "PUT /api/prompts/1",
+          "n": 152,
+          "avg": 92.7,
+          "p95": 293.1,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 152
+          },
+          "work_ms": 14090.4,
+          "cost_share": 0.02955261464002099
+        },
+        {
+          "label": "POST /api/tasks/batch-control",
+          "n": 159,
+          "avg": 85.5,
+          "p95": 198.3,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 159
+          },
+          "work_ms": 13594.5,
+          "cost_share": 0.028512534755845496
+        },
+        {
+          "label": "POST /api/config/import",
+          "n": 157,
+          "avg": 85.5,
+          "p95": 210.4,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 157
+          },
+          "work_ms": 13423.5,
+          "cost_share": 0.02815388651992291
+        },
+        {
+          "label": "POST /api/notifications",
+          "n": 154,
+          "avg": 84.9,
+          "p95": 189.1,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 154
+          },
+          "work_ms": 13074.6,
+          "cost_share": 0.027422118277154548
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/dry-run",
+          "n": 159,
+          "avg": 82.1,
+          "p95": 223.5,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 159
+          },
+          "work_ms": 13053.9,
+          "cost_share": 0.027378702964384972
+        },
+        {
+          "label": "POST /api/notifications/1/read",
+          "n": 152,
+          "avg": 73.6,
+          "p95": 164.3,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 152
+          },
+          "work_ms": 11187.199999999999,
+          "cost_share": 0.023463564590135325
+        },
+        {
+          "label": "POST /api/evaluations/1000915580797/feedback",
+          "n": 157,
+          "avg": 67.8,
+          "p95": 167.1,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 157
+          },
+          "work_ms": 10644.6,
+          "cost_share": 0.022325538082465186
+        },
+        {
+          "label": "PUT /api/menu",
+          "n": 152,
+          "avg": 61.5,
+          "p95": 161.2,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 152
+          },
+          "work_ms": 9348.0,
+          "cost_share": 0.019606103563767973
+        },
+        {
+          "label": "POST /api/prompts/1/reset",
+          "n": 152,
+          "avg": 59.7,
+          "p95": 174.3,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 152
+          },
+          "work_ms": 9074.4,
+          "cost_share": 0.019032266386291834
+        }
+      ]
+    },
+    "stress_write_t16": {
+      "threads": 16,
+      "overall": {
+        "n": 3170,
+        "tps": 51.9,
+        "avg": 291.9,
+        "p50": 253.8,
+        "p90": 537.6,
+        "p95": 635.8,
+        "p99": 816.0,
+        "max": 1291.0,
+        "defect_pct": 0.0,
+        "c4_pct": 61.64,
+        "c5_pct": 0.0,
+        "codes": {
+          "200": 1216,
+          "400": 997,
+          "404": 721,
+          "422": 236
+        }
+      },
+      "n_total": 3170,
+      "n_real": 1216,
+      "n_fixture": 1954,
+      "real_sample_share": 0.38359621451104103,
+      "real_cost_share": 0.4336324093438787,
+      "real": [
+        {
+          "label": "POST /api/templates",
+          "n": 118,
+          "avg": 579.4,
+          "p95": 904.0,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 118
+          },
+          "work_ms": 68369.2,
+          "cost_share": 0.0738757906190587
+        },
+        {
+          "label": "POST /api/config/preview",
+          "n": 124,
+          "avg": 531.6,
+          "p95": 808.6,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 124
+          },
+          "work_ms": 65918.40000000001,
+          "cost_share": 0.07122759833877478
+        },
+        {
+          "label": "POST /api/config/save",
+          "n": 124,
+          "avg": 430.5,
+          "p95": 726.7,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 124
+          },
+          "work_ms": 53382.0,
+          "cost_share": 0.05768149188269853
+        },
+        {
+          "label": "POST /api/tasks",
+          "n": 131,
+          "avg": 326.6,
+          "p95": 601.9,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 131
+          },
+          "work_ms": 42784.600000000006,
+          "cost_share": 0.04623055632244021
+        },
+        {
+          "label": "POST /api/evaluations/batch-evaluate-unevaluated",
+          "n": 120,
+          "avg": 274.1,
+          "p95": 510.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 120
+          },
+          "work_ms": 32892.0,
+          "cost_share": 0.035541186748449284
+        },
+        {
+          "label": "POST /api/notifications/read_all",
+          "n": 119,
+          "avg": 266.1,
+          "p95": 546.4,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 119
+          },
+          "work_ms": 31665.9,
+          "cost_share": 0.03421633422892254
+        },
+        {
+          "label": "POST /api/evaluations/recompute",
+          "n": 120,
+          "avg": 259.6,
+          "p95": 527.2,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 120
+          },
+          "work_ms": 31152.000000000004,
+          "cost_share": 0.03366104370630221
+        },
+        {
+          "label": "PUT /api/preferences",
+          "n": 115,
+          "avg": 265.5,
+          "p95": 569.9,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 115
+          },
+          "work_ms": 30532.5,
+          "cost_share": 0.03299164795077915
+        },
+        {
+          "label": "POST /api/menu/reset",
+          "n": 115,
+          "avg": 209.9,
+          "p95": 433.7,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 115
+          },
+          "work_ms": 24138.5,
+          "cost_share": 0.026082662541877754
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/control",
+          "n": 130,
+          "avg": 157.5,
+          "p95": 370.6,
+          "ok_share": 1.0,
+          "codes": {
+            "200": 130
+          },
+          "work_ms": 20475.0,
+          "cost_share": 0.022124097004575554
+        }
+      ],
+      "fixture": [
+        {
+          "label": "POST /api/tasks/t0134ee45/deps",
+          "n": 129,
+          "avg": 311.3,
+          "p95": 681.0,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 129
+          },
+          "work_ms": 40157.700000000004,
+          "cost_share": 0.04339208059978725
+        },
+        {
+          "label": "POST /api/tasks/batch-control",
+          "n": 130,
+          "avg": 306.3,
+          "p95": 670.5,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 130
+          },
+          "work_ms": 39819.0,
+          "cost_share": 0.043026101031755505
+        },
+        {
+          "label": "PATCH /api/tasks/t0134ee45",
+          "n": 130,
+          "avg": 302.6,
+          "p95": 689.2,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 130
+          },
+          "work_ms": 39338.0,
+          "cost_share": 0.04250636034021945
+        },
+        {
+          "label": "POST /api/notifications",
+          "n": 120,
+          "avg": 313.0,
+          "p95": 603.3,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 120
+          },
+          "work_ms": 37560.0,
+          "cost_share": 0.04058515670289904
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/links",
+          "n": 125,
+          "avg": 295.4,
+          "p95": 614.2,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 125
+          },
+          "work_ms": 36925.0,
+          "cost_share": 0.03989901254671318
+        },
+        {
+          "label": "POST /api/notifications/batch-read",
+          "n": 119,
+          "avg": 305.0,
+          "p95": 567.4,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 119
+          },
+          "work_ms": 36295.0,
+          "cost_share": 0.03921827110041855
+        },
+        {
+          "label": "POST /api/notifications/batch-delete",
+          "n": 119,
+          "avg": 300.7,
+          "p95": 600.2,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 119
+          },
+          "work_ms": 35783.299999999996,
+          "cost_share": 0.03866535777015035
+        },
+        {
+          "label": "POST /api/config/rollback",
+          "n": 121,
+          "avg": 277.2,
+          "p95": 534.3,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 121
+          },
+          "work_ms": 33541.2,
+          "cost_share": 0.03624267460072623
+        },
+        {
+          "label": "POST /api/config/restore-backup",
+          "n": 121,
+          "avg": 260.4,
+          "p95": 605.8,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 121
+          },
+          "work_ms": 31508.399999999998,
+          "cost_share": 0.034046148867348885
+        },
+        {
+          "label": "POST /api/tasks/t0134ee45/dry-run",
+          "n": 130,
+          "avg": 232.7,
+          "p95": 452.3,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 130
+          },
+          "work_ms": 30251.0,
+          "cost_share": 0.032687475383903056
+        },
+        {
+          "label": "PUT /api/prompts/1",
+          "n": 115,
+          "avg": 253.6,
+          "p95": 483.5,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 115
+          },
+          "work_ms": 29164.0,
+          "cost_share": 0.031512926253550254
+        },
+        {
+          "label": "POST /api/notifications/1/read",
+          "n": 120,
+          "avg": 237.4,
+          "p95": 515.3,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 120
+          },
+          "work_ms": 28488.0,
+          "cost_share": 0.030782479876256333
+        },
+        {
+          "label": "POST /api/config/import",
+          "n": 124,
+          "avg": 228.3,
+          "p95": 472.9,
+          "ok_share": 0.0,
+          "codes": {
+            "400": 124
+          },
+          "work_ms": 28309.2,
+          "cost_share": 0.030589278970546047
+        },
+        {
+          "label": "PUT /api/menu",
+          "n": 115,
+          "avg": 236.0,
+          "p95": 468.4,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 115
+          },
+          "work_ms": 27140.0,
+          "cost_share": 0.029325909289581467
+        },
+        {
+          "label": "POST /api/prompts/1/reset",
+          "n": 115,
+          "avg": 222.6,
+          "p95": 476.5,
+          "ok_share": 0.0,
+          "codes": {
+            "404": 115
+          },
+          "work_ms": 25599.0,
+          "cost_share": 0.02766079410110523
+        },
+        {
+          "label": "POST /api/evaluations/1000915580797/feedback",
+          "n": 121,
+          "avg": 200.6,
+          "p95": 413.1,
+          "ok_share": 0.0,
+          "codes": {
+            "422": 121
+          },
+          "work_ms": 24272.6,
+          "cost_share": 0.026227563221160467
+        }
+      ]
+    }
+  }
+}

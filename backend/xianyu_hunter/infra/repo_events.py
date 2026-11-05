@@ -11,13 +11,19 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select
 
 from xianyu_hunter.infra.db_models import _utcnow, EventRow
 from xianyu_hunter.infra.lru import LRUDict
 
 # task_id → 归属用户 的内存缓存容量：任务归属创建后不变，命中后无需再查
 _TASK_OWNER_CACHE_MAX = 2000
+
+
+def _chunks(seq: list, size: int) -> Any:
+    """按固定大小切片：SQLite 单语句变量有上限，批量语句必须分批"""
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
 
 
 def _parse_event_time(value: Any) -> datetime:
@@ -491,6 +497,32 @@ class EventsMixin:
             if user_id is not None:
                 stmt = stmt.where(EventRow.user_id == user_id)
             conn.execute(stmt)
+
+    def batch_update_event_payloads(
+        self, updates: list[tuple[int, str]], user_id: str | None = None,
+    ) -> int:
+        """批量更新事件 payload（单事务）
+
+        为什么需要它：`recompute` 按事件逐条调用 `update_event_payload`，每条一个
+        `engine.begin()`。500 条实测 99.4 ms / 500 SQL，合并成单事务后 6.0 ms / 1 SQL
+        （`perf/2026-10-31-full-api/d3_write_probe.py`）。
+        user_id 语义与单条版一致：不为 None 时附加 WHERE 过滤。
+        """
+        if not updates:
+            return 0
+        table = EventRow.__table__
+        stmt = (
+            table.update()
+            .where(table.c.id == bindparam("_event_id"))
+            .values(payload=bindparam("_payload"))
+        )
+        if user_id is not None:
+            stmt = stmt.where(table.c.user_id == user_id)
+        params = [{"_event_id": eid, "_payload": payload} for eid, payload in updates]
+        with self.engine.begin() as conn:
+            for batch in _chunks(params, 500):
+                conn.execute(stmt, batch)
+        return len(params)
 
     def update_eval_payload_by_keys(
         self, task_id: str, item_id: str, event_type: str, payload_updates: dict,
