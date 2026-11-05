@@ -226,3 +226,58 @@ def test_infer_brand_from_long_description_uses_first_200_chars_only() -> None:
     long_desc = "普通描述" * 50 + "联想 ThinkPad"  # 联想在第 201 字符之后
     # detail 流程切片后，"联想" 不在前 200 字符内
     assert infer_brand_from_title(long_desc[:200]) == ""
+
+
+# === A2′：品牌别名表的压缩结果预计算 ===
+# 判据来自 perf/2026-10-31-full-api/a2_enrich_probe.py：旧实现 73 251 次 re.sub 里
+# 绝大多数是把常量别名表重复压缩（每次比对约 200 次），与请求数据无关
+
+def test_infer_brand_compacts_title_once(monkeypatch) -> None:
+    """别名压缩结果已预计算：一次标题推断只压缩标题自身"""
+    from xianyu_hunter.modules import collector_utils as CU
+
+    calls = {"n": 0}
+    real = CU._compact_text
+
+    def counting(text: str) -> str:
+        calls["n"] += 1
+        return real(text)
+
+    monkeypatch.setattr(CU, "_compact_text", counting)
+    assert CU.infer_brand_from_title("索尼 A7M4 全画幅微单 单机身") == "索尼"
+    assert calls["n"] == 1
+
+
+def test_brand_match_uses_precompacted_aliases(monkeypatch) -> None:
+    """品牌比对同样不再压缩别名表：一条记录只压缩 title 与候选文本"""
+    from xianyu_hunter.modules import collector_utils as CU
+
+    calls = {"n": 0}
+    real = CU._compact_text
+
+    def counting(text: str) -> str:
+        calls["n"] += 1
+        return real(text)
+
+    monkeypatch.setattr(CU, "_compact_text", counting)
+    assert CU._brand_candidate_matches_title("镁光数码", "镁光ddr4 32G 3200 笔记本内存条")
+    assert calls["n"] <= 4  # 旧实现约 200 次（整张别名表 × 两个 any）
+
+def test_infer_brand_compacts_aliases_with_separators() -> None:
+    """别名表压缩后才能匹配去掉分隔符的标题
+
+    "om-d" 组内只有这一个带连字符的别名，标题写成 "OMD" 时只有压缩后的
+    "omd" 能命中；这条用例锁住「别名表压缩结果预计算」的语义，而不只是调用次数。
+    """
+    assert infer_brand_from_title("OMD E-M5 微单") == "奥林巴斯"
+
+
+def test_brand_candidate_requires_same_canonical_group() -> None:
+    """候选与标题必须命中同一品牌组：跨组别名不算匹配
+
+    旧实现逐 canonical 组判断「candidate 命中该组某别名 and title 命中该组某别名」；
+    若退化成「任意别名 + 任意别名」，「联想」与「尼康 Z9」会被误判为匹配（A2′ 重构踩过）。
+    """
+    from xianyu_hunter.modules import collector_utils as CU
+
+    assert CU._brand_candidate_matches_title("联想", "尼康 Z9") is False

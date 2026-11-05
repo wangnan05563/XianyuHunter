@@ -270,9 +270,35 @@ _BRAND_GENERIC_SUFFIXES = (
 )
 
 
+# 预编译：A2′ 实测品牌归一化单次请求里 73 251 次 re.sub，绝大多数都是同一模式
+_COMPACT_TEXT_RE = re.compile(r"[\s\-_·•/|,，.。:：;；()（）【】\[\]{}]+")
+
+
 def _compact_text(text: str) -> str:
     """压缩文本用于宽松匹配：去掉空白/常见分隔符并转小写。"""
-    return re.sub(r"[\s\-_·•/|,，.。:：;；()（）【】\[\]{}]+", "", (text or "").lower())
+    return _COMPACT_TEXT_RE.sub("", (text or "").lower())
+
+
+# 别名表是模块级常量，压缩结果只依赖常量内容；预计算后每次品牌比对不再把
+# ~200 个别名重新跑一遍正则（A2′ 里它是 _compact_text 调用量的大头）
+_COMPACT_BRAND_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+    (canonical, tuple(_compact_text(alias) for alias in aliases))
+    for canonical, aliases in _BRAND_ALIASES
+)
+
+
+def _alias_groups_in_text(compact_text: str) -> frozenset[str]:
+    """文本命中了哪些 canonical 组（组内任一别名命中即算）
+
+    为什么按组而不是「有没有命中任意别名」：原实现是逐 canonical 组判断
+    `candidate 命中某别名 and title 命中某别名`，两个别名必须同属一组；
+    改成跨组取 or 会把「联想 + NJXTSM」这种无关组合误判成品牌匹配。
+    """
+    return frozenset(
+        canonical
+        for canonical, aliases in _COMPACT_BRAND_ALIASES
+        if any(alias in compact_text for alias in aliases)
+    )
 
 
 def _strip_brand_suffix(value: str) -> str:
@@ -298,13 +324,10 @@ def _brand_candidate_matches_title(candidate: str, title: str) -> bool:
     if len(compact_candidate) >= 2 and compact_candidate in compact_title:
         return True
 
+    # 与原实现等价：逐 canonical 组判断「candidate 命中该组某别名 and title 命中该组某别名」，
+    # 组内允许是两个不同别名；因此按组求交集，不能退化成「任意别名 + 任意别名」
     compact_raw_candidate = _compact_text(candidate)
-    for _canonical, aliases in _BRAND_ALIASES:
-        alias_hits_candidate = any(_compact_text(a) in compact_raw_candidate for a in aliases)
-        alias_hits_title = any(_compact_text(a) in compact_title for a in aliases)
-        if alias_hits_candidate and alias_hits_title:
-            return True
-    return False
+    return bool(_alias_groups_in_text(compact_raw_candidate) & _alias_groups_in_text(compact_title))
 
 
 def infer_brand_from_title(title: str) -> str:
@@ -312,8 +335,8 @@ def infer_brand_from_title(title: str) -> str:
     compact_title = _compact_text(title)
     if not compact_title:
         return ""
-    for canonical, aliases in _BRAND_ALIASES:
-        if any(_compact_text(alias) in compact_title for alias in aliases):
+    for canonical, aliases in _COMPACT_BRAND_ALIASES:
+        if any(alias in compact_title for alias in aliases):
             return canonical
     return ""
 

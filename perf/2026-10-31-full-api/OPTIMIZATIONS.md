@@ -73,7 +73,17 @@
 **变异验证**（`a2_mutation_run.py`，9 腿串行 + 负对照，基线 66 例全绿前置）：等值退回前缀 `LIKE` → 1 例红；把 COUNT 加回来并改回元组返回 → 33 例红；等值查询丢掉 `user_id` 隔离 → 2 例红（仓储层 + 端点层各一条）；共享入口把精确类型换成前缀字面量 → 30 例红；`/api/evaluations` 回退前缀 → 2 例红；`/evaluations/brands` 回退前缀 → 2 例红；distribution 回退前缀 → 2 例红；feedback 回退前缀 → 2 例红；batch 的宽口径被「顺手统一」成等值 → 1 例红（AST 门禁）。负对照（只把等值方法的 `limit` 默认值 50 000 → 500 000）66 例全绿。6 个源文件按 sha256 逐字节还原。
 **这一轮纪律上的收获**（首轮作废重跑的原因）：L5b 的锚点少写一行缩进，拼出孤立的 `)`，pytest 以 `exit=2`（收集期 SyntaxError）「翻红」—— 脚本原先把 `exit != 0` 一律当成「这条腿有判据」，于是假绿了 9/9。现补两道闸：注入前 `ast.parse` 变异文本、判定只认 `exit == 1`（跑到用例且有失败），2/3/4 一律标为无效并打印原始输出尾部。
 
-**残余（新线索，非本条范围）**：A2′ —— `_compact_text` 每次调用都新建一个 `re.sub` 模式串并把 3 类字符串（title / candidate / alias）压平，单请求 24 000+ 次；把 pattern 提到模块级预编译、或按 `(candidate, title)` 做请求内 memo，才是把评估列表从 230 ms 推向 60 ms 的那一刀。判据：同一份 `a2_enrich_probe.py`，落地前后取 `_enrich_eval_record` 的累计占比。另：B1 落地时把「`invalidate_stats_cache()` 按维度失效」记为「留待与 A2 一并处理」—— 本条复核后确认**这两件事没有交集**：评估族 4 个只读 GET 本来就不挂 `@cached_ttl`（上面第 1 条），A2 没有新增任何缓存键，也就没有失效点要补；按维度失效仍然只是 B4/统计族那半条的开放项。
+**A2′ 落地（2026-11-06；原「残余」线索，其中「请求内 memo」被实测推翻）**：热点确认在 `collector_utils.normalize_display_brand` —— 每条 display 都把 title / candidate / **整张别名表（~70 组、200 个别名）** 重跑一遍 `re.sub`，377 条记录的单次请求累计 **73 251 次 / 401.1 ms**，占 `_enrich_eval_record` 的 57%。落地的两处：① `_compact_text` 改为模块级预编译的 `_COMPACT_TEXT_RE`；② `_BRAND_ALIASES` 的压缩结果在导入期预计算成 `_COMPACT_BRAND_ALIASES`（别名表是常量，压缩结果只依赖常量内容）。品牌比对同时改为「按 canonical 组求交集」—— 原实现是逐组判断 `candidate 命中该组某别名 and title 命中该组某别名`，若直接合并成「任意别名 + 任意别名」，「联想 + 尼康 Z9」会被误判为匹配（重构中途真实踩到，已钉成用例）。
+
+**「按 (candidate, title) 做请求内 memo」判定不落**：真实库 377 条 `eval.scored` 只有 **363 个唯一 title**（重复 14 次 / 3.7%），2 000 条 `task_links.display` 里重复更低；同进程 A/B 里 memo 版比无 memo 版慢 **15%**（键构造与查表开销 > 命中收益）。与 B4 的教训一致：不要把「可能的重复」当成本收益前提，先数一遍。
+
+**判据（同一份 `a2_enrich_probe.py`，落地前后各一轮；原探针缺 `DATA_UID` 赋值导致主人态永远读 0 行，已就地补上）**：3 次主人态调用下 `_enrich_eval_record` 累计 **706.9 → 256.3 ms**（占 `list_evaluations` **60.8% → 39.5%**）；`_compact_text` **73 251 次 / 401.1 ms → 2 367 次 / 11.7 ms**（调用 −97%、时间 −97%）；`_brand_candidate_matches_title` **360.2 → 110.3 ms**；端点中位 **148.2 → 121.5 ms（−18%）**、冷启动 **200.1 → 151.6 ms（−24%）**。**A2 原文的「推向 60 ms」仍不成立**：enrich 仍是列表里最大的单项，剩余成本转到 `_row_to_dict` / `json.loads` / 成色标签扫描。
+
+**同进程 A/B（消除机器外部负载对前后两轮探针的干扰）**：2 000 条真实 `task_links.display`、9 轮交错，品牌归一化段旧实现复刻 **423.7 → 175.0 ms（0.41×，−59%）**。逐轮比值中位约 1.96×，单轮异常（1.09×）出现在 new 侧同被外部负载打断的那一轮。
+
+**语义等价**：22 427 组（2 427 组真实数据 + 20 000 组 fuzz）逐条对比旧实现复刻，`_brand_candidate_matches_title` / `infer_brand_from_title` / `normalize_display_brand` 差异全 0。
+
+**回归与变异**：`tests/test_brand_display_normalize.py` 新增 4 例（`"om-d"` 必须靠压缩后才命中无连字符标题、跨组别名不得匹配、两处 `_compact_text` 调用次数上界）；`a2_prime_mutation_run.py` 2 红（别名表退回未压缩 / 组交集退化成 `or`）+ 2 绿（接错对象 / 只改 docstring），`collector_utils.py` 按 sha256 逐字节还原。
 
 ### A4. `maintenance/status` 计数降本 — 优先级 **高**
 **原建议（①② 后被实测修正，见下方落地状态）**：`web/routes/api_maintenance.py:236-250` 对 `tasks/items/task_links/events/orders/notifications` 逐张 `SELECT COUNT(*)`（`:245`），再 glob 日志目录 + `_cache_scan.snapshot()` 全树遍历。改为：① 用 `PRAGMA`/`sqlite_stat1` 近似行数或维护计数器表；② 全量精确计数移到后台调度任务，接口只读快照；③ 现有 `@cached_ttl(60, …)`（`:235`）把 TTL 提到 300 s 并启用 `stale_while_revalidate` 命中优先。

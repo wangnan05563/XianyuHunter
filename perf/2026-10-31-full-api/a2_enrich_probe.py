@@ -69,6 +69,9 @@ def main() -> None:
     global DATA_UID
     os.environ.setdefault("XH_WITH_SCHEDULER", "0")
     build_scaffold()
+    # 原版漏了这一步：DATA_UID 恒为空串，主人态按 user_id='' 查询永远 0 行，
+    # cProfile 只归因到「什么都没发生」，A2′ 落地前后无法对比
+    DATA_UID = resolve_data_owner(str(SCRATCH / "data" / "xianyu.db"))
     os.chdir(SCRATCH)
     sys.path.insert(0, str(REPO / "backend"))
     from xianyu_hunter.infra.repository import Repository
