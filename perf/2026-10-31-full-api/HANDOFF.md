@@ -35,6 +35,8 @@
 | B4 缓存容量上限 | `63c2bee2` | 复用 `infra/lru.LRUDict` + `cache_max_entries=2000`，`create_app()` 装配期套用；**RSS 归因被推翻**（全量 GET 扫 106 个 label 只留 7 条 / 23 620 B） |
 | D4 真流式导出 | `a6f05d48` | 3 处导出改按块产出 / 游标取数：5 万行 items 峰值 38.27→2.52 MB、40 MB 日志 190.48→9.29 MB、18 403 行 events 导出 2 433→285 ms；**原文「db-admin 也是全内存拼接」被推翻**（它本来就流式，慢在逐行 yield × 线程池往返） |
 | D3 写侧批量 | `550e299b` | `recompute` 的 payload 改单事务批量写：500 条 **137.5 → 25.4 ms（5.41×）**、UPDATE 500 → 1 条；**写组 TPS 判据不成立**（61.6% 样本是夹具 4xx、真写单发全 <30 ms 且每请求 1 条），UPSERT 分支 / `busy_timeout` 调小 / 扩池判定不落 |
+| E1 多 worker（护栏） | `6e1930a1` | `--workers > 1` 与 `--with-scheduler` 改为互斥、直接 `Exit(2)`（此前会各起一套浏览器/调度器）；默认 worker 数与「80 → ≥150 rps」判定不落（缓存按 worker 分裂、本机无原生 JMeter） |
+| E2 SSE 告警 | `6e1930a1` | 连接超限时补 WARNING（此前服务端完全无记录）；`/api/metrics` 新端点、单独进程、塞进 `CapacityLimiter` 三条判定不落 |
 | C3 残余 模板文件 memo | cb6cd5a8 | 指纹 memo + 写盘配对作废；进程内处理器 2.23 → 0.53~0.58 ms，deepcopy 方案被实测否掉（1.14 ms ≈ 重新 `json.load`）→ 返回浅拷贝；详见 OPTIMIZATIONS §C3 |
 | A2′ 品牌归一化 | `88e614c0` | 正则预编译 + 别名表压缩结果预计算；`_compact_text` 73 251 → 2 367 次、`_enrich_eval_record` 706.9 → 256.3 ms；**请求内 memo 被实测推翻**（377 条只有 363 个唯一 title，memo 版慢 15%） |
 | A1 过滤列索引 | `7665e83e` | 5 条候选落 3 条：`items.price` 15.09 → 7.17 ms、`evaluations.risk_level` 变覆盖索引 3.45 → 2.17 ms、`orders(type, created_at)` 复合 4.08 → 0.50 ms；`price_history.user_id` / `task_links.updated_at` 实测无收益 |
