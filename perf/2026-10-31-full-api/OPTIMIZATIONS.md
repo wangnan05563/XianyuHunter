@@ -17,12 +17,12 @@
 | C6 | PyYAML 走纯 Python 后端，libyaml 已在而未用 | **高**（新发现，非压测得出）✅ **已落地（读侧）** | 同一份 config.yaml：解析 **47.7 → 6.5 ms（7.4×，实测落地值）**；写侧不换（C dumper 把 emoji 写成 `\U0001F4F7` 转义，产物不再逐字节相同），序列化那 21~27 ms 留在原地 | 极低（新增 `infra/yaml_io.safe_load` + 9 个读盘点） |
 | B2 | 慢接口纳入 TTL 缓存（raw/share/snapshots/preview） | ~~高~~ → **撤回 4/5 条** | 轻组基线 avg 50.9 → ≤25 ms 的预期**不成立**（见 §B2 反证）；只做安全残留 = config memo | 低 |
 | A4 | `maintenance/status` 计数降本 | **高** ✅ **已落地（2026-11-03）** | 完整重算 **2 235 / 5 205 ms → 188 / 170 ms**（「≤200 ms」在重算路径成立），消除 60 s 超时（曾致 P95 60 033 ms / 37.5%）。**归因修正**：6 张表 `COUNT(*)` 每张仅 ~0.1 ms，真正成本是漏排除的 `.venv-build/` pycache（1 578 个目录 / 131.7 MB）；原文 ①②（近似行数/后台计数）因此不成立 | 低 |
-| A1 | 补齐 5 个过滤列索引 | 中 | `prices/category-comparison` 长跑 avg 580.2 → ≤200 ms | 低 |
+| A1 | 补齐 5 个过滤列索引 | 中 ✅ **已落地（2026-11-06，5 条落 3 条）** | 单发 `category-comparison` 29.9 → **24.6 ms**；但 16 并发 avg **2 433.7 ms** —— 索引只降低单次全表扫，该接口无缓存，并发下是 16 次全表扫抢 GIL（REPORT §8.5，新待办） | 低 |
 | C3 | `_load_yaml` 走单例缓存 | 中 ✅ **部分落地（config memo）** | `config/raw` 132.4 → ≤15 ms 的预期**过高**：实测解析 52 ms、脱敏+序列化另占 ~33 ms，memo 只砍前者（→ 约 80~90 ms）。写侧 `preview/save` 各去掉一次全量读 | 低 |
-| C1 | `_dir_size` 双调用合并 | 中 | ✅ 已落地（2026-11-03）：实测降幅 **43%**（不是 50%，一遍里还有 26% 固定开销），另把 `/status` 的同步走盘移出事件循环；`vector-admin/snapshots` 233.8 → 待复跑（≤120 ms 未证实） | 极低 |
-| D2 | 打破 `cache_scan` 进程级 RLock 串行 | 中 ✅ **已落地（2026-11-05，但落地的不是「按路径分锁」**：三个调用点传的是同一个目录，串行的不是路径而是预算片；改为「时间片不持锁 + 同键单推进者」） | 合成树实测：同路径 8 个并发到达 p95 **42.4 / 36.7 → 9.9 / 2.8 ms**，扫完墙钟不变（省掉的是排队不是吞吐）；96 并发 avg 1 822.8 → ≤400 ms **仍待 JMX 复跑** | 低 |
-| D3 | 写侧批量 UPSERT + 池/超时调优 | 中 | 16 并发写 TPS 51.9 → ≥66（回到峰值档）；P95 635.8 → ≤400 ms | 中 |
-| D4 | 大结果集流式导出 | 中 | `db-admin/tables/items/export` P99 1 827.7 → ≤600 ms；私有内存峰值 617.7 MB 下降 | 中 |
+| C1 | `_dir_size` 双调用合并 | 中 | ✅ 已落地（2026-11-03）：实测降幅 **43%**（不是 50%，一遍里还有 26% 固定开销），另把 `/status` 的同步走盘移出事件循环；`vector-admin/snapshots` 233.8 → **14.1 ms**（2026-11-06 同一套 JMX 复跑，`≤120 ms` 达成） | 极低 |
+| D2 | 打破 `cache_scan` 进程级 RLock 串行 | 中 ✅ **已落地（2026-11-05，但落地的不是「按路径分锁」**：三个调用点传的是同一个目录，串行的不是路径而是预算片；改为「时间片不持锁 + 同键单推进者」） | 合成树实测：同路径 8 个并发到达 p95 **42.4 / 36.7 → 9.9 / 2.8 ms**，扫完墙钟不变（省掉的是排队不是吞吐）；96 并发 avg 1 822.8 → **292.5 ms**（2026-11-06 同一套 JMX 复跑，判据达成；48 并发 2 003.2 → 159.5） | 低 |
+| D3 | 写侧批量 UPSERT + 池/超时调优 | 中 ✅ **落地 recompute 的 payload 批量写（2026-11-06）；UPSERT 分支/超时/扩池判定不落** | 500 条 recompute 137.5 → **25.4 ms**、UPDATE 500 → **1 条**；写组 16 并发 TPS 51.9 → 257.5、P95 635.8 → 105.5，但其中 D3 只占约 **3%**（主因是 config 族降本 + 排队消除） | 中 |
+| D4 | 大结果集流式导出 | 中 ✅ **已落地（2026-11-06）** | 单发 `db-admin/tables/items/export` 35.0 → **16.5 ms**、P99 157.9 → **29.8**；进程内 5 万行峰值 38.27 → **2.52 MB**、40 MB 日志 190.48 → **9.29 MB**、18 403 行 events 导出 2 433 → **285 ms**（长跑 P99 1 827.7 未严格对照，见 §D4） | 中 |
 | E1 | 多 worker 部署（纯 Web） | 中 | 吞吐 80 → ≥150 rps；96 并发 P99 4 296.9 → ≤1 500 ms | 中（需配合 B1/B3） |
 | A5 | 日志/错误检索改前缀匹配或 FTS5 | 中 | `logs/search` 132.9 → ≤40 ms | 中 |
 | B3 | 启动预热扩展 | 中 | 冷启动首请求 1.1 s → ≤100 ms | 低 |
@@ -154,7 +154,7 @@
 - 残余边界（已钉成用例，防止后来人误判）：**绕过 `api_config` 的写盘**（`api_tunnel`、`api_notifier`、`api_batch_refresh`、`infra/ai_usage` 各自写 `config/config.yaml`）只由指纹兜住；若某次跨模块写盘恰好同尺寸且同一 tick，memo 会给出一个 tick 的旧值，下一次读即自愈。`test_out_of_band_same_fingerprint_write_is_the_residual_gap` 断言的就是这个已知缺口，别把它读成「已全面防护」。
 - 并发读写的代次护栏：请求可能在「`stat` → 解析」中间被另一个请求的写盘插队，那份解析结果就是写盘前的旧值，而同尺寸 + 同一 tick 时指纹抓不到它 —— 所以只有 `_yaml_epoch` 在读取期间没动过，才允许把结果存回 memo。**这条是被变异验证逼出来的**：初版我同时写了「存前比对」和「读时比对」两道，去掉任一道用例都照常绿（读侧比对挡不住已经进 memo 的坏值），删成单道之后才有判据。
 - 不做的事：不引入 TTL、不进 `_cache_store`（明文凭据不进响应缓存，见第 4 条）、不改 `GET /api/config` 的脱敏路径。
-**验证方式**：`tests/test_config_yaml_memo.py`（13 例）+ `config_memo_probe.py` 作为成本判据；变异验证五条退化各自翻红（冷/命中两条 return 都去掉深拷贝→1 例；指纹不再参与判定→2 例；去掉 6 处作废→3 例含源码门禁；指纹去掉路径→1 例；去掉代次护栏→1 例）。真实数字待同一 JMX 复跑替换，本文所有基线仍是修复前口径。
+**验证方式**：`tests/test_config_yaml_memo.py`（13 例）+ `config_memo_probe.py` 作为成本判据；变异验证五条退化各自翻红（冷/命中两条 return 都去掉深拷贝→1 例；指纹不再参与判定→2 例；去掉 6 处作废→3 例含源码门禁；指纹去掉路径→1 例；去掉代次护栏→1 例）。真实数字（2026-11-06 同一套 JMX 复跑，见 REPORT §8）：`config/raw` 132.4 → **21.2 ms**、`config/share` 104.7 → **9.6 ms**、`POST /api/templates` 200.9 → **28.1 ms**。
 
 ### B3. 预热清单扩展 — 优先级 **中**
 **具体优化内容**：`web/startup.py:799-828` 的 `_warm_stats_cache` 目前只暖 `business_kpi:30 / stats_today / stats_overview / stats_trend:events:24` 四个 key。把首页聚合（评估分布、通知未读数）纳入预热，并在每次调度周期后重暖。**原建议里「把 B2 的接口纳入预热」随 B2 一并撤回** —— 预热只是把同样的旧值提前算好，`cache-scan`/`snapshots`/`strategy` 的陈旧问题一条都不因预热而消失；`config/*` 那族现在由 B2 残留的指纹 memo 覆盖（冷的那一次仍要付解析，但只有第一次）。
@@ -250,7 +250,7 @@
 - **① 已落**：探测超时提到类常量 `LoginStrategySelector.CDP_PROBE_TIMEOUT = 0.1`，调用处用它。`c4_after_probe.py` 实测（9 次采样取中位）：CDP 关闭态这一跳 **1 014.2 → 109.1 ms（省 905.1 ms，9.3×）**；同一轮里真在 accept 的端口 **0.60 ms** 仍判可用（0.1 s 预算对它留了 ~160× 余量）；完整 `evaluate()` 地板 **~1 s → 109.5 ms**。
 - **② 不落**（与 §B2 第 3 条同源）：`evaluate()` 的语义就是「当前环境」，TTL 缓存必须配对失效才成立 —— 至少 `/initialize`、登录态变更、会话失效、以及「用户刚把带 CDP 的浏览器打开」四类边界。本轮不引入「界面在用户当场改完环境后继续推荐旧策略」这种真实失败，所以只做了不改语义的两项。
 - **③ 的落地形态与本条原文不同，且原文的索引依据是错的**：`db_models.py:776` 的 `idx_user_cookies_user_host` 属于**我们自己的** `user_cookies` 表，Chromium 那个 `Network/Cookies` 文件里没有它；而 `host_key = ?` 精确匹配会**改判定语义** —— 同一站点在 Chromium 里同时存在 `.goofish.com` / `www.goofish.com` / `s.taobao.com` 几种形态，`LIKE '%goofish%'` 正是在覆盖它们。改成**把关键名下推给 SQL 并命中一条即停**：`SELECT 1 FROM cookies WHERE (host_key LIKE ? OR host_key LIKE ?) AND name IN (...) LIMIT 1`，谓词集合不变。实测 `anticrawl_probe_cost.py`：5 000 行 **8.24 → 3.44 ms**（布尔逐形状相同）；走真实代码路径复核：命中 **0.87 ms**、最坏情况（全表无关键名）仍要扫完 **2.47 ms**。这一项本来就只占毫秒级，**不是那一秒的来源** —— 收益小、语义零风险，所以照做，但别指望它降本。
-- **本条「avg → ≤30 ms」作废**：残余的 109 ms **就是预算本身**（本机静默丢包 ⇒ 这一跳的耗时恰好等于 timeout），①③ 相加只能到 **约 190~250 ms**（= 基线 1 094.7 扣掉省下的 895 ms）。再往下只有两条路：把常量继续压小（0.05 s → 约 54 ms，代价是给慢启动的 CDP 更少余量），或落 ② 的短 TTL + 显式失效。**接口级与并发级数字（含 96 并发 2 511.8 ms）仍待同一 JMX 复跑。**
+- **本条「avg → ≤30 ms」作废**：残余的 109 ms **就是预算本身**（本机静默丢包 ⇒ 这一跳的耗时恰好等于 timeout），①③ 相加只能到 **约 190~250 ms**（= 基线 1 094.7 扣掉省下的 895 ms）。再往下只有两条路：把常量继续压小（0.05 s → 约 54 ms，代价是给慢启动的 CDP 更少余量），或落 ② 的短 TTL + 显式失效。**接口级与并发级数字（2026-11-06 复跑，见 REPORT §8.4）：单发 1 094.7 → 119.3 ms、48 并发 1 235.8 → 134.4 ms、96 并发 2 511.8 → 150.3 ms。**
 - **验证**：`tests/test_anticrawl_strategy_cost.py`（19 例）。探测侧钉「调用处取的是类常量」「预算 ≤0.2 s」「关闭端口整次探测 <0.5 s」「真在 accept 的端口仍判可用」「探测失败不往上抛、`evaluate()` 回落到扫码」；Cookie 侧钉**与改写前等价**（8 个形状同时断言新实现与内联的参照实现 `legacy_check` 一致，防止「用例跟着新语义一起改错」）、host 与 name 两个过滤都还活着、`name IN` + `LIMIT 1` 确实进了 SQL 文本、缺库 / 无 `cookies` 表 / 非 SQLite 文件三种坏形态照旧 False。安全边界：全部用例 `chdir` 到 tmp 并打桩 `get_config` / `get_browser_data_dir`，不读真实 `data/browser-data` 与真实 Cookie 库。
 - **变异验证四腿 + 负对照**（串行）：timeout 写回 `1.0` → 2 例红；SQL 分支整体退回原句 → 1 例红；去掉 `name IN` 下推 → 5 例红；第二个 host 图案接错（`%taobao%` 写成 `%goofish%`）→ 1 例红；**负对照**改 `infra/browser.py` 里另一处 CDP 超时 → 全绿（证明用例认的是本模块这一跳，而不是任意一次 socket 调用）。还原后 sha256 与基线逐字节相同。判据脚本 `loopback_connect_control.py` / `anticrawl_probe_cost.py` / `c4_after_probe.py` / `c4_mutation_run.py` 均只读、只在临时目录造数据。
 
@@ -301,7 +301,7 @@
 
 **C5 落地状态（2026-11-06）**：✅ 批量化落地 —— `compute_market_stats_batch` 的 cache miss 集合改走 `_compute_market_stats_for_tasks()` → `price_dashboard._compute_sold_range_batch()`：任务价格区间 1 条 SQL、已售样本 1 条（`task_id IN (...)`，`LIMIT 5000 × 任务数`，与原单任务 `LIMIT 5000` 的「任意截断」语义对齐）、回退样本 0~1 条（只对已售样本不足的任务查）。统计口径没有复制实现：`_compute_sold_range` 与批量版共用同一段 `_summarize_price_stats()`（从原函数里抽出来的 mixed / all_fallback / 分位数逻辑），行情页/直方图/趋势页仍走单任务版，`task_id=None`（全任务模式）也保持单条语义（它要按每个任务自己的区间过滤后合并）。
 
-判据（`c5_market_stats_probe.py`，合成库 20 个任务 × （60 条已售 link + 60 条 items），7 轮中位）：逐条 **40 条 SQL / 17.1 ms** → 批量 **2 条 SQL / 4.7 ms（0.27×，−73%）**。SQL 条数与任务数解耦，任务越多比值越低。**接口级 P99 858 → ≤300 ms 本轮不发布**：进程内直调只证明「每次冷算的 SQL 与耗时降了 4~7 倍」，HTTP 层还有 D1 的线程池排队，须同一 JMX 复跑。
+判据（`c5_market_stats_probe.py`，合成库 20 个任务 × （60 条已售 link + 60 条 items），7 轮中位）：逐条 **40 条 SQL / 17.1 ms** → 批量 **2 条 SQL / 4.7 ms（0.27×，−73%）**。SQL 条数与任务数解耦，任务越多比值越低。**接口级 P99 858 → ≤300 ms 本轮不发布**：进程内直调只证明「每次冷算的 SQL 与耗时降了 4~7 倍」，HTTP 层还有 D1 的线程池排队，须同一 JMX 复跑。**2026-11-06 复跑**：`GET /api/evaluations` 单发 19.8 → **13.4 ms**、P99 122.1 → **30.7**；16 并发 avg 51.0、64 并发 314.0。接口级「P99 858 → ≤300」仍不发布 —— 那条基线来自 12 并发长跑，本轮未跑 soak。
 
 回归 `tests/test_evaluations_market_stats_batch.py` 7 例（批量结果与逐任务 `_compute_sold_range` 逐字段相同且覆盖 sold/mixed/all_fallback 三种 source、SQL 次数与任务数解耦（批量 ≤3 / 逐条 ≥2N）、`task_id=None` 仍走单条、cache 命中不查库、批量整段失败退回逐任务、单个任务失败只丢它自己、接线门禁「必须调用批量入口」）；`c5_mutation_run.py` 4 红（退回逐 task 循环 / 每 task 套用第一个任务的区间 / 批量回退丢掉 range_days 过滤 / 回退判定反向）+ 2 绿（给区间查询多带一列 status / 只改 docstring），`price_dashboard.py` 与 `evaluations_list.py` 按 sha256 逐字节还原。
 
@@ -378,7 +378,7 @@
 
 **判定不落的三件**：① `recompute` 的 **UPSERT 分支**（无 eval 事件时按 500 条 task_link 逐条 `upsert_item` + `upsert_eval_event`）—— `upsert_item` 的 `user_id or "default"` 归属、items 列默认值、以及「逐条 try/except 部分成功」三处语义要一起改，风险高于收益，且它只在「旧版本写了 task_links 但没写评估」的兜底场景触发；② **`busy_timeout` 10 s→2 s** —— 不提升吞吐，只是把「隐藏的等待」换成「显式报错」，原文自己要求配「等锁时间」指标，本轮不引入（无指标就调小超时 = 把饱和藏成故障）；③ **扩池** —— 原文已否掉（SQLite WAL 单写者，20 已 > anyio 40 的一半）。
 
-**原文判据「16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms」不发布**：写组 61.6% 的样本根本不写库，TPS 由夹具请求与排队共同决定；本条交付的是「单次 recompute 内 500 条写」的前后对照（5.41×）。接口级写吞吐仍须同一 JMX 复跑。
+**原文判据「16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms」不发布**：写组 61.6% 的样本根本不写库，TPS 由夹具请求与排队共同决定；本条交付的是「单次 recompute 内 500 条写」的前后对照（5.41×）。接口级写吞吐（2026-11-06 复跑，见 REPORT §8.3）：写组 16 并发 TPS 51.9 → **257.5**、P95 635.8 → **105.5**；但逐接口拆解显示 config 族三件占单发降幅的 **93.4%**，`recompute` 只贡献整组 TPS 的约 **3%** —— 这笔账不能记给 D3。
 
 **回归**：`tests/test_recompute_batch_payload.py` 5 例（单事务、逐行落库、`user_id` 隔离、空列表 no-op、端到端 200 条只发 1 条 UPDATE + AST 接线门禁）；变异验证 `d3_mutation_run.py` **4 红 2 绿**、2 文件逐字节还原。全量后端 **2 861 passed / 1 failed**：唯一失败是 `test_anticrawl_integration.py::TestFreqDisguiseIntegration::test_request_pattern_not_robot_like`（随机分布断言 `0.353 < 0.3`），与写侧改动无关；隔离复跑 3 次全绿，判环境抖动（同 D1/D2 的既有结论）。
 
@@ -415,7 +415,7 @@
 
 **回归**：`tests/test_export.py` 20 例（新增 11 例）。逐字节参照在测试里独立重写（不从被测模块导入，否则「相同」是同义反复）；流式性用「首块产出时还没取过数据行」与「单块 ≤ 2×块大小」两条结构性断言锁住，而不是靠 `tracemalloc` 时序。变异验证 `d4_mutation_run.py`：**8 条红腿全部翻红、2 条应绿腿全绿、3 文件逐字节还原**（日志 `results/d4_mutation_run.log`）。**踩到并修掉的一个坑**：1 MB 级文本直接 `assert got == expected` 会让 pytest 渲染整份 diff，单腿从 9 s 拖到 9 分钟，已改为「先比长度、再定位首个差异偏移」。全量后端 **2 857 passed / 0 failed**（2026-11-06，7:03）。
 
-**仍未覆盖**：接口级 P99（1 827.7 ms）要等同一套 JMX 复跑才能发布；本轮给的是进程内序列化层的前后对照。另一条残余风险要一起看：`db-admin` 导出改成游标后，**那条读连接会一直持有到响应消费完**（原先 `.all()` 取完即还），并发导出会占用 `pool_size=20 + max_overflow=10` 的名额 —— 单机人工导出几乎不会撞上，但接口级复跑时要顺带确认 `QueuePool` 没有等待超时。
+**仍未覆盖**：接口级 P99（1 827.7 ms）来自 12 并发长跑，本轮未跑 soak，**不能严格对照**；2026-11-06 复跑给的是单发档（`db-admin/tables/items/export` 35.0 → **16.5 ms**、P99 157.9 → **29.8**）与无基线的重读并发档（t16 avg 73.9 / P99 167.4，t64 avg 467.1 / P99 1 187.3）。另一条残余风险要一起看：`db-admin` 导出改成游标后，**那条读连接会一直持有到响应消费完**（原先 `.all()` 取完即还），并发导出会占用 `pool_size=20 + max_overflow=10` 的名额 —— 单机人工导出几乎不会撞上，但接口级复跑时要顺带确认 `QueuePool` 没有等待超时。
 
 ---
 
@@ -430,7 +430,7 @@
 **E1 落地状态（2026-11-06）：只落运维护栏；默认 worker 数不动，吞吐判据不发布**
 
 - 落地：`__main__.web` 的注释一直写着「多 worker + 调度器会让每个 worker 各起一套浏览器/调度器」，但代码不拦 —— 用户执行 `--workers 4`（默认 `--with-scheduler`）会起 4 个 Chromium + 4 份轮询。现加互斥校验：`workers > 1` 且 `with_scheduler` 时直接 `Exit(2)` 并提示改用 `--no-with-scheduler`；**不静默降级**（静默降级会让用户以为多 worker 生效，实际仍是单进程）。回归 `tests/test_web_workers_guard.py` 3 例（默认拒绝且不启动 uvicorn、`--no-with-scheduler` 放行并原样透传 workers、`--reload` 仍强制降为 1）。
-- 判定不落：① **把 `--workers` 默认值改为 CPU 核数** —— 进程内 TTL 缓存会按 worker 分裂成 N 份，B3（预热扩展）判定不落后没有共享缓存兜底，单机用户会直接看到缓存命中率下降；② **发布「80 → ≥150 rps」判据** —— 需同一 JMX 复跑，本机无原生 JMeter，且 96 并发已近回放引擎上限（见 REPORT §6）。多 worker 仍是**推荐部署形态**（`--no-with-scheduler` + 独立调度进程），但不是默认。回归连同 E2 一起跑全量：**2 868 passed / 0 failed**。
+- 判定不落：① **把 `--workers` 默认值改为 CPU 核数** —— 进程内 TTL 缓存会按 worker 分裂成 N 份，B3（预热扩展）判定不落后没有共享缓存兜底，单机用户会直接看到缓存命中率下降；② **发布「80 → ≥150 rps」判据** —— 需同一 JMX 复跑，本机无原生 JMeter，且 96 并发已近回放引擎上限（见 REPORT §6）。多 worker 仍是**推荐部署形态**（`--no-with-scheduler` + 独立调度进程），但不是默认。回归连同 E2 一起跑全量：**2 868 passed / 0 failed**。**2026-11-06 复跑（单 worker）**：96 并发 P99 4 296.9 → **1 838.9 ms**、P95 3 893.2 → 835.0、缺陷率 3.17% → **0.00%** —— 判据里的「≤1 500 ms」**未达成**，差额正是多 worker 本该补上的那一段（本条核心不落，故如实保留差额）。
 
 ### E2. SSE 与 API 线程/连接资源隔离 — 优先级 **低**
 **具体优化内容**：SSE（`web/sse_stream.py`，受 `_MAX_SSE_CONNECTIONS`/`_sse_gate` 门控）与短请求共用同一 worker 与线程池。生产建议：SSE 单独进程/端口，或至少把上限与告警暴露到 `/api/metrics`。

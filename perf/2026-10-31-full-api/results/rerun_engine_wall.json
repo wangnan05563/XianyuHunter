@@ -1,0 +1,14 @@
+{
+ "note": "engine_rerun.log 的逐阶段实测墙钟（*.log 按 .gitignore 不入库）",
+ "wall_sec": {
+  "baseline_heavy": 180.0,
+  "stress_heavy_t16": 60.3,
+  "stress_heavy_t64": 60.2,
+  "baseline_light": 180.1,
+  "stress_light_t16": 60.0,
+  "stress_light_t48": 60.2,
+  "stress_light_t96": 60.2,
+  "baseline_write": 180.0,
+  "stress_write_t16": 60.1
+ }
+}

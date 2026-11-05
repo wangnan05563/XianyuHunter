@@ -13,6 +13,7 @@
 「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4/D4/D3）。
 剩下的工作：**② 结构性** —— E1 的核心（默认 worker 数 / 吞吐判据）与 E2 的隔离部分**均判定不落**，只落了运维护栏（E1：`--workers > 1` 与 `--with-scheduler` 互斥；E2：SSE 超限告警）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
 唯一的**未定论风险**是 RSS 长跑爬升（+75.9 MB/h，停载不回落）——B4 已证明它**不是**缓存值驻留，定论仍缺 4 h 长跑 + `tracemalloc`。
+**2026-11-06 已补跑「同一套 JMX」的 9 个阶段**（重读/轻读/写三组）：48/96 并发缺陷率 **3.17% → 0.00%**、轻组 96 并发 P95 **3 893.2 → 835.0**、写组 16 并发 TPS **51.9 → 257.5**、`cache-scan` 96 并发 avg **1 822.8 → 292.5**；原始样本归档在 `results/rerun_*.jsonl.gz`，结论见 REPORT §8。复跑顺带发现一个新瓶颈（`prices/category-comparison` 16 并发 2 433.7 ms），已记入 §2.1。
 
 ---
 
@@ -59,6 +60,8 @@
 | ~~**A5 日志检索**~~ ❌ **2026-11-06 判定不落** | `infra/repo_error_logs.py:63-65` | 原文两半都无落点 | `error_logs` 只有 2 112 行、`%LIKE%` 1.8~10.0 ms，前缀对照反而不快（`LIKE 'api%'` 29.7 ms）；`logs/search` 的 `q` 是 Python 子串匹配、没有 SQL LIKE，下推后延迟 33.7 → 37.7 ms（那是口径改进不是性能收益）。详见 OPTIMIZATIONS §A5 |
 | ~~**C5 评估列表去 N+1**~~ ✅ **2026-11-06 已落地** | `web/routes/evaluations_list.py` + `price_dashboard.py` | 20 个任务：40 条 SQL / 17.1 ms → **2 条 / 4.7 ms（−73%）**，SQL 条数与任务数解耦 | 批量取数 + 与行情页共用 `_summarize_price_stats`；接口级 P99 待同一 JMX 复跑。详见 OPTIMIZATIONS §C5 |
 
+| **`prices/category-comparison` 并发爆尾**（2026-11-06 复跑新发现，不在原清单） | `web/routes/price_dashboard.py:317` `category_comparison`（同步 def、**无任何缓存**） | 单发 24.6 ms，**16 并发 avg 2 433.7 ms / P99 3 299.2、64 并发 3 436.4 ms** | 每次请求都 `_load_category_prices` 全表扫 items（`range_days>0` 时再扫一遍）；16 并发 = 16 次全表扫抢同一条 GIL。**A1 的 `items.price` 索引治不了它**（只把单次 29.9 → 24.6）。**不是排队**（64 并发只比 16 并发再慢 1.4×），所以 D1 专用道也不对症。处方：挂 `@cached_ttl`（key = `(sort_by, order, limit, range_days)`，B1 单飞自动合并冷算），并按 B2 的复核口径评估陈旧风险；须补回归 + 变异验证后再生效 |
+
 ### 2.2 结构性条目（需先补取证，或有硬约束）
 
 | 条目 | 落点 | 预期 | 必须先做的事 / 风险 |
@@ -72,7 +75,7 @@
 
 | 缺口 | 具体内容 | 做法 |
 |---|---|---|
-| **同一套 JMX 复跑** | D1/D2/B4/D4 的**接口级 avg 与 48/96 并发数字**本轮都没发布；`results/per_endpoint.json` 等仍是优化前基线 | `jmeter-config-v2.yml` + 技能侧 `python_replay_engine.py --all` + `aggregate.py`（链路见 §6）；前后两轮要同机、同数据、同预热 |
+| ~~**同一套 JMX 复跑**~~ ✅ **2026-11-06 已跑 9 个阶段** | D1/D2/D4/D3/E1 的接口级数字此前都未发布；`results/per_endpoint.json` 等曾是优化前基线 | 已用入库的 `jmeter-config-v2.yml`（只改路径）跑出重读/轻读/写三组共 9 阶段，原始样本按 `results/rerun_*.jsonl.gz` 归档。**核心结果**：48/96 缺陷率 2.03%/3.17% → **0.00%**；轻组 96 并发 P95 3 893.2 → **835.0**、P99 4 296.9 → **1 838.9**；写组 16 并发 TPS 51.9 → **257.5**；`cache-scan` 96 并发 avg 1 822.8 → **292.5**。**仍未覆盖**：30 min / 4 h 长跑、重读组并发档基线对照、SUT 资源序列（引擎无 `resource_monitor`）。见 REPORT §8 |
 | **≥4 h 长跑 + `tracemalloc`** | RSS +75.9 MB/h、停载不回落、句柄恒定（627~631）；B4 已排除「缓存值驻留」（差 3~4 个数量级） | `jmeter-config-v2.yml` 里 `soak_mixed.duration_override` 改 `14400` 后原样跑；同时开 `tracemalloc` 快照差分（或按对象类型排行）。**不能由 B4 宣布关闭** |
 | ~~**D1 判据在外部负载下自抖**~~ ✅ **2026-11-06 已硬化** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 已把 hold 抬到 **150/300 ms**，并加一条**相对**判据（`cheap["finished_at"] < slow["finished_at"]`，不依赖绝对耗时）；改完重跑 `d1_mutation_run.py`：**12 腿全红 + 负对照全绿（ALL LEGS OK）**，`test_slow_lane.py` 15 例 6.8 s 通过 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
@@ -196,10 +199,24 @@ perf/2026-10-31-full-api/
 | `TMP` 没跟 `TEMP` 一起改到 D 盘 | 临时 SQLite 仍写 C 盘，报 `database or disk is full`（C 盘 0 可用） | 跑 pytest 前 **`TEMP` 和 `TMP` 都要设**到 D 盘，且目录先存在（D4 实测踩到） |
 | PowerShell 管道缓冲外部进程输出 | `... \| Tee-Object log` 时输出要等进程退出才落盘，中途被杀只剩半份进度 | 让脚本自己开文件写日志（`d4_mutation_run.py` 就这么做） |
 | 随机性用例在全量里偶发翻红 | `test_anticrawl_integration.py::TestFreqDisguiseIntegration::test_request_pattern_not_robot_like` 断言请求间隔分布 `< 0.3`，机器负载变化时偶发 `0.353`；隔离复跑 3 次全绿 | 先隔离复跑；全绿即判环境抖动，不要为它改随机阈值 |
+| 回放引擎没有资源采样实现 | 配置里写了 `resource_monitor`（含 `output_csv`），跑完却没有 `sut_resource.csv` | 当前技能版 `python_replay_engine.py` 源码里搜不到该配置键的处理 —— 是工具能力缺失，不是配置写错。内存判据改用进程内 `tracemalloc` 探针（D4）或另接 `typeperf` |
+| 引擎跑完会定向关停 SUT | 每组配置 `--all` 结束后日志出现「定向关停外部 SUT pid=[…]」，下一组直接连不上 | 这是 `sandbox.lifecycle` 的预期行为；每组之间重启 `run_sut.py` 并确认 `/healthz` 200 |
+| `Start-Process` 起的 SUT 活不过 shell 退出 | healthz 检查通过，但下一条命令就 `无法连接到远程服务器` | 用 `run_in_background` 的 shell 任务跑 `run_sut.py`（前台阻塞），进程才常驻 |
 
 ---
 
 ## 8. 命令速查
+
+**复跑一轮压测（2026-11-06 实测可用，负载约 15 分钟）：**
+
+1. `setup_sandbox.py` 建沙箱（119 MB 的 sqlite backup 副本 → `D:\tmp\xh-perf\sandbox`）
+2. 从 `.env` 取 `WEB_TOKEN` 写 `D:\tmp\xh-perf\token.txt`（**不打印明文**）
+3. 用 `run_in_background` 跑 `D:\tmp\xh-perf\run_sut.py`（cwd=沙箱，`PYTHONPATH=backend`，**不要** `XH_WITH_SCHEDULER`）；脚本自己写 `sut.pid=os.getpid()`
+4. `prepare_rerun.py` / `prepare_heavy.py` 生成两份配置（只改路径，**不重新生成 scenarios**，否则端点集与基线不同构）
+5. 引擎逐组跑：`python_replay_engine.py --config … --all`（**每组之间重启 SUT**，引擎跑完会定向关停它）
+6. `XH_PERF_DIR=D:\tmp\xh-perf` + `aggregate.py` → `compare_rerun.py` → `archive_rerun.py`（归档成 `results/rerun_*`，不覆盖基线）
+
+脚本本体都在 `D:\tmp\xh-perf\`（临时工作区，不随仓库走）；踩过的三个坑见 §7 最后四行。
 
 ```bash
 # 单文件/子集
