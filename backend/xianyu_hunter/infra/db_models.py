@@ -117,6 +117,9 @@ class ItemRow(Base):
         Index("ix_items_task_first_seen", "task_id", "first_seen"),
         Index("ix_items_seller", "seller_id"),
         Index("ix_items_publish_time", "publish_time"),
+        # A1：价格区间过滤（stats_price_trend）。实测 2 万行合成表：
+        # 15.09 → 7.17 ms，计划由「publish_time 索引全扫」改为「price 索引区间 + 临时排序」
+        Index("ix_items_price", "price"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -193,6 +196,9 @@ class EvaluationRow(Base):
     __table_args__ = (
         Index("ix_evaluations_seller", "seller_id"),
         Index("ix_evaluations_created", "created_at"),
+        # A1：stats_overview 的 `SUM(CASE risk_level='low')` 没有 WHERE，单列索引的收益
+        # 来自「覆盖索引扫描」（不再回表）：2 万行 3.45 → 2.17 ms
+        Index("ix_evaluations_risk_level", "risk_level"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -213,6 +219,9 @@ class OrderRow(Base):
     __table_args__ = (
         Index("ix_orders_seller", "seller_id"),
         Index("ix_orders_created", "created_at"),
+        # A1：type 过滤 + created_at 排序。原文建议的单列 (type) 实测更慢
+        # （4.85 → 5.49 ms，仍要临时排序）；复合形态 4.08 → 0.50 ms 且去掉 TEMP B-TREE
+        Index("ix_orders_type_created", "type", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -999,6 +1008,18 @@ def init_db(db_path: str = "data/xianyu.db") -> None:
     _migrate_notifications_dedup_per_user(engine)
     _migrate_create_index(engine, "notifications", "ix_notifications_user_read", "user_id, read_at")
     _migrate_create_index(engine, "items", "ix_items_first_seen", "first_seen")
+
+    # A1：按 2 万行合成表实测只补 3 条（原文 5 条里 2 条判定不落，1 条改复合形态）
+    # - items.price：stats_price_trend 区间过滤，15.09 → 7.17 ms
+    # - evaluations.risk_level：stats_overview 的 SUM(CASE) 变覆盖索引扫描，3.45 → 2.17 ms
+    # - orders(type, created_at)：type 过滤 + 排序，4.08 → 0.50 ms（单列 type 反而 4.85 → 5.49）
+    # 刻意不补：
+    # - price_history.user_id：两个读点都以 item_id 等值前缀走 (item_id, captured_at)，计划不变
+    # - task_links.updated_at：单列不改变计划；复合 (link_type, updated_at) 只 −4%（成本在逐行
+    #   json_extract），而写代价 +46%
+    _migrate_create_index(engine, "items", "ix_items_price", "price")
+    _migrate_create_index(engine, "evaluations", "ix_evaluations_risk_level", "risk_level")
+    _migrate_create_index(engine, "orders", "ix_orders_type_created", "type, created_at")
 
     # schema 修复：将 tasks.eval_threshold 从旧版 NOT NULL 迁移为 nullable
     # 为什么需要：模型已改为 nullable=True（None 表示沿用全局 eval.pass_score），

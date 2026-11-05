@@ -47,6 +47,15 @@
 **量化预期收益**：本副本 items 仅 774 行时全表扫已是百毫秒级；补索引后区间过滤类接口 P95 预计由 1 330 → **≤500 ms**（12 并发），且随数据量增长由线性恶化转为对数级。**当前数据量下延迟收益有限，属「防恶化」型投资**，故列为中优先级而非高。
 **验证方式**：`EXPLAIN QUERY PLAN` 前后对比 + 同一 JMX（`reads_light`）复跑，看 `category-comparison` 与 `stats/price-trend` 的 P95。
 
+**A1 落地状态（2026-11-06；原文 5 条里只落 3 条，1 条改复合形态、2 条判定不落）**：用 `a1_index_probe.py` 在合成库（每表 2 万行，约为真实 items 774 / task_links 2 050 的 10~25×）上逐条试索引，判据是「`EXPLAIN QUERY PLAN` 是否真的改用它」+ 15 次中位耗时 + 写侧 3 000 行插入代价：
+- ✅ `items.price`：`stats_price_trend` 的 `price between ? and ? order by publish_time desc limit 2000` **15.09 → 7.17 ms**（计划从「publish_time 索引全扫」改为「price 索引区间 + 临时 B-TREE 排序」）；写代价 3 000 行 **12.5 → 16.6 ms（+33%）**。
+- ✅ `evaluations.risk_level`：`stats_overview` 的无 WHERE `SUM(CASE risk_level='low')` 变成**覆盖索引扫描**（`SCAN evaluations USING COVERING INDEX ix_evaluations_risk_level`），**3.45 → 2.17 ms**；写代价 3 000 行 **7.9 → 14.1 ms（+78%，折合每行 +2 µs）**。
+- ✅ `orders.type` **落地形态改为 `(type, created_at)` 复合**：原文建议的单列实测 **4.85 → 5.49 ms（更慢，仍要临时排序）**；复合形态 **4.08 → 0.50 ms（−88%）且计划里没有 `TEMP B-TREE`**；写代价 3 000 行 16.6 → 17.3 ms（+4%）。
+- ❌ `price_history.user_id` **判定不落**：两个读点（`repo_price_history.list_recent` / `get_min_price`）都以 `item_id` 等值前缀走既有 `(item_id, captured_at)`，加索引前后计划与耗时都不变（0.31 → 0.33 ms），只剩写代价。
+- ❌ `task_links.updated_at` **判定不落**：单列不改变计划（仍走 `ix_task_links_type_key`；49.91 → 40.60 ms 是缓存预热，不可归因）；复合 `(link_type, updated_at)` 虽被选用，但只 **32.74 → 31.43 ms（−4%）** —— 成本在逐行 `json_extract`，而写代价 +46%（14.4 → 21.0 ms/3 000 行）。
+
+落地：ORM `__table_args__` 三处 `Index(...)`（新建库路径）+ `init_db` 三条 `_migrate_create_index`（旧库路径）。回归 `tests/test_perf_a1_indexes.py` 8 例（三个索引存在、三条查询计划断言、两条「判定不落」的反向门禁、ORM 声明与迁移一致、`init_db` 幂等、旧库 drop 后迁移回填）；`a1_mutation_run.py` 4 红（删 items/orders 迁移行、ORM 改错列、把 `price_history.user_id` 加回来）+ 2 绿（重复 seller 索引 / 只改 docstring），`db_models.py` 按 sha256 逐字节还原。**接口级数字仍待同一 JMX 复跑**：`prices/category-comparison` 的 580.2 ms 长跑 avg 与 `stats/price-trend` 的 P95 是下一个复跑核对项。
+
 ### A2. `eval.*` 事件全量重载下推到 SQL — 优先级 **高** ✅ **已于 2026-11-04 落地（取数口径收窄；原文建议的 `LIKE 'eval.%'` 恰是实测更慢的形态，「缓存命中态」与「≤60 ms」两处被推翻）**
 **原建议（② 的 SQL 形态与「缓存命中态」两处被实测修正，见下方落地状态）**：`GET /api/evaluations` 目前经 `web/routes/evaluations_list.py:732` 调 `container.repo.list_events_by_type_prefix(...)`，其默认 `limit=50000`（`infra/repo_events.py:337`，注释自陈「评估事件量级的上限」），把事件整段读进 Python 再过滤 / 分页 / 求中位数；另在同函数额外发一次 COUNT（`repo_events.py:333-365`）。改为：SQL 侧 `WHERE type LIKE 'eval.%' AND …` + `LIMIT/OFFSET`（或 keyset 分页）+ `COUNT(*) OVER ()` 单趟取总数，聚合（中位数/分位）改为 SQL 侧或物化到快照表。
 **证据**：基线 1 并发 19.8 ms（缓存命中态）→ 12 并发长跑 **195.9 ms / P95 456.9 / P99 858.0**；同族 `evaluations/distribution` 190.4、`evaluations/threshold-suggestion` 180.2、`evaluations/brands` 173.1 —— 说明整族都被同一重载支配。
@@ -146,6 +155,13 @@
 **证据**：基线首样本级长尾（`reads_light` P99 1 065.4 ms 而 P50 仅 11.1 ms）—— 99% 分位完全由冷算/击穿贡献。
 **量化预期收益**：冷启动/首个请求 **1.1 s → ≤100 ms**；P99 与 P50 的比值从 96× 降至 **≤10×**。
 **验证方式**：重启实例后立刻打 `reads_light` 基线，比较 P99。
+
+**B3 判定不落（2026-11-06；原文的「首页聚合纳入预热」无落点，量化预期已被 C4 部分兑现）**：
+1. **现有预热本身是有效的**：静态核对了 5 个 key 与请求侧 `key_fn` 一一对应 —— `kpi:30`（`business_kpi.py:224` 的 `f"kpi:{range_days}"`）、`stats_overview`、`stats_today`、`trend:events:24:all`（`trend.py:229` 的 `f"trend:{metric}:{range_hours}:{task_id or 'all'}"`）、`maintenance_status`。启动日志里的「business_kpi:30」只是显示名，不是缓存键；`stats_trend:events:24` 同理。
+2. **「把首页聚合（评估分布、通知未读数）纳入预热」无落点**：`/api/evaluations/distribution`（`evaluations_distribution.py:468`）与 `/api/notifications/unread_count`（`api_notifications.py:83`）**都没有 `@cached_ttl`**，而预热只能「提前调用被缓存装饰的函数」。要给它们加缓存则是新条目且带真实风险 —— 评估分布随每次新评估变化、未读数是用户点一下就必须变。
+3. **「1.1 s → ≤100 ms」已被 C4 部分兑现，但不能 ≤100 ms**：`reads_light` 首样本 1 017.5 ms 的接口是 `GET /api/anticrawl/strategy`，它本身 P50 就有 1 072.8 ms（P99/P50 = 1.1×，整组聚合的「96×」不是它自己的比值）。C4 把 CDP 探测 timeout 1.0 → 0.1 s 后实测约 190~250 ms；残余的 ~109 ms **就是 timeout 预算本身**（本机对未监听端口静默丢包），再往下压只能牺牲慢启动余量，短 TTL 也已判定不落。
+4. **「每次调度周期后重暖」同样不落**：TTL 300 s 会自然过期重算，按调度周期强行重暖等于让聚合缓存永不过期，把陈旧风险放大；且调度器与 Web 侧生命周期不同（`--no-with-scheduler` 部署下没有「调度周期」）。
+5. **「P99/P50 比值 96× → ≤10×」待同一 JMX 复跑**：比值下降来自 C4 而不是本条；本机复跑前不能宣布。
 
 ### B4. 缓存容量上限与淘汰 — 优先级 **中**（原列「低」，因资源口径修正后证据变强而上调，见 REPORT §6.8）
 **具体优化内容**：`web/cache.py` 的 `_cache_store` 无容量上限/淘汰策略；加 `max_entries` + LRU，并对大 payload（导出类、`snapshots`、`logs/search` 响应）显式不进缓存；同时给缓存加「条目数 + 字节数」可观测指标。
