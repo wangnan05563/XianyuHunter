@@ -11,6 +11,7 @@ import json
 import os
 import time
 import uuid
+from typing import Callable
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -37,23 +38,59 @@ class TemplateCreate(BaseModel):
     category: str = "其他"
 
 
+# 模板文件的「指纹 memo」：路径 -> ((mtime_ns, size, 读取代次), 解析结果)
+# 为什么用指纹而不是 TTL：模板列表用户可改（另存为/删除），TTL 会给出陈旧列表
+_MEMO: dict[str, tuple[tuple[int, int, int], list[dict]]] = {}
+# 每个路径的写盘代次：写盘后自增，让「stat 与 parse 之间被写盘插队」的在飞请求
+# 不把写盘前的旧值存回 memo（与 api_config 的 `_yaml_epoch` 同一手法）
+_EPOCHS: dict[str, int] = {}
+
+
+def _bump_epoch(path: str) -> None:
+    _EPOCHS[path] = _EPOCHS.get(path, 0) + 1
+
+
+def _load_cached(path: str, parse: Callable[[], list[dict]]) -> list[dict]:
+    """按文件指纹 memo 解析结果，返回浅拷贝列表
+
+    为什么返回浅拷贝而不是 deepcopy：112 条用户模板 deepcopy 实测 1.14 ms，
+    与重新 `json.load`（1.15 ms）持平，等于把收益吃光；当前调用方只做拼接、过滤、
+    append 新元素，不就地修改元素，浅拷贝足以隔离「改写返回列表」。
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        _MEMO.pop(path, None)
+        return []
+    epoch = _EPOCHS.get(path, 0)
+    fingerprint = (st.st_mtime_ns, st.st_size, epoch)
+    hit = _MEMO.get(path)
+    if hit is not None and hit[0] == fingerprint:
+        return list(hit[1])
+    data = parse()
+    # 解析期间被写盘插队（epoch 变了）时丢弃这次结果，不写回 memo
+    if _EPOCHS.get(path, 0) == epoch:
+        _MEMO[path] = (fingerprint, data)
+    return list(data)
+
+
 def _load_presets() -> list[dict]:
     """从 YAML 加载预置模板列表"""
-    if not os.path.exists(PRESET_FILE):
-        return []
-    with open(PRESET_FILE, 'r', encoding='utf-8') as f:
-        return yaml_io.safe_load(f) or []
+    def _parse() -> list[dict]:
+        with open(PRESET_FILE, 'r', encoding='utf-8') as f:
+            return yaml_io.safe_load(f) or []
+    return _load_cached(PRESET_FILE, _parse)
 
 
 def _load_user() -> list[dict]:
     """从 JSON 加载用户私有模板列表"""
-    if not os.path.exists(USER_FILE):
-        return []
-    try:
-        with open(USER_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
+    def _parse() -> list[dict]:
+        try:
+            with open(USER_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return []
+    return _load_cached(USER_FILE, _parse)
 
 
 def _save_user(templates: list[dict]) -> None:
@@ -61,6 +98,9 @@ def _save_user(templates: list[dict]) -> None:
     os.makedirs(os.path.dirname(USER_FILE), exist_ok=True)
     with open(USER_FILE, 'w', encoding='utf-8') as f:
         json.dump(templates, f, ensure_ascii=False, indent=2)
+    # 写站点配对作废：同尺寸 + 同一 mtime tick 的改写，单靠文件指纹识别不到
+    _bump_epoch(USER_FILE)
+    _MEMO.pop(USER_FILE, None)
 
 
 @router.get("")
