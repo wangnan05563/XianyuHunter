@@ -21,6 +21,7 @@ from sqlalchemy import select, func
 
 from xianyu_hunter.container import Container
 from xianyu_hunter.infra.db_models import ItemRow, TaskLinkRow, TaskRow, _utcnow
+from xianyu_hunter.web.cache import cached_ttl
 from xianyu_hunter.web.deps import get_container
 from xianyu_hunter.web.utils import filter_prices_by_task_range, load_task_price_range
 
@@ -327,8 +328,31 @@ def category_comparison(
     按 sort_by 排序后返回前 limit 个品类的价格统计。
     range_days>0 时仅统计最近 N 天的商品，便于观察短期行情变化。
     """
+    # 归一化放在路由层而不是计算函数里：非法 sort_by/order 先折成合法值，
+    # 否则 `sort_by=bogus` 会各自占一个缓存 key，把命中率稀释掉
     sort_by, order = _normalize_comparison_params(sort_by, order)
+    return _compute_category_comparison(sort_by, order, limit, range_days, container)
 
+
+@cached_ttl(
+    60,
+    key_fn=lambda sort_by, order, limit, range_days, container:
+        f"cmp:{sort_by}:{order}:{limit}:{range_days}",
+)
+def _compute_category_comparison(
+    sort_by: str, order: str, limit: int, range_days: int, container: Container,
+) -> dict[str, Any]:
+    """多品类横向对比的核心计算（被 60 s 缓存包裹）
+
+    为什么必须缓存：本接口每次都要 `_load_category_prices` 全表扫 items，
+    `range_days>0` 时还会再扫一遍。2026-11-06 复跑实测（REPORT §8.5）单发
+    24.6 ms，但 16 并发 avg **2 433.7 ms**、64 并发 3 436.4 ms —— 16 个并发
+    各扫一遍全表，在同一条 GIL 上串行，A1 的索引只降低单次成本、治不了并发。
+    挂缓存后同一个 key 的并发冷算由 B1 单飞合并成一次，其余请求直接命中。
+
+    为什么 60 s：与 `/prices/histogram` 同族、数据源同为 items 表，粒度到分钟级；
+    用户切换 `range_days` 会产生新 key，不会读到别的窗口的旧值。
+    """
     engine = container.repo.engine
     with engine.connect() as conn:
         task_map = _load_category_prices(conn)

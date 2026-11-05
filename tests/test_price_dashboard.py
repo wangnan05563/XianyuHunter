@@ -17,15 +17,25 @@ _TEST_TOKEN = "test-token-for-price-dashboard"
 
 @pytest.fixture
 def tmp_repo() -> Repository:
-    """使用临时数据库"""
+    """使用临时数据库
+
+    每个用例一个新库，而 `category-comparison` 的 60 s 缓存在**进程内**、key 不含
+    DB 身份 —— 不清缓存的话，第二个用例会直接拿到第一个用例的数据（实测：
+    `test_category_comparison_empty` 拿到别的用例的 3 个品类）。
+    """
     import tempfile
     from pathlib import Path
+
+    from xianyu_hunter.web.cache import invalidate_stats_cache
+
     get_settings.cache_clear()
+    invalidate_stats_cache()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         db_path = str(Path(d) / "test.db")
         repo = Repository(db_path)
         yield repo
         repo.engine.dispose()
+        invalidate_stats_cache()
         get_settings.cache_clear()
 
 

@@ -60,7 +60,7 @@
 | ~~**A5 日志检索**~~ ❌ **2026-11-06 判定不落** | `infra/repo_error_logs.py:63-65` | 原文两半都无落点 | `error_logs` 只有 2 112 行、`%LIKE%` 1.8~10.0 ms，前缀对照反而不快（`LIKE 'api%'` 29.7 ms）；`logs/search` 的 `q` 是 Python 子串匹配、没有 SQL LIKE，下推后延迟 33.7 → 37.7 ms（那是口径改进不是性能收益）。详见 OPTIMIZATIONS §A5 |
 | ~~**C5 评估列表去 N+1**~~ ✅ **2026-11-06 已落地** | `web/routes/evaluations_list.py` + `price_dashboard.py` | 20 个任务：40 条 SQL / 17.1 ms → **2 条 / 4.7 ms（−73%）**，SQL 条数与任务数解耦 | 批量取数 + 与行情页共用 `_summarize_price_stats`；接口级 P99 待同一 JMX 复跑。详见 OPTIMIZATIONS §C5 |
 
-| **`prices/category-comparison` 并发爆尾**（2026-11-06 复跑新发现，不在原清单） | `web/routes/price_dashboard.py:317` `category_comparison`（同步 def、**无任何缓存**） | 单发 24.6 ms，**16 并发 avg 2 433.7 ms / P99 3 299.2、64 并发 3 436.4 ms** | 每次请求都 `_load_category_prices` 全表扫 items（`range_days>0` 时再扫一遍）；16 并发 = 16 次全表扫抢同一条 GIL。**A1 的 `items.price` 索引治不了它**（只把单次 29.9 → 24.6）。**不是排队**（64 并发只比 16 并发再慢 1.4×），所以 D1 专用道也不对症。处方：挂 `@cached_ttl`（key = `(sort_by, order, limit, range_days)`，B1 单飞自动合并冷算），并按 B2 的复核口径评估陈旧风险；须补回归 + 变异验证后再生效 |
+| ~~**`prices/category-comparison` 并发爆尾**~~ ✅ **2026-11-06 已落地缓存**（复跑新发现，不在原清单） | `web/routes/price_dashboard.py` `category_comparison` | 单发 24.6 ms，**16 并发 avg 2 433.7 ms / P99 3 299.2、64 并发 3 436.4 ms** → 已挂 `@cached_ttl(60)` + B1 单飞 | 每次请求都全表扫 items（`range_days>0` 再扫一遍），16 并发 = 16 次扫抢同一条 GIL；**A1 索引治不了**（64 并发只比 16 并发再慢 1.4×，不是排队，D1 专用道也不对症）。落地形态：`_compute_category_comparison` 抽函数 + `key_fn=…cmp:{sort_by}:{order}:{limit}:{range_days}`，**归一化必须留在路由层**（否则 `sort_by=bogus` 各占一个 key；变异 L4 实测去掉归一化直接 `KeyError`）。连带修了 `tests/test_price_dashboard.py` 的 fixture（每例新库 → 必须 `invalidate_stats_cache()`，否则串用例）。回归 5 例 + 变异 4 红 2 绿；**新数字待下一轮复跑**（本轮 9 阶段样本采于落地前） |
 
 ### 2.2 结构性条目（需先补取证，或有硬约束）
 
