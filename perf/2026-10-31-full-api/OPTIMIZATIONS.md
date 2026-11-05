@@ -118,6 +118,12 @@
 **量化预期收益**：长跑 avg **132.9 → ≤40 ms**，且检索结果不再受「1 000 条截断」影响正确性。
 **验证方式**：构造 10 万级 events 副本，对比 P95 是否随数据量线性增长。
 
+**A5 判定不落（2026-11-06，`a5_like_probe.py` 实测；原文两半都无落点）**：原文把两个不同接口混在一条里，实测后各自都不成立：
+
+1. **`repo_error_logs` 的 `%LIKE%`**（`/api/error-logs` 列表）：真实库 `error_logs` 只有 **2 112 行**，`error_type LIKE '%kw%'` 直接 SQL **7.78 ms**、`request_path LIKE '%api%'` **4.50 ms**；走真实仓储 `list_error_logs` 分别 **1.8 ms / 10.0 ms**。前缀匹配的对照**没有更快**（`error_type LIKE 'network%'` 7.05 ms；`request_path LIKE 'api%'` **29.74 ms**，因为 `ix_error_logs_request_path` 只能做前缀过滤，`ORDER BY timestamp` 还要回表排序）。而且前缀匹配会**改语义** —— 前端搜索框的提示就是「按状态与错误类型搜索」（`ErrorLogs.tsx:423`），用户输入的是部分类型名/路径片段。FTS5 要建虚表 + 触发器同步，换来 <10 ms 的收益，不划算。
+2. **`logs/search` 的「先取 1 000 条再 Python 过滤」**：这个接口的 `q` 是 **Python 端子串匹配**（`api_logs.py` 的 `_filter_log_candidates`），SQL 侧本来就没有 `%LIKE%`，所以「前缀匹配 / FTS5」对它无落点。进程内实测：取 1 000 行候选 **31.9 ms**（含每行 `json.loads`）+ Python 过滤 **6.2 ms** ≈ 38 ms；把 `q` 下推到 SQL（`message LIKE ? OR payload LIKE ?`）要 **21.8 ms** 再 + 准确 `COUNT(*)` **14.0 ms** = **37.7 ms** —— **延迟没降**，换来的只是 `total_estimate` 口径从「最近 1 000 条里的命中」变成「全部历史命中」（同一关键词 14 → 52 条）。这是**产品口径改进**，不是性能收益；前端确实把 `total_estimate` 当命中总数展示（`Logs.tsx:53` 的 T02678 注释），要不要改语义需要产品确认，不在本性能条目内落。
+3. **本条「132.9 → ≤40 ms」不成立**：`logs/search` 的接口自身只有 ~38 ms，HTTP 长跑 132.9 ms 里其余近 100 ms 是中间件/线程池排队（D1 的账），改 LIKE 碰不到它。
+
 ---
 
 ## B. 缓存策略调整
