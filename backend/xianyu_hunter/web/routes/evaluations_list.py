@@ -28,7 +28,10 @@ from xianyu_hunter.web.routes.evaluations_common import (
 from xianyu_hunter.web.routes.evaluations_data_cleaner import clean_dirty_seller_nick
 # 复用 price_dashboard 的 _compute_sold_range 避免口径漂移
 # 为什么导入：评估列表的 bargain_price 必须与价格行情页同源，否则前端展示会矛盾
-from xianyu_hunter.web.routes.price_dashboard import _compute_sold_range
+from xianyu_hunter.web.routes.price_dashboard import (
+    _compute_sold_range,
+    _compute_sold_range_batch,
+)
 from xianyu_hunter.web.utils import to_datetime
 
 router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
@@ -38,6 +41,37 @@ router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
 # TTL 5 分钟：bargain_price/mean_price 基于历史已售数据，短期不会剧烈变化
 _MARKET_STATS_CACHE: dict[tuple[str | None, int], tuple[dict[str, float | None], float]] = {}
 _MARKET_STATS_CACHE_TTL = 300.0  # 秒
+
+
+def _compute_market_stats_for_tasks(
+    conn, task_ids: list[str | None], range_days: int,
+) -> dict[str | None, dict]:
+    """批量计算多个任务的市场统计，失败时退回逐任务（单个任务失败只丢它自己）
+
+    为什么批量：评估列表一次请求里 cache miss 的 task 可能有几十个，逐条
+    `_compute_sold_range` 每个 task 至少 2~3 条 SQL（区间 + 已售 + 回退）。批量路径
+    3 条封顶（区间 1 条、已售 1 条、回退 0~1 条）。
+    `task_id=None`（全局统计）保持单条语义：它要按每个任务自己的区间过滤后合并。
+    """
+    stats_map: dict[str | None, dict] = {}
+    real_ids = [tid for tid in task_ids if tid]
+    if real_ids:
+        try:
+            stats_map.update(_compute_sold_range_batch(conn, real_ids, range_days))
+        except Exception as e:
+            logger.warning("批量查询市场价格统计失败，退回逐任务: {}", e)
+            for tid in real_ids:
+                try:
+                    stats_map[tid] = _compute_sold_range(conn, tid, range_days)
+                except Exception as e2:
+                    logger.warning("查询任务 {} 的市场价格统计失败: {}", tid, e2)
+    for tid in task_ids:
+        if tid is None:
+            try:
+                stats_map[tid] = _compute_sold_range(conn, None, range_days)
+            except Exception as e:
+                logger.warning("查询全局市场价格统计失败: {}", e)
+    return stats_map
 
 
 def compute_market_stats_batch(
@@ -69,19 +103,19 @@ def compute_market_stats_batch(
     if missing:
         engine = container.repo.engine
         with engine.connect() as conn:
+            stats_map = _compute_market_stats_for_tasks(conn, missing, range_days)
             for tid in missing:
-                try:
-                    stats = _compute_sold_range(conn, tid, range_days)
-                    market_stats = {
-                        "bargain_price": stats.get("bargain_price"),
-                        "mean_price": stats.get("mean_price"),
-                    }
-                    _MARKET_STATS_CACHE[(tid, range_days)] = (market_stats, now)
-                    result[tid] = market_stats
-                except Exception as e:
+                stats = stats_map.get(tid)
+                if stats is None:
                     # 市场价格查询失败不应阻断评估列表渲染
-                    logger.warning("查询任务 {} 的市场价格统计失败: {}", tid, e)
                     result[tid] = {"bargain_price": None, "mean_price": None}
+                    continue
+                market_stats = {
+                    "bargain_price": stats.get("bargain_price"),
+                    "mean_price": stats.get("mean_price"),
+                }
+                _MARKET_STATS_CACHE[(tid, range_days)] = (market_stats, now)
+                result[tid] = market_stats
 
     return result
 

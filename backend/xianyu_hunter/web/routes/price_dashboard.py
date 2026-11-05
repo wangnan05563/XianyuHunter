@@ -532,27 +532,23 @@ def _load_all_prices_from_items(
     return prices, raw_count
 
 
-def _compute_sold_range(
-    conn, task_id: str | None, range_days: int,
+def _summarize_price_stats(
+    sold_prices: list[float], sold_raw: int,
+    all_prices: list[float], all_raw: int,
+    task_range: dict[str, float | None] | None,
+    task_id: str | None, range_days: int,
 ) -> dict[str, Any]:
-    """sold_range 与 bargain_eval 共享的核心计算
+    """把「已售样本不足时回退全部商品」的混合决策 + 分位数统计集中到一处
 
-    返回包含完整统计字段的 dict（含 source/样本数/分位数/task_price_range/filtered_count）。
-    两个端点的差异仅在响应外壳（bargain_eval 额外计算 score/level/suggestion），
-    内层统计逻辑完全一致，避免重复实现导致口径漂移。
-
-    filtered_count 字段记录被任务价格区间过滤掉的样本数，让前端能展示
-    "已过滤 N 个超范围样本"的提示，用户可直观确认过滤是否生效。
+    为什么抽出来：评估列表的批量路径一次处理 N 个任务，必须与行情页的逐任务
+    计算共用同一段统计代码，否则两个入口的 bargain_price/mean_price 口径会漂移
+    （OPTIMIZATIONS C5 的硬要求）。
     """
-    task_range = load_task_price_range(conn, task_id)
-
-    sold_prices, sold_raw = _load_sold_prices_from_links(conn, task_id, range_days, task_range)
     source = "sold"
     prices = sold_prices
     raw_total = sold_raw
     # 已售样本不足时补充全部商品价格
     if len(sold_prices) < _MIN_SOLD_SAMPLES:
-        all_prices, all_raw = _load_all_prices_from_items(conn, task_id, range_days, task_range)
         raw_total += all_raw
         if len(sold_prices) > 0 and len(all_prices) > 0:
             # 混合模式：已售样本权重2x + 全部商品  # NOSONAR S125:为业务说明非注释代码
@@ -637,6 +633,148 @@ def _compute_sold_range(
     })
     return base
 
+
+def _compute_sold_range(
+    conn, task_id: str | None, range_days: int,
+) -> dict[str, Any]:
+    """sold_range 与 bargain_eval 共享的核心计算
+
+    返回包含完整统计字段的 dict（含 source/样本数/分位数/task_price_range/filtered_count）。
+    两个端点的差异仅在响应外壳（bargain_eval 额外计算 score/level/suggestion），
+    内层统计逻辑完全一致，避免重复实现导致口径漂移。
+
+    filtered_count 字段记录被任务价格区间过滤掉的样本数，让前端能展示
+    "已过滤 N 个超范围样本"的提示，用户可直观确认过滤是否生效。
+    """
+    task_range = load_task_price_range(conn, task_id)
+    sold_prices, sold_raw = _load_sold_prices_from_links(conn, task_id, range_days, task_range)
+    all_prices: list[float] = []
+    all_raw = 0
+    # 已售样本不足时补充全部商品价格
+    if len(sold_prices) < _MIN_SOLD_SAMPLES:
+        all_prices, all_raw = _load_all_prices_from_items(conn, task_id, range_days, task_range)
+    return _summarize_price_stats(
+        sold_prices, sold_raw, all_prices, all_raw, task_range, task_id, range_days,
+    )
+
+
+def _load_task_ranges_batch(
+    conn, task_ids: list[str],
+) -> dict[str, dict[str, float | None]]:
+    """一次取回多个任务的价格区间（批量路径用）"""
+    rows = conn.execute(
+        select(TaskRow.id, TaskRow.min_price, TaskRow.max_price)
+        .where(TaskRow.id.in_(task_ids))
+    ).all()
+    return {
+        r[0]: {
+            "min_price": float(r[1]) if r[1] is not None else None,
+            "max_price": float(r[2]) if r[2] is not None else None,
+        }
+        for r in rows
+    }
+
+
+def _split_prices_by_task(
+    typed: dict[str, list[float]],
+    ranges: dict[str, dict[str, float | None]],
+) -> dict[str, tuple[list[float], int]]:
+    """按每个任务自己的价格区间过滤，返回 {tid: (过滤后价格, 过滤前样本数)}"""
+    result: dict[str, tuple[list[float], int]] = {}
+    for tid, prices in typed.items():
+        tr = ranges.get(tid)
+        if tr and (tr.get("min_price") is not None or tr.get("max_price") is not None):
+            filtered = filter_prices_by_task_range(prices, tr)
+        else:
+            filtered = prices
+        result[tid] = (filtered, len(prices))
+    return result
+
+
+def _load_sold_prices_batch(
+    conn, task_ids: list[str], range_days: int,
+    ranges: dict[str, dict[str, float | None]],
+) -> dict[str, tuple[list[float], int]]:
+    """一次取回多个任务的已售价格样本
+
+    LIMIT 取 5000 × 任务数：单任务路径的 LIMIT 5000 是「防止量大撑爆内存」的任意
+    截断（原查询没有 ORDER BY），批量路径按同样上限给每个任务留足样本。
+    """
+    sold_flag = func.json_extract(TaskLinkRow.display, '$.is_sold')
+    price_expr = func.json_extract(TaskLinkRow.display, '$.price')
+    stmt = (
+        select(TaskLinkRow.task_id, price_expr)
+        .where(TaskLinkRow.task_id.in_(task_ids))
+        .where(TaskLinkRow.link_type == "item")
+        .where(sold_flag == 1)
+    )
+    if range_days > 0:
+        cutoff = _utcnow() - timedelta(days=range_days)
+        stmt = stmt.where(TaskLinkRow.updated_at >= cutoff)
+    stmt = stmt.limit(5000 * len(task_ids))
+
+    typed: dict[str, list[float]] = {tid: [] for tid in task_ids}
+    for r in conn.execute(stmt).all():
+        if r[1] is None:
+            continue
+        try:
+            p = float(r[1])
+        except (TypeError, ValueError):
+            continue
+        if p > 0 and r[0] in typed and len(typed[r[0]]) < 5000:
+            typed[r[0]].append(p)
+    return _split_prices_by_task(typed, ranges)
+
+
+def _load_all_prices_batch(
+    conn, task_ids: list[str], range_days: int,
+    ranges: dict[str, dict[str, float | None]],
+) -> dict[str, tuple[list[float], int]]:
+    """一次取回多个任务的全部商品价格（已售样本不足时的回退数据源）"""
+    stmt = select(ItemRow.task_id, ItemRow.price).where(ItemRow.task_id.in_(task_ids))
+    if range_days > 0:
+        cutoff = _utcnow() - timedelta(days=range_days)
+        # publish_time 为 NULL 的样本也保留（同 _filter_category_prices_by_range 逻辑）
+        stmt = stmt.where((ItemRow.publish_time >= cutoff) | (ItemRow.publish_time.is_(None)))
+
+    typed: dict[str, list[float]] = {tid: [] for tid in task_ids}
+    for r in conn.execute(stmt).all():
+        if r and r[1] is not None:
+            try:
+                p = float(r[1])
+            except (TypeError, ValueError):
+                continue
+            if p > 0 and r[0] in typed:
+                typed[r[0]].append(p)
+    return _split_prices_by_task(typed, ranges)
+
+
+def _compute_sold_range_batch(
+    conn, task_ids: list[str], range_days: int,
+) -> dict[str, dict[str, Any]]:
+    """一次连接内批量计算多个任务的 sold_range 统计（评估列表 N+1 的批量化）
+
+    查询次数与任务数无关：区间 1 条、已售样本 1 条、回退样本 0~1 条（只对样本
+    不足的任务查）。逐条版保留给价格行情/直方图/趋势页的单任务语义，以及
+    `task_id=None`（全任务模式要按每个任务自己的区间过滤后合并，批量版不复制该分支）。
+    """
+    if not task_ids:
+        return {}
+    ranges = _load_task_ranges_batch(conn, task_ids)
+    sold = _load_sold_prices_batch(conn, task_ids, range_days, ranges)
+    fallback = [tid for tid in task_ids if len(sold.get(tid, ([], 0))[0]) < _MIN_SOLD_SAMPLES]
+    all_prices = _load_all_prices_batch(conn, fallback, range_days, ranges) if fallback else {}
+
+    out: dict[str, dict[str, Any]] = {}
+    for tid in task_ids:
+        sp, sr = sold.get(tid, ([], 0))
+        ap, ar = all_prices.get(tid, ([], 0))
+        out[tid] = _summarize_price_stats(
+            sp, sr, ap, ar,
+            ranges.get(tid, {"min_price": None, "max_price": None}),
+            tid, range_days,
+        )
+    return out
 
 @router.get("/prices/sold-range")
 def sold_range(

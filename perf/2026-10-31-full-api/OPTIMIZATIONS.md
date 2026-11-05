@@ -293,6 +293,12 @@
 **量化预期收益**：多任务用户的评估列表 P99 **858 → ≤300 ms**；调用 task 数越多收益越大（当前是线性放大）。
 **验证方式**：种子注入 20 个 task 后对比 P95 斜率。
 
+**C5 落地状态（2026-11-06）**：✅ 批量化落地 —— `compute_market_stats_batch` 的 cache miss 集合改走 `_compute_market_stats_for_tasks()` → `price_dashboard._compute_sold_range_batch()`：任务价格区间 1 条 SQL、已售样本 1 条（`task_id IN (...)`，`LIMIT 5000 × 任务数`，与原单任务 `LIMIT 5000` 的「任意截断」语义对齐）、回退样本 0~1 条（只对已售样本不足的任务查）。统计口径没有复制实现：`_compute_sold_range` 与批量版共用同一段 `_summarize_price_stats()`（从原函数里抽出来的 mixed / all_fallback / 分位数逻辑），行情页/直方图/趋势页仍走单任务版，`task_id=None`（全任务模式）也保持单条语义（它要按每个任务自己的区间过滤后合并）。
+
+判据（`c5_market_stats_probe.py`，合成库 20 个任务 × （60 条已售 link + 60 条 items），7 轮中位）：逐条 **40 条 SQL / 17.1 ms** → 批量 **2 条 SQL / 4.7 ms（0.27×，−73%）**。SQL 条数与任务数解耦，任务越多比值越低。**接口级 P99 858 → ≤300 ms 本轮不发布**：进程内直调只证明「每次冷算的 SQL 与耗时降了 4~7 倍」，HTTP 层还有 D1 的线程池排队，须同一 JMX 复跑。
+
+回归 `tests/test_evaluations_market_stats_batch.py` 7 例（批量结果与逐任务 `_compute_sold_range` 逐字段相同且覆盖 sold/mixed/all_fallback 三种 source、SQL 次数与任务数解耦（批量 ≤3 / 逐条 ≥2N）、`task_id=None` 仍走单条、cache 命中不查库、批量整段失败退回逐任务、单个任务失败只丢它自己、接线门禁「必须调用批量入口」）；`c5_mutation_run.py` 4 红（退回逐 task 循环 / 每 task 套用第一个任务的区间 / 批量回退丢掉 range_days 过滤 / 回退判定反向）+ 2 绿（给区间查询多带一列 status / 只改 docstring），`price_dashboard.py` 与 `evaluations_list.py` 按 sha256 逐字节还原。
+
 ---
 
 ## D. 连接池配置调优与线程模型
