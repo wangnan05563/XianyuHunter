@@ -1,0 +1,56 @@
+{
+ "baseline_sweep": {
+  "entries": 7,
+  "bytes": 25122,
+  "by_qualname": {
+   "_compute_stats_trend": 1,
+   "_compute_prices_histogram": 1,
+   "_compute_business_kpi": 1,
+   "_compute_eval_funnel": 1,
+   "_compute_stats_today": 1,
+   "get_status": 1,
+   "maintenance_status": 1
+  }
+ },
+ "per_task": {
+  "tasks_fired": 60,
+  "elapsed_sec": 1.4,
+  "entries_added": 120,
+  "bytes_added": 539865,
+  "mean_bytes_per_task_pair": 8997.75,
+  "mean_entries_per_task": 2.0,
+  "codes": {
+   "200": 120
+  }
+ },
+ "minted": {
+  "requests": 200,
+  "elapsed_sec": 1.2,
+  "entries_added": 200,
+  "bytes_added": 128090,
+  "mean_bytes_per_minted_entry": 640.45
+ },
+ "final": {
+  "entries": 327,
+  "bytes": 693077,
+  "rss_before_mb": 144.2,
+  "rss_after_mb": 170.6,
+  "rss_delta_mb": 26.4,
+  "deep_delta_mb": 0.661,
+  "by_qualname": {
+   "_compute_stats_trend": 261,
+   "_compute_prices_histogram": 61,
+   "_compute_business_kpi": 1,
+   "_compute_eval_funnel": 1,
+   "_compute_stats_today": 1,
+   "get_status": 1,
+   "maintenance_status": 1
+  }
+ },
+ "extrapolation": {
+  "tasks_in_db": 248,
+  "bytes_if_every_task_hit_twice": 2231442,
+  "mb_if_every_task_hit_twice": 2.1,
+  "note": "均值取自 A 段实测（真实 task × {trend, histogram}）；前端还会切 7 个 metric × 3 档 range，乘上去即组合上限"
+ }
+}

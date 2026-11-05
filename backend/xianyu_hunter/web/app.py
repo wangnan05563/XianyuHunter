@@ -622,6 +622,13 @@ def create_app() -> FastAPI:
     # 免得 1 s 级的导出/扫描把 8 ms 级的读配置请求一起拖死
     apply_slow_lanes(app)
 
+    # B4：给进程内读缓存套上条目上限（正常流量只留下个位数条目，这里是键空间被
+    # 未约束的查询参数撑开时的兜底；不在 cache 模块导入期读配置，故在装配阶段显式套用）
+    from xianyu_hunter.config import get_settings
+    from xianyu_hunter.web.cache import configure_cache_max_entries
+
+    configure_cache_max_entries(get_settings().cache_max_entries)
+
     @app.get("/healthz", tags=["meta"])
     def healthz() -> JSONResponse:
         """健康检查：检查数据库、登录态、任务、浏览器、通知渠道

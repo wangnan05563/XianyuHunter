@@ -8,6 +8,8 @@
 - 进程内 dict + 单调时钟时间戳，无外部依赖（不引入 Redis 增加运维复杂度）
 - 线程安全：FastAPI 默认同步路由用 anyio worker thread 池，dict 读写需加锁
 - 主动过期：缓存项带 TTL，过期自动忽略（不主动清理，下次写入覆盖）
+- 容量兜底（LRU 驱逐）：条目数超过 `cache_max_entries` 时淘汰最久未用的那一条，
+  读命中会续命（含 stale 读），所以 stale-while-revalidate 的旧值不会被正常流量挤掉
 - 击穿合并（single-flight）：同一 key 的并发 miss 只重算一次，其余等待同一结果
 - 过期不阻塞（stale-while-revalidate）：立即返回旧值，重算放后台（同步起线程、异步排任务）
 - 可选跳过缓存：bypass_cache=True 强制刷新（管理员手动刷新场景）
@@ -24,13 +26,19 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from xianyu_hunter.infra.lru import LRUDict
+
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+# 未显式配置时的条目上限（与 Settings.cache_max_entries 默认值一致）
+_DEFAULT_MAX_ENTRIES = 2000
+
 # 全局缓存 dict + 读写锁
 # key 结构：(endpoint_name, args_tuple) → (timestamp, value)
-_cache_store: dict[tuple, tuple[float, Any]] = {}
+# LRUDict：与普通 dict 行为一致，只是多一条「超过 maxsize 驱逐最久未用」的兜底
+_cache_store: LRUDict[tuple, tuple[float, Any]] = LRUDict(maxsize=_DEFAULT_MAX_ENTRIES)
 _cache_lock = threading.RLock()
 # stale-while-revalidate：记录正在进行后台刷新的 key，避免重复刷新（惊群）
 _refreshing: set[tuple] = set()
@@ -152,9 +160,23 @@ def _try_get_cache(cache_key: tuple, ttl_seconds: int) -> tuple[bool, Any]:
 
 
 def _set_cache(cache_key: tuple, value: Any) -> None:
-    """写入缓存"""
+    """写入缓存（超容量时由 LRUDict 驱逐最久未用的条目）"""
     with _cache_lock:
         _cache_store[cache_key] = (time.monotonic(), value)
+
+
+def configure_cache_max_entries(max_entries: int) -> None:
+    """套用配置里的条目上限；由 create_app 在装配阶段调用一次。
+
+    不在模块导入期读 get_settings()：那会读 .env、必要时取 keyring，等于给
+    「import xianyu_hunter.web.cache」加上磁盘与凭据副作用（单测会直接 import 本模块）。
+    <=0 视为配置无效，保持当前的兜底上限；本次调整不影响已写入的条目。
+    """
+    if max_entries <= 0:
+        logger.warning("cache_max_entries=%s 非法（需 >=1），沿用 %s", max_entries, _cache_store.maxsize)
+        return
+    with _cache_lock:
+        _cache_store.maxsize = max_entries
 
 
 def _single_flight(cache_key: tuple, compute: Callable[[], Any], ttl_seconds: int) -> Any:

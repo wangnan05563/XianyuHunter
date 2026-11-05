@@ -1,0 +1,280 @@
+{
+ "sites": [
+  {
+   "file": "web/routes/api_maintenance.py",
+   "qualname": "maintenance_status",
+   "ttl_seconds": 300,
+   "swr": true,
+   "key_template": "maintenance_status"
+  },
+  {
+   "file": "web/routes/api_vector_admin.py",
+   "qualname": "get_status",
+   "ttl_seconds": 60,
+   "swr": false,
+   "key_template": "vector_status"
+  },
+  {
+   "file": "web/routes/business_kpi.py",
+   "qualname": "_compute_business_kpi",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "kpi:%s"
+  },
+  {
+   "file": "web/routes/price_histogram.py",
+   "qualname": "_compute_prices_histogram",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "hist:%s:%s"
+  },
+  {
+   "file": "web/routes/stats_eval_funnel.py",
+   "qualname": "_compute_eval_funnel",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "eval_funnel:%s"
+  },
+  {
+   "file": "web/routes/stats_overview.py",
+   "qualname": "_overview",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "stats_overview"
+  },
+  {
+   "file": "web/routes/stats_today.py",
+   "qualname": "_compute_stats_today",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "stats_today"
+  },
+  {
+   "file": "web/routes/trend.py",
+   "qualname": "_compute_stats_trend",
+   "ttl_seconds": 300,
+   "swr": false,
+   "key_template": "trend:%s:%s:%s"
+  }
+ ],
+ "sweep": {
+  "labels": 106,
+  "codes": {
+   "200": 87,
+   "404": 11,
+   "422": 7,
+   "400": 1
+  },
+  "curve": [
+   {
+    "i": 0,
+    "path": "/api/accounts",
+    "entries": 0,
+    "bytes": 0
+   },
+   {
+    "i": 76,
+    "path": "/api/prices/histogram",
+    "entries": 1,
+    "bytes": 5078
+   },
+   {
+    "i": 83,
+    "path": "/api/stats",
+    "entries": 2,
+    "bytes": 7402
+   },
+   {
+    "i": 84,
+    "path": "/api/stats/business-kpi",
+    "entries": 3,
+    "bytes": 11110
+   },
+   {
+    "i": 85,
+    "path": "/api/stats/eval-funnel",
+    "entries": 4,
+    "bytes": 13697
+   },
+   {
+    "i": 88,
+    "path": "/api/stats/today",
+    "entries": 5,
+    "bytes": 15070
+   },
+   {
+    "i": 89,
+    "path": "/api/stats/trend",
+    "entries": 6,
+    "bytes": 22771
+   },
+   {
+    "i": 105,
+    "path": "/api/vector-admin/status",
+    "entries": 7,
+    "bytes": 23620
+   }
+  ]
+ },
+ "residency": {
+  "by_qualname": [
+   {
+    "qualname": "_compute_stats_trend",
+    "entries": 1,
+    "bytes": 8139,
+    "max_bytes": 8139,
+    "max_key": "trend:events:24:all",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 97
+   },
+   {
+    "qualname": "_compute_prices_histogram",
+    "entries": 1,
+    "bytes": 5078,
+    "max_bytes": 5078,
+    "max_key": "hist:0:all",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 72
+   },
+   {
+    "qualname": "_compute_business_kpi",
+    "entries": 1,
+    "bytes": 3939,
+    "max_bytes": 3939,
+    "max_key": "kpi:30",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 50
+   },
+   {
+    "qualname": "_compute_eval_funnel",
+    "entries": 1,
+    "bytes": 2965,
+    "max_bytes": 2965,
+    "max_key": "eval_funnel:30",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 40
+   },
+   {
+    "qualname": "_overview",
+    "entries": 1,
+    "bytes": 2380,
+    "max_bytes": 2380,
+    "max_key": "stats_overview",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 36
+   },
+   {
+    "qualname": "_compute_stats_today",
+    "entries": 1,
+    "bytes": 1663,
+    "max_bytes": 1663,
+    "max_key": "stats_today",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 300,
+    "objects": 23
+   },
+   {
+    "qualname": "get_status",
+    "entries": 1,
+    "bytes": 893,
+    "max_bytes": 893,
+    "max_key": "vector_status",
+    "expired_entries": 0,
+    "expired_bytes": 0,
+    "ttl_seconds": 60,
+    "objects": 14
+   }
+  ],
+  "total_entries": 7,
+  "total_bytes": 25057
+ },
+ "expiry_not_reclaimed": {
+  "hit_after_expiry": false,
+  "entry_still_present": true,
+  "retained_bytes": 44474,
+  "entries_before": 8,
+  "entries_after_pop": 7
+ },
+ "ceiling": {
+  "tasks_in_sandbox_db": 248,
+  "frontend_param_tokens": {
+   "24": 1,
+   "30": 2,
+   "90": 1,
+   "all": 15,
+   "count": 5,
+   "price": 18,
+   "sold": 9
+  },
+  "parameterized_sites": [
+   {
+    "file": "web/routes/api_maintenance.py",
+    "qualname": "maintenance_status",
+    "ttl_seconds": 300,
+    "swr": true,
+    "key_template": "maintenance_status"
+   },
+   {
+    "file": "web/routes/api_vector_admin.py",
+    "qualname": "get_status",
+    "ttl_seconds": 60,
+    "swr": false,
+    "key_template": "vector_status"
+   },
+   {
+    "file": "web/routes/business_kpi.py",
+    "qualname": "_compute_business_kpi",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "kpi:%s"
+   },
+   {
+    "file": "web/routes/price_histogram.py",
+    "qualname": "_compute_prices_histogram",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "hist:%s:%s"
+   },
+   {
+    "file": "web/routes/stats_eval_funnel.py",
+    "qualname": "_compute_eval_funnel",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "eval_funnel:%s"
+   },
+   {
+    "file": "web/routes/stats_overview.py",
+    "qualname": "_overview",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "stats_overview"
+   },
+   {
+    "file": "web/routes/stats_today.py",
+    "qualname": "_compute_stats_today",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "stats_today"
+   },
+   {
+    "file": "web/routes/trend.py",
+    "qualname": "_compute_stats_trend",
+    "ttl_seconds": 300,
+    "swr": false,
+    "key_template": "trend:%s:%s:%s"
+   }
+  ],
+  "ceiling_note": "trend:{metric}:{range}:{task} 与 hist:{bins}:{task} 的键基数随 tasks 线性增长（沙箱 tasks=248）"
+ }
+}
