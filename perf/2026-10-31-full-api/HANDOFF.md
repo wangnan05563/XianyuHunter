@@ -216,7 +216,7 @@ perf/2026-10-31-full-api/
 5. 引擎逐组跑：`python_replay_engine.py --config … --all`（**每组之间重启 SUT**，引擎跑完会定向关停它）
 6. `XH_PERF_DIR=D:\tmp\xh-perf` + `aggregate.py` → `compare_rerun.py` → `archive_rerun.py`（归档成 `results/rerun_*`，不覆盖基线）
 
-脚本本体都在 `D:\tmp\xh-perf\`（临时工作区，不随仓库走）；踩过的三个坑见 §7 最后四行。
+脚本本体：`rerun_run_sut.py` / `rerun_prepare_light_write.py` / `rerun_prepare_heavy.py` / `rerun_prep_aggregate.py` / `rerun_merge_cfg.py` / `rerun_compare.py` / `rerun_archive.py`（都在本目录；与 `setup_sandbox.py` 一样写死 `D:\tmp\xh-perf`）。踩过的坑见 §7 最后四行。
 
 ```bash
 # 单文件/子集
