@@ -74,7 +74,7 @@
 |---|---|---|
 | **同一套 JMX 复跑** | D1/D2/B4/D4 的**接口级 avg 与 48/96 并发数字**本轮都没发布；`results/per_endpoint.json` 等仍是优化前基线 | `jmeter-config-v2.yml` + 技能侧 `python_replay_engine.py --all` + `aggregate.py`（链路见 §6）；前后两轮要同机、同数据、同预热 |
 | **≥4 h 长跑 + `tracemalloc`** | RSS +75.9 MB/h、停载不回落、句柄恒定（627~631）；B4 已排除「缓存值驻留」（差 3~4 个数量级） | `jmeter-config-v2.yml` 里 `soak_mixed.duration_override` 改 `14400` 后原样跑；同时开 `tracemalloc` 快照差分（或按对象类型排行）。**不能由 B4 宣布关闭** |
-| **D1 判据在外部负载下自抖** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 硬化方向：把 `hold_ms` 抬到明显高于调度抖动（如 150/300 ms）并放宽峰值判据，或改为「同轮内相对比值」而非绝对在途峰值。改完要重跑 D1 变异验证（12 腿）确认判据仍能翻红 |
+| ~~**D1 判据在外部负载下自抖**~~ ✅ **2026-11-06 已硬化** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 已把 hold 抬到 **150/300 ms**，并加一条**相对**判据（`cheap["finished_at"] < slow["finished_at"]`，不依赖绝对耗时）；改完重跑 `d1_mutation_run.py`：**12 腿全红 + 负对照全绿（ALL LEGS OK）**，`test_slow_lane.py` 15 例 6.8 s 通过 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
 | **系统级 I/O / 带宽水位** | 本轮只采 SUT 进程侧 RSS/私有内存/CPU/句柄 | 外置压测机 + `typeperf`/`nmon` 补一轮（属「未覆盖」，不是缺陷） |
 | **服务端真实极限吞吐** | 96 并发已近 `python_replay` 客户端上限 | 原生 JMeter 或分布式压测机；当前 P95/P99 一律读作**上界** |

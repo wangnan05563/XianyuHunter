@@ -99,7 +99,8 @@ def _route(app: FastAPI, path: str) -> APIRoute:
 
 
 def _counters() -> dict:
-    return {"inflight": 0, "peak": 0, "done": 0, "samples": [], "lock": threading.Lock()}
+    return {"inflight": 0, "peak": 0, "done": 0, "samples": [],
+            "finished_at": 0.0, "lock": threading.Lock()}
 
 
 def _tracked(st: dict, hold_ms: float):
@@ -113,6 +114,7 @@ def _tracked(st: dict, hold_ms: float):
         with st["lock"]:
             st["inflight"] -= 1
             st["done"] += 1
+            st["finished_at"] = time.perf_counter()
         return {"ok": True}
     return handler
 
@@ -257,12 +259,17 @@ def test_lane_caps_inflight_and_queues() -> None:
 
 
 def test_cheap_route_not_blocked_by_slow_lane() -> None:
-    """隔离的本体判据：慢族被限在 cap 内时，未入道的接口仍能并发在途。"""
+    """隔离的本体判据：慢族被限在 cap 内时，未入道的接口仍能并发在途。
+
+    hold 刻意抬到 150/300 ms（原 30/60）：取样窗口与线程池派发延迟同量级时，
+    机器被外部负载占住会偶发翻红（同一轮未加变异的基线也红，见 HANDOFF §2.3）。
+    另加一条**相对**判据（廉价族先于慢族跑完），它不依赖绝对耗时，比在途峰值更抗抖动。
+    """
     capacity, slow_n, cheap_n = 2, 6, 8
     slow, cheap = _counters(), _counters()
     app = FastAPI()
-    app.add_api_route(LANE_PATH, _tracked(slow, 60.0), methods=["GET"])
-    app.add_api_route("/api/cheap", _tracked(cheap, 30.0), methods=["GET"])
+    app.add_api_route(LANE_PATH, _tracked(slow, 300.0), methods=["GET"])
+    app.add_api_route("/api/cheap", _tracked(cheap, 150.0), methods=["GET"])
     sl.apply_slow_lanes(app, capacity=capacity, allowlist={LANE_KEY})
 
     codes = asyncio.run(_fire(app, [(LANE_PATH, slow_n), ("/api/cheap", cheap_n)]))
@@ -272,6 +279,9 @@ def test_cheap_route_not_blocked_by_slow_lane() -> None:
     assert cheap["done"] == cheap_n
     assert cheap["peak"] > capacity, (
         f"廉价接口被专用道挤到 {cheap['peak']} 并发，隔离没生效")
+    # 慢族 6 个 / cap 2 = 3 轮 × 300 ms；廉价 8 个并发只需一轮 150 ms
+    assert cheap["finished_at"] < slow["finished_at"], (
+        f"廉价接口跑得比慢族还晚（{cheap['finished_at']:.3f} vs {slow['finished_at']:.3f}）")
 
 
 def test_limiter_is_per_event_loop() -> None:
