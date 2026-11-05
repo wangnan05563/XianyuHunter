@@ -9,6 +9,10 @@
 秒级返回「统计中 x 项」，下一次调用从断点继续，不会重复计数。
 
 时间片只在目录之间检查：单个目录必须完整走完，否则半个目录的条目会被重复统计。
+
+锁只护「进度表 + 读数」，时间片本身在锁外走（性能线 §D2）：先前整片持锁，迟到的请求排的不是
+CPU 的队而是前一个时间片的墙钟——0.5~2.0 s 一片，叠加并发就是实测的 avg 1 822.8 ms。
+同一个键同时只有一个推进者（`_Scan.advancing`），别人来晚了直接回当前进度。
 """
 from __future__ import annotations
 
@@ -30,6 +34,7 @@ class _Scan:
     scanned_entries: int = 0
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    advancing: bool = False
 
     @property
     def done(self) -> bool:
@@ -39,7 +44,8 @@ class _Scan:
 class CacheScanService:
     """按路径维护可续跑的目录统计
 
-    同一路径并发请求共用一份进度（互斥锁串行）；完成后结果保留 ttl 秒，
+    同一路径的并发请求共用一份进度：同一时刻只有一个调用方在推进该片，
+    其余调用方立刻拿到当前进度（不排队）；完成后结果保留 ttl 秒，
     期内直接复用，过期重新全量扫描。
     """
 
@@ -64,23 +70,37 @@ class CacheScanService:
         """返回统计快照；advance=True 时先按预算推进扫描（非阻塞边界是预算本身）"""
         key = str(path)
         with self._lock:
-            scan = self._scans.get(key)
-            stale = (
-                scan is not None
-                and scan.done
-                and time.time() - (scan.finished_at or 0) > self._ttl
-            )
-            if scan is None or stale:
-                scan = _Scan(stack=[key])
-                self._scans[key] = scan
-            if advance and not scan.done:
-                self._advance(scan, self._budget if budget is None else budget)
-            return self._describe(key, scan)
+            scan = self._entry(key)
+            if not advance or scan.done or scan.advancing:
+                return self._describe(key, scan)
+            scan.advancing = True
+        try:
+            self._advance(scan, self._budget if budget is None else budget)
+        finally:
+            with self._lock:
+                scan.advancing = False
+        with self._lock:
+            # 这片是在锁外走的，期间可能已被 invalidate() 或 TTL 重建：表里已经没有我们这份进度时，
+            # 回「重新统计中」，别把删除之前的旧数字交给用户
+            current = self._scans.get(key)
+            return self._describe(key, current if current is not None else _Scan(stack=[key]))
 
     def invalidate(self, path: Path) -> None:
-        """清理/删除后丢弃结果，下一次查询重新统计"""
+        """清理/删除后丢弃进度，下一次查询重新统计"""
         with self._lock:
             self._scans.pop(str(path), None)
+
+    def _entry(self, key: str) -> _Scan:
+        """取（或按需重建）该路径的进度；须在持锁时调用"""
+        scan = self._scans.get(key)
+        if scan is None:
+            scan = _Scan(stack=[key])
+            self._scans[key] = scan
+        elif scan.done and time.time() - (scan.finished_at or 0) > self._ttl:
+            # 过期重扫：重建只换掉表里的引用，在飞的那一次结束时自会按表里的新条目回读
+            scan = _Scan(stack=[key])
+            self._scans[key] = scan
+        return scan
 
     def _advance(self, scan: _Scan, budget: float) -> None:
         deadline = time.monotonic() + max(budget, 0.0)

@@ -1,0 +1,310 @@
+{
+  "k": 8,
+  "tree": {
+    "dirs": 60,
+    "files_per_dir": 300,
+    "reference": {
+      "mb": 17.58,
+      "files": 18000,
+      "entries_total": 18060
+    },
+    "one_shot_ms": 50.3,
+    "slice_budget_sec": 0.00251,
+    "slice_div": 20
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "arms": [
+        {
+          "calls": 8,
+          "slices_executed": 4,
+          "total_wall_ms": 44.4,
+          "avg_ms": 34.8,
+          "p50_ms": 42.2,
+          "p95_ms": 42.4,
+          "max_ms": 42.4,
+          "done_states": 5,
+          "scanning_states": 3,
+          "short_circuited": 0,
+          "arm": "现状·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 7,
+          "total_wall_ms": 81.6,
+          "avg_ms": 54.6,
+          "p50_ms": 63.9,
+          "p95_ms": 80.0,
+          "max_ms": 80.0,
+          "done_states": 3,
+          "scanning_states": 5,
+          "short_circuited": 0,
+          "arm": "现状·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 1,
+          "reached_done": true,
+          "wall_to_done_ms": 42.6,
+          "wave_avg_ms": 42.5,
+          "wave_p95_ms": 42.5,
+          "calls": 8,
+          "slices_executed": 4,
+          "hands_used_ratio": 0.5,
+          "arm": "现状·到done波数"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 1,
+          "total_wall_ms": 11.9,
+          "avg_ms": 1.2,
+          "p50_ms": 0.0,
+          "p95_ms": 9.9,
+          "max_ms": 9.9,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 7,
+          "arm": "A·单推进者·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 2,
+          "total_wall_ms": 16.4,
+          "avg_ms": 3.5,
+          "p50_ms": 0.0,
+          "p95_ms": 14.2,
+          "max_ms": 14.2,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 6,
+          "arm": "A·单推进者·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 3,
+          "reached_done": true,
+          "wall_to_done_ms": 44.4,
+          "wave_avg_ms": 14.7,
+          "wave_p95_ms": 15.5,
+          "calls": 24,
+          "slices_executed": 3,
+          "hands_used_ratio": 0.12,
+          "arm": "A·单推进者·到done波数"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 8,
+          "total_wall_ms": 17.0,
+          "avg_ms": 1.9,
+          "p50_ms": 0.0,
+          "p95_ms": 15.0,
+          "max_ms": 15.0,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 0,
+          "arm": "B·共享队列·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 8,
+          "total_wall_ms": 15.4,
+          "avg_ms": 3.4,
+          "p50_ms": 0.0,
+          "p95_ms": 13.8,
+          "max_ms": 13.8,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 0,
+          "arm": "B·共享队列·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 6,
+          "reached_done": true,
+          "wall_to_done_ms": 83.8,
+          "wave_avg_ms": 13.9,
+          "wave_p95_ms": 23.5,
+          "calls": 48,
+          "slices_executed": 48,
+          "hands_used_ratio": 1.0,
+          "arm": "B·共享队列·到done波数"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "arms": [
+        {
+          "calls": 8,
+          "slices_executed": 3,
+          "total_wall_ms": 38.0,
+          "avg_ms": 31.7,
+          "p50_ms": 36.5,
+          "p95_ms": 36.7,
+          "max_ms": 36.7,
+          "done_states": 6,
+          "scanning_states": 2,
+          "short_circuited": 0,
+          "arm": "现状·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 8,
+          "total_wall_ms": 83.6,
+          "avg_ms": 46.3,
+          "p50_ms": 46.4,
+          "p95_ms": 81.5,
+          "max_ms": 81.5,
+          "done_states": 2,
+          "scanning_states": 6,
+          "short_circuited": 0,
+          "arm": "现状·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 1,
+          "reached_done": true,
+          "wall_to_done_ms": 39.8,
+          "wave_avg_ms": 39.7,
+          "wave_p95_ms": 39.7,
+          "calls": 8,
+          "slices_executed": 3,
+          "hands_used_ratio": 0.38,
+          "arm": "现状·到done波数"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 1,
+          "total_wall_ms": 4.6,
+          "avg_ms": 0.4,
+          "p50_ms": 0.0,
+          "p95_ms": 2.8,
+          "max_ms": 2.8,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 7,
+          "arm": "A·单推进者·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 2,
+          "total_wall_ms": 17.1,
+          "avg_ms": 4.0,
+          "p50_ms": 0.0,
+          "p95_ms": 16.2,
+          "max_ms": 16.2,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 6,
+          "arm": "A·单推进者·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 3,
+          "reached_done": true,
+          "wall_to_done_ms": 41.1,
+          "wave_avg_ms": 13.7,
+          "wave_p95_ms": 15.8,
+          "calls": 24,
+          "slices_executed": 3,
+          "hands_used_ratio": 0.12,
+          "arm": "A·单推进者·到done波数"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 8,
+          "total_wall_ms": 4.4,
+          "avg_ms": 0.4,
+          "p50_ms": 0.0,
+          "p95_ms": 3.1,
+          "max_ms": 3.1,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 0,
+          "arm": "B·共享队列·同路径"
+        },
+        {
+          "calls": 8,
+          "slices_executed": 8,
+          "total_wall_ms": 15.6,
+          "avg_ms": 3.6,
+          "p50_ms": 0.0,
+          "p95_ms": 14.5,
+          "max_ms": 14.5,
+          "done_states": 0,
+          "scanning_states": 8,
+          "short_circuited": 0,
+          "arm": "B·共享队列·两路径"
+        },
+        {
+          "callers_per_wave": 8,
+          "waves_to_done": 4,
+          "reached_done": true,
+          "wall_to_done_ms": 66.7,
+          "wave_avg_ms": 16.6,
+          "wave_p95_ms": 22.2,
+          "calls": 32,
+          "slices_executed": 32,
+          "hands_used_ratio": 1.0,
+          "arm": "B·共享队列·到done波数"
+        }
+      ]
+    }
+  ],
+  "throughput_one_call": {
+    "现状": {
+      "slices": 1,
+      "entries_scanned": 4860
+    },
+    "A·单推进者": {
+      "slices": 1,
+      "entries_scanned": 6660
+    },
+    "B·共享队列": {
+      "slices": 1,
+      "entries_scanned": 5460
+    }
+  },
+  "correctness": {
+    "reference": {
+      "mb": 17.58,
+      "files": 18000,
+      "entries_total": 18060
+    },
+    "A·单推进者": {
+      "solo_final": {
+        "mb": 17.58,
+        "files": 18000,
+        "scanned_entries": 18060,
+        "state": "done"
+      },
+      "solo_identical": true,
+      "race_final": {
+        "mb": 17.58,
+        "files": 18000,
+        "scanned_entries": 18060,
+        "state": "done"
+      },
+      "race_over_counted": false,
+      "race_identical": true
+    },
+    "B·共享队列": {
+      "solo_final": {
+        "mb": 17.58,
+        "files": 18000,
+        "scanned_entries": 18060,
+        "state": "done"
+      },
+      "solo_identical": true,
+      "race_final": {
+        "mb": 17.58,
+        "files": 18000,
+        "scanned_entries": 18060,
+        "state": "done"
+      },
+      "race_over_counted": false,
+      "race_identical": true
+    }
+  }
+}

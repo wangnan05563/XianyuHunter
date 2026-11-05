@@ -1,14 +1,17 @@
 """缓存统计的增量扫描（T02738 / PRD 5.1 派生单）
 
 背景：`GET /api/maintenance/status` 与缓存预览原来都在请求线程里全量遍历浏览器
-profile（实测 2073 文件 / 426MB，磁盘争用下单次 449.5s）。本文件锁住三件事：
+profile（实测 2073 文件 / 426MB，磁盘争用下单次 449.5s）。本文件锁住四件事：
 
 1. 分批可续跑：预算耗尽时在**目录之间**停住，下次从中断处继续且不重复计数；
 2. 秒级回包：/status 与预览在预算很小也立即返回 state=scanning，不是空白等待；
-3. 终值一致：扫完后 MB/文件数与一次性遍历完全相同；删除后进度作废重扫。
+3. 终值一致：扫完后 MB/文件数与一次性遍历完全相同；删除后进度作废重扫；
+4. 一片不挡别人（性能线 §D2）：时间片在锁外走，迟到的调用回当前进度而不是排队，
+   作废/清理不被在飞的那一片卡住，同一路径同时只有一个推进者。
 """
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 
@@ -241,3 +244,111 @@ def test_real_cleanup_drops_cached_scan(profile_dir, monkeypatch):
     )
     assert result["errors"] == []
     assert str(profile_dir) not in service._scans
+
+
+# ============== 并发：时间片在锁外走（性能线 §D2） ==============
+class _BlockingAdvance(CacheScanService):
+    """把 `block_key` 那一路的时间片放大成「等信号」，用来把两种等待分开测：等锁 vs 等一片。
+
+    生产里一片是 0.5~2.0 s 的真实遍历，用例不能靠睡等来判断「有没有排队」。
+    """
+
+    def __init__(self, *, block_key: str, **kw) -> None:
+        super().__init__(**kw)
+        self._block_key = block_key
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.slice_keys: list[str] = []
+
+    def _advance(self, scan, budget):
+        key = scan.stack[0] if scan.stack else ""
+        self.slice_keys.append(key)
+        if key == self._block_key:
+            self.entered.set()
+            self.release.wait(5.0)
+        super()._advance(scan, budget)
+
+
+def _start_blocked_slice(service: _BlockingAdvance, root, sink: list | None = None):
+    box = sink if sink is not None else []
+    worker = threading.Thread(
+        target=lambda: box.append(service.snapshot(root, budget=5.0)),
+        daemon=True,
+    )
+    worker.start()
+    assert service.entered.wait(5.0), "推进线程没有进入时间片"
+    return worker
+
+
+def test_late_caller_gets_progress_instead_of_queueing_behind_a_slice(tmp_path):
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "f1").write_bytes(b"x" * 1024)
+    service = _BlockingAdvance(block_key=str(root))
+    worker = _start_blocked_slice(service, root)
+    try:
+        t0 = time.perf_counter()
+        snap = service.snapshot(root, budget=5.0)
+        waited = time.perf_counter() - t0
+        assert snap["state"] == "scanning"
+        assert snap["files"] == 0
+        # 迟到的调用只等锁，不再等别人那一片的墙钟（0.5~2.0 s）
+        assert waited < 0.5
+        # 同一路径同时只有一个推进者：否则半个目录的条目会被重复统计
+        assert service.slice_keys == [str(root)]
+    finally:
+        service.release.set()
+        worker.join(5.0)
+    assert service.snapshot(root, budget=5.0)["files"] == 1
+
+
+def test_invalidate_is_not_blocked_by_an_inflight_slice(tmp_path):
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "f1").write_bytes(b"x" * 1024)
+    service = _BlockingAdvance(block_key=str(root))
+    worker = _start_blocked_slice(service, root)
+    try:
+        t0 = time.perf_counter()
+        service.invalidate(root)
+        waited = time.perf_counter() - t0
+        # 清理动作不能被一个正在跑的统计片卡住
+        assert waited < 0.5
+        assert str(root) not in service._scans
+    finally:
+        service.release.set()
+        worker.join(5.0)
+
+
+def test_other_path_is_not_blocked_by_one_paths_slice(tmp_path):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    (a / "fa").write_bytes(b"x" * 1024)
+    (b / "fb").write_bytes(b"y" * 1024)
+    service = _BlockingAdvance(block_key=str(a))
+    worker = _start_blocked_slice(service, a)
+    try:
+        snap_b = service.snapshot(b, budget=5.0)
+        assert snap_b["state"] == "done"
+        assert snap_b["files"] == 1
+        assert service.slice_keys == [str(a), str(b)]
+    finally:
+        service.release.set()
+        worker.join(5.0)
+
+
+def test_inflight_slice_does_not_resurrect_invalidated_progress(tmp_path):
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "f1").write_bytes(b"x" * 1024)
+    service = _BlockingAdvance(block_key=str(root))
+    result: list[dict] = []
+    worker = _start_blocked_slice(service, root, result)
+    # 删除发生在这一片的中途：作废之后，在飞的那次回包不能继续报删除前的数字
+    service.invalidate(root)
+    service.release.set()
+    worker.join(5.0)
+    assert result[0]["state"] == "scanning"
+    assert result[0]["files"] == 0
+    assert str(root) not in service._scans
