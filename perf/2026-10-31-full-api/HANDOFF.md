@@ -1,0 +1,229 @@
+# 交接文档 · 全量 API 性能优化线（截至 2026-11-05）
+
+> 用途：把「已完成 / 待办 / 纪律 / 环境 / 坑」一次性交给下一个会话，避免重复取证与重复踩坑。
+> 本文只做索引与交接，**不新增结论**；所有数字的出处都在本目录的
+> `CONCLUSION.md`（判断与排序）、`OPTIMIZATIONS.md`（20 条建议 + 逐条落地记录）、`REPORT.md`（实测口径）。
+>
+> 建议阅读顺序：§0 → §1 → §2 → §3/§4（纪律）→ §5（提交纪律）→ §6（复跑链路）。
+
+---
+
+## 0. 一句话现状
+
+「第 1 周 + 第 2–4 周」里不依赖架构改造的条目**全部落地并本地提交、未推送**（B1/B5/B2 残留/C6/C1/C4/A4/E3/C2/A2/A2′/D1/D2/B4）。
+剩下的工作分两类：**② 结构性、需先补取证或受硬约束**（D3、D4、E1、E2）；**③ 验证缺口**（≥4 h 长跑 + `tracemalloc`、同一套 JMX 复跑、D1 判据在负载下自抖）。
+唯一的**未定论风险**是 RSS 长跑爬升（+75.9 MB/h，停载不回落）——B4 已证明它**不是**缓存值驻留，定论仍缺 4 h 长跑 + `tracemalloc`。
+
+---
+
+## 1. 已完成条目与提交
+
+| 条目 | 提交 | 一句话结论（详情见 OPTIMIZATIONS 对应「落地记录」） |
+|---|---|---|
+| B1 缓存单飞 | `8db8a562` | 冷/过期 miss 合并重算；全场最大杠杆 |
+| B5 SWR 后台刷新 | `ee8f34d7` | 同步分支真起守护线程、异步分支 `create_task`，两条都并入单飞 |
+| B2 残留（config memo） | `90055800` | 原建议 5 条撤回 4 条；只留 `_load_yaml` 文件指纹 memo + 写盘站点配对作废 |
+| C6 YAML 读侧 | `4a2bc1a0` | `CSafeLoader`：解析 47.7 → 6.5 ms；**写侧不换**（C dumper 把 emoji 写成 `\U0001F4F7`，产物不再逐字节相同） |
+| C1 `_dir_size` 合并 | `2d175392` | 实测 −43%（不是 50%）；`/status` 同步走盘移出事件循环 |
+| C4 探测降本 | `3e8de84d` | 只落 ①③：CDP 探测 timeout 1.0→0.1 s + Cookie 判定下推；②短 TTL 需配对失效故不落；「≤30 ms」作废 → 约 190~250 ms |
+| A4 status 计数 | `044b1068` | 完整重算 2 235 / 5 205 → 188 / 170 ms；**归因被推翻**：6 张表 COUNT 每张 ~0.1 ms，真凶是漏排除的 `.venv-build/` pycache |
+| E3 503 语义 | `fa26395e` | `links/live` 依赖不可用改 200 + 流内 error 事件；长跑 795 次 5xx（占 100%）归零 |
+| C2 `/auth/me` | `0143779c` | 每请求 SQL 2 → 1；②③④ 判定不落；HTTP avg 方向在本机噪声下不可判定 |
+| A2 `eval.*` 下推 | `dc2eb6ce` | **方向与原文相反**：前缀 `LIKE` → 等值；主人态端点中位 574.7/586.5 → 238.1/228.6 ms；压测身份读到 0 行，195.9 ms 里不含这笔成本 |
+| D1 慢接口专用道 | `35fc236e` | 16 条实测最重的同步接口走 `CapacityLimiter(4)`；廉价接口 p50 3 509.6/1 153.9 → 34.3/59.8 ms；`queue_p95` 974.4 → 6.7 ms 而 `work_p50` 恒 ~4 ms |
+| D2 cache_scan 解锁 | `8cfa9e9b` | **不是原文的「按路径分锁」**（三个调用点同一个目录）；改为「时间片不持锁 + 同键单推进者」；同路径 8 并发 p95 42.4/36.7 → 9.9/2.8 ms，扫完墙钟不变 |
+| B4 缓存容量上限 | `63c2bee2` | 复用 `infra/lru.LRUDict` + `cache_max_entries=2000`，`create_app()` 装配期套用；**RSS 归因被推翻**（全量 GET 扫 106 个 label 只留 7 条 / 23 620 B） |
+| C3 残余 模板文件 memo | cb6cd5a8 | 指纹 memo + 写盘配对作废；进程内处理器 2.23 → 0.53~0.58 ms，deepcopy 方案被实测否掉（1.14 ms ≈ 重新 `json.load`）→ 返回浅拷贝；详见 OPTIMIZATIONS §C3 |
+| A2′ 品牌归一化 | `88e614c0` | 正则预编译 + 别名表压缩结果预计算；`_compact_text` 73 251 → 2 367 次、`_enrich_eval_record` 706.9 → 256.3 ms；**请求内 memo 被实测推翻**（377 条只有 363 个唯一 title，memo 版慢 15%） |
+| A1 过滤列索引 | `7665e83e` | 5 条候选落 3 条：`items.price` 15.09 → 7.17 ms、`evaluations.risk_level` 变覆盖索引 3.45 → 2.17 ms、`orders(type, created_at)` 复合 4.08 → 0.50 ms；`price_history.user_id` / `task_links.updated_at` 实测无收益 |
+| C5 市场统计批量 | `a2cb18f5` | 20 个任务 40 条 SQL / 17.1 ms → 2 条 / 4.7 ms；与行情页共用 `_summarize_price_stats` |
+
+历史基线证据在 `results/`（`.jsonl.gz` 原始样本 + 聚合 JSON，均已入库）；`results/*.log` 按 `.gitignore` 不入库，需要时由探针脚本原样复现。
+
+---
+
+## 2. 剩余工作
+
+### 2.1 已取证、改动小、可直接落地（建议先做这一档）
+
+| 条目 | 落点 | 判据 / 预期 | 已知前提与风险 |
+|---|---|---|---|
+| ~~**A2′** enrich 品牌归一化~~ ✅ **2026-11-06 已落地** | `normalize_display_brand → _compact_text` | `_compact_text` 73 251 次 / 401.1 ms → **2 367 次 / 11.7 ms**；`_enrich_eval_record` 706.9 → **256.3 ms**（占列表 60.8% → 39.5%）；端点中位 148.2 → **121.5 ms** | **「请求内 memo」被微基准推翻**（377 条记录只有 363 个唯一 title，memo 版慢 15%）→ 只落「预编译 pattern + 别名表压缩结果预计算」；详见 OPTIMIZATIONS §A2′ |
+| ~~**C3 残余** `api_templates`~~ ✅ **2026-11-06 已落地** | `web/routes/api_templates.py` | 进程内处理器 **2.23 → 0.53~0.58 ms（−76%）**；命中路径残余是两次 `os.stat`（0.28 ms/次） | 指纹 memo + `_save_user` 写盘配对作废 + 读取代次；deepcopy 被实测否掉（1.14 ms ≈ 重新 `json.load`），返回浅拷贝；详见 OPTIMIZATIONS §C3 落地记录 |
+| ~~**B3 预热扩展**~~ ❌ **2026-11-06 判定不落** | `web/startup.py:799-828` `_warm_stats_cache` | 现有 5 个 key 与请求侧 `key_fn` 一一对应（有效）；「首页聚合纳入预热」无落点 | `/api/evaluations/distribution` 与 `/api/notifications/unread_count` **都没有 `@cached_ttl`**，预热暖不到；1.1 s 的接口是 `anticrawl/strategy`（C4 已降到约 190~250 ms，残余是 timeout 预算本身）；「调度周期后重暖」会放大陈旧风险。详见 OPTIMIZATIONS §B3 判定记录 |
+| ~~**A1 补 5 个过滤列索引**~~ ✅ **2026-11-06 已落地（3/5）** | `infra/db_models.py` | `items.price` 15.09→7.17 ms、`evaluations.risk_level` 覆盖索引 3.45→2.17 ms、`orders.type` 改复合 `(type, created_at)` 4.08→0.50 ms | `price_history.user_id` 与 `task_links.updated_at` 实测无收益，判定不落；接口级 P95 待同一 JMX 复跑。详见 OPTIMIZATIONS §A1 |
+| ~~**A5 日志检索**~~ ❌ **2026-11-06 判定不落** | `infra/repo_error_logs.py:63-65` | 原文两半都无落点 | `error_logs` 只有 2 112 行、`%LIKE%` 1.8~10.0 ms，前缀对照反而不快（`LIKE 'api%'` 29.7 ms）；`logs/search` 的 `q` 是 Python 子串匹配、没有 SQL LIKE，下推后延迟 33.7 → 37.7 ms（那是口径改进不是性能收益）。详见 OPTIMIZATIONS §A5 |
+| ~~**C5 评估列表去 N+1**~~ ✅ **2026-11-06 已落地** | `web/routes/evaluations_list.py` + `price_dashboard.py` | 20 个任务：40 条 SQL / 17.1 ms → **2 条 / 4.7 ms（−73%）**，SQL 条数与任务数解耦 | 批量取数 + 与行情页共用 `_summarize_price_stats`；接口级 P99 待同一 JMX 复跑。详见 OPTIMIZATIONS §C5 |
+
+### 2.2 结构性条目（需先补取证，或有硬约束）
+
+| 条目 | 落点 | 预期 | 必须先做的事 / 风险 |
+|---|---|---|---|
+| **D3 写侧批量 + 池/超时** | `infra/db_models.py:901-902`（`pool_size=20/max_overflow=10`）、`:912-913`（`busy_timeout=10 000`、`synchronous=NORMAL`） | 16 并发写 TPS 51.9 → ≥66、P95 635.8 → ≤400 ms | ①「批量 UPSERT」要先清点 `writes_idem` 场景里**哪些**写是可批量的（`infra/repo_items.py:50` 已有 `batch_upsert_items` 先例，可作模式）；②`busy_timeout` 10 s→2 s 要配「等锁时间」指标，否则只是把隐藏的饱和换成报错；③**扩池不是解药**（SQLite WAL 单写者，20 已 > anyio 40 的一半） |
+| **D4 真流式导出** | `web/routes/api_export.py:76-98`（先拼满 `io.StringIO` 再单元素 yield）、`web/routes/api_logs.py:127-128` | 导出类 P99 1 827.7 → ≤600 ms；私有内存峰值 617.7 MB 下降 | 判据要**两份数据量**（774 行副本 vs 5 万行副本）比 RSS 峰值差；过滤条件下推会动 `api_logs` 的子串/标签/stage 语义，需回归 |
+| **E1 多 worker** | `backend/xianyu_hunter/__main__.py:280-284`（`--workers` 默认 1）、`:309-312`（注释自陈 51→80 req/s） | 读吞吐 ≈80 → ≥150 rps；96 并发 P99 4 296.9 → ≤1 500 ms | **硬约束：必须排在 B3 之后**。进程内 TTL 缓存会按 worker 分裂成 N 份，直接开多 worker 会把命中率打散、把击穿变 N 倍。采集/浏览器留单进程调度器，Web 侧 `--no-with-scheduler` |
+| **E2 SSE 隔离** | `web/sse_stream.py`（`_MAX_SSE_CONNECTIONS` / `_sse_gate`） | 长连接不再挤占短请求（稳定性收益，非直接量化项） | 属于「有则更好」，优先级最低；若要动，至少先把上限与告警暴露到 `/api/metrics` |
+
+### 2.3 验证缺口（不写代码，但决定前面条目能不能「发布」）
+
+| 缺口 | 具体内容 | 做法 |
+|---|---|---|
+| **同一套 JMX 复跑** | D1/D2/B4 的**接口级 avg 与 48/96 并发数字**本轮都没发布；`results/per_endpoint.json` 等仍是优化前基线 | `jmeter-config-v2.yml` + 技能侧 `python_replay_engine.py --all` + `aggregate.py`（链路见 §6）；前后两轮要同机、同数据、同预热 |
+| **≥4 h 长跑 + `tracemalloc`** | RSS +75.9 MB/h、停载不回落、句柄恒定（627~631）；B4 已排除「缓存值驻留」（差 3~4 个数量级） | `jmeter-config-v2.yml` 里 `soak_mixed.duration_override` 改 `14400` 后原样跑；同时开 `tracemalloc` 快照差分（或按对象类型排行）。**不能由 B4 宣布关闭** |
+| **D1 判据在外部负载下自抖** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 硬化方向：把 `hold_ms` 抬到明显高于调度抖动（如 150/300 ms）并放宽峰值判据，或改为「同轮内相对比值」而非绝对在途峰值。改完要重跑 D1 变异验证（12 腿）确认判据仍能翻红 |
+| ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
+| **系统级 I/O / 带宽水位** | 本轮只采 SUT 进程侧 RSS/私有内存/CPU/句柄 | 外置压测机 + `typeperf`/`nmon` 补一轮（属「未覆盖」，不是缺陷） |
+| **服务端真实极限吞吐** | 96 并发已近 `python_replay` 客户端上限 | 原生 JMeter 或分布式压测机；当前 P95/P99 一律读作**上界** |
+
+---
+
+## 3. 每条落地的固定配方（不要跳步）
+
+1. **取证探针**：优先真实数据；不可得时用合成数据，但**预算/比例必须复刻生产**（D2 的教训：切片预算写死 → 片子远短于树 → 锁持有根本看不见 → 得出「并发无差别」的假结论；正确做法是「全扫耗时 ÷ 20」）。
+2. **最小改动落地**：只改能兑现判据的那一处；不做顺手重构、不加兼容层。
+3. **回归测试**：先写会失败的判据（含「装配期真的接上了」这种外部不可观测的接线），再使实现通过。
+4. **全量**：`-o "addopts=" -p no:cacheprovider`；不绿先查基线抖动（见 §7），不要靠改实现去迁就环境。
+5. **变异验证**：见 §4，逐腿串行，含「接错对象」腿与只改 docstring 的负对照。
+6. **文档四处落地**：`OPTIMIZATIONS`（逐条「落地记录」）/ `CONCLUSION`（排序与 Top-3 措辞）/ `REPORT`（工具表与判读）/ `CHANGELOG`。
+   **凡实测推翻原文归因，必须写「被推翻」而不是把新数字贴旧标题**（B4、A2、A4、C2、C4、D1、D2 都这么处理）。
+7. **本地提交、不推送**：本地 `main` 领先 origin 且含他人的提交，推送会连带别人未完成的工作。
+
+---
+
+## 4. 变异验证纪律（写死在 `*_mutation_run.py` 里，别凭记忆）
+
+- **逐条串行**，绝不并发（并发会把变异互相覆盖，也会让时序用例互扰）。
+- **基线必须全绿**，否则整轮无效；基线红先修基线。
+- **只认 `pytest exit == 1` 为「红」**；exit 2/3/4/5（收集错误、内部错、超时）一律判 **INVALID** 并中止整轮。
+  （B4 第一轮 M01「退回普通 dict」就栽在这里：4 个收集错误 → exit=2，必须重写成「写入绕过 LRU」的合法变异。）
+- **锚点唯一**（`count == 1`），注入前 `ast.parse` 校验变异文本。
+- 每条腿**无条件按原始字节恢复**，结束逐文件 sha256 核对；CRLF 文件的多行锚点先做换行归一化。
+- 必含两条**应为绿**的腿：①「接错对象」（改了个看似相关其实不管用的地方）；②只改 docstring 措辞。缺了这两条，全红只能说明脚本自嗨。
+- 摘要要保留 `FAILED` / `ERROR` 与 `E   ` 断言行，否则只剩 「N failed」不知为何红。
+- `tests/test_slow_lane.py`（时序用例）在机器有外部负载时会自抖：D2 探针为此提供 `--drop-slow-lane`（摘掉它，维护侧 3 文件 51 例判据一条不少，文档里要写明这一点）；B4 的跑批（capacity / swr / single_flight / order_stats）本身不含它，但仍可能被同一波环境抖动波及（见 §7）。
+
+---
+
+## 5. 仓库现状与提交纪律（**最容易出事的一段**）
+
+### 5.1 工作树里有一批**不属于性能线**的在途改动
+
+仓库改名线（`wangnan05563/xianyu-hunter` → `wangnan05563/XianyuHunter`）留下的脏文件，**不要提交、不要还原、不要顺手格式化**：
+
+```
+ M .gitignore                      M pyproject.toml
+ M CHANGELOG.md                    M requirements-lock.txt
+ M README.md                       M scripts/bump_version.py
+ M backend/xianyu_hunter/__init__.py
+ M backend/xianyu_hunter/web/app.py            ← 仅 app.py:488 的 contact URL 一行
+ M backend/xianyu_hunter/web/routes/api_about.py
+ M cleanup-config.yaml
+ M docs/...（关于页操作手册、详细设计、VERSIONING、目录结构、概要设计文档）
+ M frontend/src/pages/About/AboutMenuList.tsx(+test)
+ M scripts/config.publish.json
+ M tests/test_about.py
+ M tests/test_version.py
+?? assets/github-social-preview.png
+?? backend/xianyu_hunter/data/
+?? data/
+?? docs/系统架构设计文档.md
+```
+
+`backend/xianyu_hunter/data/`、`data/`、`assets/github-social-preview.png` 是随包资源/数据，别删、别加进提交。
+
+### 5.2 只提交自己那段 hunk 的做法
+
+`app.py` 与 `CHANGELOG.md` 同时含「我的性能改动」和「别人的改名改动」，不能整文件 `git add`。已验证可用的方法：
+
+1. `git diff -- <file>` 导出，人工删掉不属于自己的 hunk，存成 patch；
+2. `git apply --cached <patch>`（只进索引，不动工作树）；
+3. `git show :<file>` / `git diff --cached -- <file>` 复核暂存内容只有自己那段；
+4. `git commit` 后 `git show HEAD:<file> | grep <别人的标记>` 确认没被带进去；
+5. 提交后工作树里应仍保留别人的改动（`git status` 里该文件仍是 ` M`）。
+
+B4 就是这么把 `app.py:488` 的 contact URL 挡在 `63c2bee2` 之外的。
+
+### 5.3 其他
+
+- **不推送**。需要推送时先确认本地 `main` 与 origin 的关系。
+- 新脚本/文档里**不要写死数据主人的账号 ID**（形如手机号）；需要身份时动态解析并脱敏。
+- 探针不读任何 cookie 文件。
+- `results/*.log` 被 `.gitignore` 忽略；需要留证就把结构化结果写成 `results/*.json`（入库），日志只作现场参考。
+- **多轮产物文件名必须逐轮唯一**（`_r2`、`_r3`…），固定名会静默覆盖，最后只剩一轮。
+
+---
+
+## 6. 压测复现链路（现在的真实状态）
+
+```
+perf/2026-10-31-full-api/
+  setup_sandbox.py        建 D:\tmp\xh-perf\sandbox（独立端口 8011 + DB 副本 + 关调度器/穿透），dump openapi.json
+  build_scenarios.py      按 OpenAPI + tier-rules.json 分层 → coverage_matrix.json / probe_plan.json / jmeter-config.yml
+  patch_and_v2.py         把「工具口径污染」的端点移出负载轮 → groups.json / mixed.json + jmeter-config-v2.yml
+  emit_config.py          读 D:\tmp\xh-perf\{groups,mixed,sut.pid} → 重写 jmeter-config.yml（含 token/端口）
+  jmeter-config.yml       基线配置（scenarios + phases，已入库）
+  jmeter-config-v2.yml    第二轮配置（阶段时长改为引擎实测墙钟，已入库）
+  jmx/*.jmx               4 份原生 JMX（mixed_biz / reads_heavy / reads_light / writes_idem），已入库
+  aggregate.py            读 results/*.jsonl(.gz) + sut_resource.csv → 接口级基线/拐点/长跑退化表（就地可复算）
+```
+
+- 回放引擎在**技能目录**，不在仓库：`C:\Users\hspcadmin\.qoder-cn\skills\jmeter-performance-test\scripts\python_replay_engine.py`（本机无 JMeter 时的等价回放；有 Java 时优先原生 JMeter 跑 `jmx/*.jmx`）。
+- `D:\tmp\xh-perf` 是**临时工作区，跑完应删除**：沙箱里有 `.env` 的完整副本（含明文 token）。若中途崩溃留下目录，删掉并按需轮换 token。
+- 沙箱探针**不要用固定目录名无锁并发跑**：D1 的 `d1_lane_arms_c.json` 整轮 `server not ready` 就是两个探针互相 `rmtree` 同一目录的事故现场；临时目录带 PID 后缀。
+- `aggregate.py` 支持 `XH_PERF_DIR` 指向临时工作区；仓库内归档是 gzip，两处都能就地复算。
+
+---
+
+## 7. 已知坑（上一轮真实踩过的）
+
+| 坑 | 表现 | 处置 |
+|---|---|---|
+| 后台任务 exit code 不可信 | 重定向到不存在的目录，命令失败但通知报 exit 0 | 后台跑完**读日志尾部**确认；不用退出码代替证据 |
+| 并发下的「全量不绿」 | B4 那轮 7 failed / 46:12（正常 17:28）；同一轮基线复跑也红 | 先看**墙钟**：明显变长就是机器被外部负载占住（其它会话的 uvicorn/JMeter/MCP、pip 安装）；隔离子集重跑，通过则判环境抖动并**如实记录**，不要为它改实现 |
+| 按用例 vs 按文件的耗时 | pytest 的 `--durations` 文件级汇总会掩盖单条用例超时 | 归因阶梯：比单条用例耗时 → 放宽只是 CLI 侧的参数 → 隔离 → 未改动复跑 |
+| `from xianyu_hunter.web import app` 拿到的是 FastAPI 实例 | `AttributeError: 'FastAPI' object has no attribute 'create_app'` | 用 `from xianyu_hunter.web.app import create_app` |
+| 日志按 GBK 落盘 | 用 UTF-8 读成乱码/二进制 | 用 `encoding='gbk'` 读日志 |
+| 不能用 `python3` | 本机是坏桩（exit 49） | 一律 `.venv/Scripts/python.exe` |
+| `taskkill /IM node.exe` 之类 | 会杀掉别的会话的进程 | 按 PID，且先看命令行确认归属 |
+| pytest 日志里 `N passed` 混着 warning 行 | 摘要抓错行 | `-q --no-header -rf`，摘要只留 `passed/failed/error/FAILED/ERROR/E   ` |
+| 长命令套 `grep` 管道 | 吞退出码 + 丢证据 | 先落文件，再用 Read/Grep 看 |
+
+---
+
+## 8. 命令速查
+
+```bash
+# 单文件/子集
+.venv/Scripts/python.exe -m pytest tests/test_cache_capacity.py -o "addopts=" -p no:cacheprovider -q
+
+# 缓存族（B1/B4/B5/单飞/SWR 一起；B4 变异验证用的就是这组，55 例）
+.venv/Scripts/python.exe -m pytest tests/test_cache_capacity.py tests/test_cache_single_flight.py \
+  tests/test_cache_swr_refresh.py tests/test_order_stats_cache_invalidation.py \
+  -o "addopts=" -p no:cacheprovider -q
+
+# 全量（安静机器上约 17~18 min；2 818 passed / 0 failed 是 B4 时的基线）
+.venv/Scripts/python.exe -m pytest -o "addopts=" -p no:cacheprovider -q
+
+# 变异验证（逐腿串行；先确认基线绿）
+.venv/Scripts/python.exe perf/2026-10-31-full-api/b4_mutation_run.py
+```
+
+环境事实：Python 3.12 / FastAPI 0.136.3 / Starlette 1.2.1 / anyio 4.13.0；Windows + Git Bash；全量用例数会随新增用例增长（B4 时是 2 818），**不要把它当常量写进判据**。
+
+---
+
+## 9. 未决问题（不是待办，是「还没有答案」）
+
+1. **RSS 爬升的根因**：缓存已排除；句柄无泄漏；30 min 不足以区分「分配器不归还」与「慢泄漏」。需要 4 h + `tracemalloc`。
+2. **服务端真实吞吐上限**：客户端同机且 `python_replay` 96 并发已近顶，现有 P95/P99 只是上界。
+3. **`/api/vector-admin/snapshots` 的 `≤120 ms`**：C1 落地后未复跑证实。
+4. **`config/raw` 稳态 ~90 ms**：C6 只换读侧，dump 那 21~27 ms 留在原地，已判定不换（emoji 转义）。
+5. ~~**A2 的 230 ms 残余**：已定位到 enrich（A2′），但尚未量化「预编译 + 请求内 memo」能收回多少。~~ **已于 2026-11-06 量化**：预编译 + 别名预计算收回约 64% 的 enrich 累计时间（706.9 → 256.3 ms），但「请求内 memo」被实测推翻；A2 原文的「≤60 ms」仍不成立。
+
+---
+
+## 10. 建议的第一个动作
+
+§2.1 的「已取证、改动小」档已清空：A2′/C3/B3/A1/A5/C5 全部处置完毕（**4 条落地、2 条判定不落**）。**下一步应转验证缺口**：按 §6 重建压测链路、订正 `REPORT.md:205` 的三处路径，再做一轮同机同数据的 JMX 复跑，把 A2′/C3/A1/C5 的接口级收益与 D1/D2/B4 的并发数字一次兑现。若要先开新条目，从 §2.2 的 D4（真流式导出）或 D3（写侧批量）开始 —— 但两者都要先补取证。
+
+若目标是「把已落地的 D1/D2/B4 换成可发布的数字」，则先按 §6 重建压测链路、订正 `REPORT.md:205` 的路径，再做一轮同机同数据的 JMX 复跑——这比继续开新条目更能回答「优化到底兑现了多少」。
