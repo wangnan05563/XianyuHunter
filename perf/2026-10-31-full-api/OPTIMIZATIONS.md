@@ -438,6 +438,19 @@
 **量化预期收益**：读吞吐 **≈80 → ≥150 rps**（4 worker，按历史 1.57× 单/多 worker 增益外推）；96 并发 P99 **4 296.9 → ≤1 500 ms**。
 **注意（必须先解决的副作用）**：`web/cache.py` 的缓存是**进程内**的，多 worker 会把命中率除以 worker 数，反而放大 B1 的击穿。因此 **B1/B3 必须先落地**，或与共享缓存（Redis / SQLite 快照表）一并设计。这也是本条列中优先级而非高的原因。
 
+**2026-11-07 新发现：`--workers N` 在当前实现下根本不生效（不只是「权衡后不划算」）**
+
+`__main__.py:326` 是 `uvicorn.run(web_app, ...)` —— 传的是 **app 对象**，而 uvicorn 只在传 **import string** 时才启用多 worker。实测：
+
+```
+python -m xianyu_hunter web --port 8011 --no-with-scheduler --workers 2
+→ WARNING:  You must pass the application as an import string to enable 'reload' or 'workers'.
+```
+
+并且**进程直接退出**（`Get-NetTCPConnection -LocalPort 8011` 为空、`/healthz` 失败）。也就是说：护栏放行的那条路径实际是**静默失效**，`--workers > 1` 既不起作用、也不报错、还让服务不启动。
+
+**这改变了本条的定性**：E1 不是「缓存会分裂所以暂不默认」，而是**实现层面待修**。修复方向明确 —— 改成 `uvicorn.run("xianyu_hunter.web.app:app", workers=N)`；但必须连带验证三件事：① **Windows** 上 uvicorn 多 worker 是否可用（`multiprocessing` spawn 行为）；② 进程内 TTL 缓存按 worker 分裂后的命中率；③ SQLite 多进程写竞争（WAL 单写者 + `busy_timeout=10s`）。**这三项都未验证，本轮不改代码**；在此之前，内部文档里 `--workers > 1` 应标注为「未实现」而不是「已支持」。
+
 **E1 落地状态（2026-11-06）：只落运维护栏；默认 worker 数不动，吞吐判据不发布**
 
 - 落地：`__main__.web` 的注释一直写着「多 worker + 调度器会让每个 worker 各起一套浏览器/调度器」，但代码不拦 —— 用户执行 `--workers 4`（默认 `--with-scheduler`）会起 4 个 Chromium + 4 份轮询。现加互斥校验：`workers > 1` 且 `with_scheduler` 时直接 `Exit(2)` 并提示改用 `--no-with-scheduler`；**不静默降级**（静默降级会让用户以为多 worker 生效，实际仍是单进程）。回归 `tests/test_web_workers_guard.py` 3 例（默认拒绝且不启动 uvicorn、`--no-with-scheduler` 放行并原样透传 workers、`--reload` 仍强制降为 1）。
