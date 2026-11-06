@@ -1,0 +1,130 @@
+{
+ "note": "剔除 SSE 后的 4 h soak（12 并发 / 135 接口）；资源序列从 CSV 复算",
+ "config": {
+  "jmx": "mixed_biz_no_sse.jmx",
+  "threads": 12,
+  "duration_s": 14400,
+  "wall_sec": 14401.4,
+  "samples": 2860,
+  "live_samples": 2860
+ },
+ "engine": {
+  "total": 1524261,
+  "errors": 429021,
+  "error_rate_pct": 28.146,
+  "errors_note": "errors/error_rate_pct 含夹具 4xx（同 30 min 轮 28.1% 的口径），不等于真实缺陷率；真实缺陷率需按 responseCode 区分 5xx 与 000",
+  "p50_ms": 79.91,
+  "p95_ms": 283.51,
+  "p99_ms": 703.17,
+  "tps": 105.8
+ },
+ "rss": {
+  "start_mb": 202.5,
+  "end_mb": 254.7,
+  "peak_mb": 501.1,
+  "slope_mb_per_h": 20.4,
+  "per_tps_h_mb": 0.19,
+  "head_third_mean_mb": 344.1,
+  "tail_third_mean_mb": 396.0,
+  "peak_envelope_slope_mb_per_h": 17.5,
+  "tail_half_slope_mb_per_h": 14.0,
+  "tail_quarter_slope_mb_per_h": 11.6,
+  "reclaim": {
+   "max_drop_mb": 162.4,
+   "max_drop_at_s": 11287.1,
+   "drops_over_60mb": 96
+  }
+ },
+ "private": {
+  "start_mb": 402.5,
+  "end_mb": 456.1,
+  "peak_mb": 714.7,
+  "slope_mb_per_h": 22.1
+ },
+ "handles": {
+  "start": 420,
+  "end": 587,
+  "peak": 655
+ },
+ "segments_30min": [
+  {
+   "start_mb": 202.5,
+   "end_mb": 368.0,
+   "peak_mb": 391.4,
+   "p95_mb": 366.4,
+   "slope_mb_per_h": 168.1,
+   "window": "0-1800s"
+  },
+  {
+   "start_mb": 369.0,
+   "end_mb": 347.6,
+   "peak_mb": 427.7,
+   "p95_mb": 378.1,
+   "slope_mb_per_h": -32.2,
+   "window": "1800-3600s"
+  },
+  {
+   "start_mb": 347.6,
+   "end_mb": 341.6,
+   "peak_mb": 406.3,
+   "p95_mb": 386.4,
+   "slope_mb_per_h": 16.2,
+   "window": "3600-5400s"
+  },
+  {
+   "start_mb": 392.2,
+   "end_mb": 394.6,
+   "peak_mb": 449.3,
+   "p95_mb": 394.9,
+   "slope_mb_per_h": 66.6,
+   "window": "5400-7200s"
+  },
+  {
+   "start_mb": 394.5,
+   "end_mb": 397.8,
+   "peak_mb": 442.7,
+   "p95_mb": 403.3,
+   "slope_mb_per_h": 7.4,
+   "window": "7200-9000s"
+  },
+  {
+   "start_mb": 266.6,
+   "end_mb": 394.8,
+   "peak_mb": 439.9,
+   "p95_mb": 412.2,
+   "slope_mb_per_h": -6.6,
+   "window": "9000-10800s"
+  },
+  {
+   "start_mb": 395.6,
+   "end_mb": 418.6,
+   "peak_mb": 452.4,
+   "p95_mb": 417.4,
+   "slope_mb_per_h": -16.9,
+   "window": "10800-12600s"
+  },
+  {
+   "start_mb": 417.4,
+   "end_mb": 416.5,
+   "peak_mb": 501.1,
+   "p95_mb": 430.8,
+   "slope_mb_per_h": 14.8,
+   "window": "12600-14400s"
+  }
+ ],
+ "raw_samples_policy": {
+  "note": "逐请求样本（soak_mixed.jsonl，约 220 万行 / 180 MB）不入库 —— 与 30 min 那轮同口径；P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv"
+ },
+ "compare_30min_run": {
+  "note": "同一夹具的 30 min 那轮（results/rerun_soak_summary.json）",
+  "rss_slope_mb_per_h": 219.7,
+  "tps": 183.1,
+  "per_tps_h_mb": 1.2,
+  "same_t_check": {
+   "t_sec": 406,
+   "30min_rss_mb": 329.3,
+   "soak4h_rss_mb": 315.3,
+   "30min_self_swing_mb": 24
+  }
+ }
+}
