@@ -1,0 +1,46 @@
+{
+ "base": "reads_light",
+ "duration_s": 120,
+ "levels": [
+  {
+   "threads": 16,
+   "total": 9023,
+   "tps": 75.6,
+   "p50": 168.0,
+   "p95": 497.0,
+   "p99": 967.0,
+   "errors": 1674,
+   "error_rate_pct": 18.553
+  },
+  {
+   "threads": 48,
+   "total": 8442,
+   "tps": 72.1,
+   "p50": 586.0,
+   "p95": 1269.0,
+   "p99": 1702.0,
+   "errors": 1511,
+   "error_rate_pct": 17.899
+  },
+  {
+   "threads": 96,
+   "total": 11674,
+   "tps": 96.7,
+   "p50": 886.0,
+   "p95": 1681.0,
+   "p99": 2200.0,
+   "errors": 2124,
+   "error_rate_pct": 18.194
+  },
+  {
+   "threads": 192,
+   "total": 12011,
+   "tps": 99.4,
+   "p50": 1679.0,
+   "p95": 3540.0,
+   "p99": 4857.0,
+   "errors": 2185,
+   "error_rate_pct": 18.192
+  }
+ ]
+}

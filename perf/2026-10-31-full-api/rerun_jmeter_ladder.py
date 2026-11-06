@@ -46,6 +46,10 @@ def run_one(base: str, threads: int, duration: int, token: str, port: int) -> di
         jtl.unlink()
     cmd = [
         str(JAVA), f"-Djmeter.home={JMETER_HOME}",
+        # 固定保守堆：JVM 默认 -Xmx 取物理内存的 1/4，本机同时开着多个 java 进程，
+        # 第一次跑 16 并发档时 SUT 被外部终止（日志停在预热完成后、无 traceback），
+        # 16 并发档 err=100%。512m 对本夹具（135 个轻读 sampler）足够，且不再与 SUT 抢内存
+        "-Xmx512m",
         "-jar", str(JMETER_HOME / "bin" / "ApacheJMeter.jar"),
         "-n", "-t", str(jmx),
         f"-Jthreads={threads}", f"-Jramp={max(1, threads // 12)}",

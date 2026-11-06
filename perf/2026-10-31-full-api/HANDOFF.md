@@ -80,7 +80,7 @@
 | ~~**D1 判据在外部负载下自抖**~~ ✅ **2026-11-06 已硬化** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 已把 hold 抬到 **150/300 ms**，并加一条**相对**判据（`cheap["finished_at"] < slow["finished_at"]`，不依赖绝对耗时）；改完重跑 `d1_mutation_run.py`：**12 腿全红 + 负对照全绿（ALL LEGS OK）**，`test_slow_lane.py` 15 例 6.8 s 通过 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
 | **系统级 I/O / 带宽水位** | 本轮只采 SUT 进程侧 RSS/私有内存/CPU/句柄 | 外置压测机 + `typeperf`/`nmon` 补一轮（属「未覆盖」，不是缺陷） |
-| **服务端真实极限吞吐** | 96 并发已近 `python_replay` 客户端上限；**2026-11-06 复核：本机有 JMeter 5.6.3（不在 PATH）**，原生 jmx 已派生且鉴权打通（401 归零），缺的只是实跑 | `rerun_jmx_for_jmeter.py` 派生 + `java -jar bin\ApacheJMeter.jar -n -t … -Jthreads=N -Jduration=120`，再用 `rerun_jmeter_summary.py` 汇总；分布式压测机仍需第二台机器。当前 P95/P99 一律读作**上界** |
+| ~~**服务端真实极限吞吐**~~ ✅ **2026-11-06 已补测（量级）** | `reads_light` 64 接口、每档 120 s：**16 并发 75.6 TPS（p50 168 / p95 497）→ 48 72.1 → 96 96.7 → 192 99.4 TPS（p95 3 540 / p99 4 857）**。16→192 吞吐仅 **1.31×**、p95 **7.1×** → **拐点 16 并发、天花板约 100 TPS**；四档 18% 错误全是 404/422，**5xx = 0** | `rerun_jmx_for_jmeter.py` 派生（**Host 必须改 127.0.0.1**，否则 IPv6 先试 `::1` 全失败）→ `rerun_jmeter_ladder.py reads_light 16 48 96 192 --duration 120`（已内置 `-Xmx512m`）。**不可与 §8.2 回放引擎直接比**：本轮库是 4 h 后的 12 163 行 tasks、SUT 冷启动、sampler 权重/连接复用不同。仍需：分布式压测机、干净库 + 冷/热两态对照 |
 
 ---
 
@@ -205,6 +205,7 @@ perf/2026-10-31-full-api/
 | **JMeter 的 `HeaderManager` guiclass 写错会静默丢掉整个元素** | 2026-11-06：派生 jmx 里用 `guiclass="HeaderManagerGui"`，JMeter 5.6.3 解析成功、日志零 ERROR，但请求不带 `Authorization` —— 业务全 401（91.2%），`sentBytes` 与无 header 时完全相同（123） | 必须是 `guiclass="HeaderPanel"`（值抄自 `bin/templates/build-adv-web-test-plan.jmx`）。判定手段：起一个本地回显请求头的服务（8012）对照 `sentBytes`/响应体，别只看 JMeter summary 的 Err 计数。修完 401 归零（200×52 / 422×5 / 404×7） |
 | 引擎跑完会定向关停 SUT | 每组配置 `--all` 结束后日志出现「定向关停外部 SUT pid=[…]」，下一组直接连不上 | 这是 `sandbox.lifecycle` 的预期行为；每组之间重启 `run_sut.py` 并确认 `/healthz` 200 |
 | `Start-Process` 起的 SUT 活不过 shell 退出 | healthz 检查通过，但下一条命令就 `无法连接到远程服务器` | 用 `run_in_background` 的 shell 任务跑 `run_sut.py`（前台阻塞），进程才常驻 |
+| **JMeter 连 `localhost` 会先试 IPv6** | 2026-11-06：派生 jmx 里 Host 写 `localhost`，jtl 全是 `HttpHostConnectException: Connect to localhost:8011 [localhost/127.0.0.1, localhost/0:0:0:0:0:0:0:1] failed`，`err=100%` 且 p50 仅 5 ms（快速失败，极易被误读成「服务端拒绝」）。根因：uvicorn 只绑 `127.0.0.1`，而 JMeter 会同时解析出 `::1` 并优先尝试 | 派生 jmx 后把 Host 统一换成 `127.0.0.1`（`reads_light_native.jmx` 共 64 处）；jtl 里出现成对 `127.0.0.1` + `0:0:0:0:0:0:0:1` 就是这个坑 |
 | **E3 之后混合场景里的 `links/live` 会把回放引擎挂死** | 2026-11-06 第一次 soak：13139 样本 / 1800 s = **7.3 TPS**（基线 59.6），几乎所有接口 `max ≈ 1 632 s`（正好等于窗口时长），句柄 423 → 531 | 该端点 E3 后返回 200 + `text/event-stream`、流不结束，而 `python_replay` 引擎不给流式响应设读超时 → sampler 挂到窗口结束；12 线程 × 135 sampler 顺序轮转下 TPS 崩到 1/8，且**挂起连接本身污染 RSS/句柄序列**（那轮 +34.1 MB/h 不可用作泄漏证据）。修法：`rerun_prepare_soak.py` 从原 jmx 派生 `mixed_biz_no_sse.jmx`，只把该 sampler 的 `enabled` 置 false（其余 134 个不动，保住同构性） |
 
 ---
