@@ -104,9 +104,17 @@ def main() -> None:
         "handles": {"start": live[0]["handles"], "end": live[-1]["handles"],
                     "peak": max(r["handles"] for r in live)},
         "segments_30min": segments,
+        "raw_samples_policy": {
+            "note": ("逐请求样本（soak_mixed.jsonl，约 220 万行 / 180 MB）不入库 —— 与 30 min 那轮同口径；"
+                     "P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv"),
+        },
         "compare_30min_run": {
             "note": "同一夹具的 30 min 那轮（results/rerun_soak_summary.json）",
             "rss_slope_mb_per_h": 219.7, "tps": 183.1, "per_tps_h_mb": 1.2,
+            # 同 t 一致性：两轮在 t≈406 s 的 RSS 分别为 329.3（30 min，无探针）与 315.3（4 h，无探针），
+            # 差值 14 MB 落在 30 min 轮自身 ±24 MB 的波动内 —— 这是「两轮可比」的前提证据
+            "same_t_check": {"t_sec": 406, "30min_rss_mb": 329.3, "soak4h_rss_mb": 315.3,
+                             "30min_self_swing_mb": 24},
         },
     }
     shutil.copy2(SRC / "sut_resource_soak.csv", DST / "rerun_soak4h_resource.csv")
