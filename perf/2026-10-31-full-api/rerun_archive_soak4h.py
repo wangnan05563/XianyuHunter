@@ -107,6 +107,9 @@ def main() -> None:
     ap.add_argument("--p95", type=float, required=True)
     ap.add_argument("--p99", type=float, required=True)
     ap.add_argument("--errors", type=int, default=0)
+    # 第二轮及以后必须带后缀：默认名是 REPORT §8.8 已引用的第一轮证据，
+    # 直接覆盖会让「4 h 那轮到底跑出什么」变成不可复算 —— 归档不允许静默改写历史
+    ap.add_argument("--out-suffix", default="", help="如 _r2，产出 rerun_soak4h_r2_*.json/csv")
     args = ap.parse_args()
 
     rows = []
@@ -200,8 +203,9 @@ def main() -> None:
                              "30min_self_swing_mb": 24},
         },
     }
-    shutil.copy2(SRC / "sut_resource_soak.csv", DST / "rerun_soak4h_resource.csv")
-    (DST / "rerun_soak4h_summary.json").write_text(
+    sfx = args.out_suffix
+    shutil.copy2(SRC / "sut_resource_soak.csv", DST / f"rerun_soak4h{sfx}_resource.csv")
+    (DST / f"rerun_soak4h{sfx}_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({k: summary[k] for k in ("engine", "rss", "handles")},
                      ensure_ascii=False, indent=1))

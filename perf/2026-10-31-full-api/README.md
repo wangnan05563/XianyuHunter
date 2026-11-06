@@ -7,6 +7,7 @@ XianyuHunter 全量 `/api/*`（272 端点）系统化性能测试的一次完整
 | `REPORT.md` | **测试报告**（环境口径、覆盖率对账、三组阶梯、长跑分窗、瓶颈定位表 A/B/C、偏差声明） |
 | `OPTIMIZATIONS.md` | **优化建议清单**（20 条，按 数据库/缓存/代码/连接池/部署 分组，每条含具体改动 + 证据 + 量化收益 + 优先级 + 验证方式） |
 | `CONCLUSION.md` | **整体结论**（健康度评估、Top 3、短期路线、对目标约束的回执与未达成项） |
+| `HANDOFF.md` | **交接文档**（已完成条目与提交、剩余工作三档、落地配方与变异验证纪律、仓库与提交纪律、压测复现链路、已知坑、命令速查、未决问题、建议的第一个动作） |
 | `jmx/*.jmx` | 4 份 JMX 脚本（由 `jmeter-config*.yml` 的 `scenarios` 段经 `gen_jmx.py` 生成，零硬编码） |
 | `jmeter-config.yml` / `jmeter-config-v2.yml` | 两轮唯一参数来源；v2 是最终采用口径，把 `soak_mixed.duration_override` 改为 `14400` 即可复跑 4 小时长跑 |
 | `tier-rules.json` / `build_scenarios.py` / `emit_config.py` | 端点分层规则与场景/配置生成（换业务 = 改 JSON，不改引擎代码） |

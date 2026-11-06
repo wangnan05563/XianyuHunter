@@ -1,0 +1,33 @@
+{
+ "options_12t": {
+  "samples": 1963,
+  "codes": [
+   "200"
+  ],
+  "p50_ms": 316.0,
+  "p95_ms": 798.0,
+  "p99_ms": 1127.0,
+  "max_ms": 1545.0,
+  "mean_ms": 363.7
+ },
+ "config_8t": {
+  "samples": 9831,
+  "codes": [
+   "200"
+  ],
+  "p50_ms": 41.0,
+  "p95_ms": 88.0,
+  "p99_ms": 157.0,
+  "max_ms": 773.0,
+  "mean_ms": 48.3
+ },
+ "verdict": "partial",
+ "baseline_cold": {
+  "options_p50_ms": 164.0,
+  "config_p50_ms": 59.2
+ },
+ "ratio": {
+  "options": 1.93,
+  "config": 0.69
+ }
+}
