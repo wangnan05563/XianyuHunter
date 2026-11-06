@@ -122,7 +122,11 @@ def main() -> None:
         json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({k: summary[k] for k in ("engine", "rss", "handles")},
                      ensure_ascii=False, indent=1))
-    print(f"[segments] {len(segments)} 段；归档 rerun_soak4h_resource.csv + rerun_soak4h_summary.json")
+    print(f"[segments] {len(segments)} 段（每 30 min，斜率是该段内最小二乘）：")
+    for seg in segments:
+        print(f"  {seg['window']:>12}  {seg['start_mb']:>6} → {seg['end_mb']:>6} MB   "
+              f"斜率 {seg['slope_mb_per_h']:>+9.1f} MB/h")
+    print(f"[files] rerun_soak4h_resource.csv + rerun_soak4h_summary.json")
 
 
 if __name__ == "__main__":
