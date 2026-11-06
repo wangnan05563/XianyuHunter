@@ -38,6 +38,36 @@ def _pct(sorted_vals, q):
     return sorted_vals[idx]
 
 
+def _by_label_stats(path, top=20):
+    """按 label 聚合 p50/p95/p99/count。
+
+    为什么必须产出这一小段：逐请求样本（本轮 152 万行 / 125.8 MB）按体积政策
+    不入库，归档时若只留整体分位数，「哪些接口随运行时长变慢」就再也复算不了
+    （本轮已踩：4 h 的 TPS/分位数全面劣化，但定不到接口）。每 label 五个数、
+    135 条约 15 KB，成本可以忽略，却能让下次直接做接口级前后对比。
+    """
+    if not path.exists():
+        return {"note": "soak_mixed.jsonl 不存在（可能已随临时目录删除），无法产出接口级聚合"}
+    buckets = {}
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            d = json.loads(line)
+            buckets.setdefault(d["label"], []).append(d["el"])
+    rows = []
+    for lb, els in buckets.items():
+        els.sort()
+        rows.append({
+            "label": lb,
+            "count": len(els),
+            # 必须复用 _pct：手写 int(0.95*(n-1)) 在 n=2 时得 0，会把 p95 报成最小值
+            "p50_ms": round(_pct(els, 50), 2),
+            "p95_ms": round(_pct(els, 95), 2),
+            "p99_ms": round(_pct(els, 99), 2),
+        })
+    rows.sort(key=lambda r: r["p95_ms"], reverse=True)
+    return {"total_labels": len(rows), "slowest": rows[:top], "all": rows}
+
+
 def _window_stats(points, start, end):
     """窗口内的首末 / 斜率 / 峰值 / P95"""
     seg = [p for p in points if start <= p[0] < end]
@@ -155,6 +185,7 @@ def main() -> None:
         "handles": {"start": live[0]["handles"], "end": live[-1]["handles"],
                     "peak": max(r["handles"] for r in live)},
         "segments_30min": segments,
+        "by_label": _by_label_stats(SRC / "soak_mixed.jsonl"),
         "raw_samples_policy": {
             "note": ("逐请求样本（soak_mixed.jsonl，约 220 万行 / 180 MB）不入库 —— 与 30 min 那轮同口径；"
                      "P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv"),
