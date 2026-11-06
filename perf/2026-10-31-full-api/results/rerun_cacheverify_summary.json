@@ -1,0 +1,70 @@
+{
+ "note": "category-comparison 挂 60 s 缓存后的重读并发档（2 阶段，60 s 各）",
+ "wall_sec": {
+  "stress_heavy_t16": 60.5,
+  "stress_heavy_t64": 60.3
+ },
+ "endpoint": "GET /api/prices/category-comparison",
+ "before": {
+  "stress_heavy_t16": {
+   "avg": 2433.7,
+   "p99": 3299.2,
+   "n": 233
+  },
+  "stress_heavy_t64": {
+   "avg": 3436.4,
+   "p99": 5268.7,
+   "n": 236
+  }
+ },
+ "after": {
+  "stress_heavy_t16": {
+   "avg": 103.2,
+   "p50": 92.3,
+   "p95": 211.1,
+   "p99": 325.3,
+   "max": 479.7
+  },
+  "stress_heavy_t64": {
+   "avg": 372.4,
+   "p50": 351.6,
+   "p95": 654.7,
+   "p99": 712.4,
+   "max": 721.3
+  }
+ },
+ "overall": {
+  "stress_heavy_t16": {
+   "n": 10651,
+   "avg": 89.3,
+   "p50": 79.5,
+   "p95": 166.2,
+   "p99": 251.1,
+   "max": 603.9
+  },
+  "stress_heavy_t64": {
+   "n": 11058,
+   "avg": 345.0,
+   "p50": 322.5,
+   "p95": 585.8,
+   "p99": 720.8,
+   "max": 947.5
+  }
+ },
+ "before_overall": {
+  "stress_heavy_t16": {
+   "n": 10136,
+   "avg": 94.1,
+   "p50": 33.9,
+   "p95": 121.1,
+   "p99": 2637.4
+  },
+  "stress_heavy_t64": {
+   "n": 10147,
+   "avg": 375.9,
+   "p50": 295.5,
+   "p95": 620.5,
+   "p99": 3640.1
+  }
+ }
+}
