@@ -1,6 +1,6 @@
 # XianyuHunter 全量 API 性能测试报告（2026-10-31）
 
-> 执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（本机无 Java/JMeter，技能自动回退等价回放引擎）
+> 执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（**2026-11-06 复核纠正**：本机其实有 Java 25.0.1 与 JMeter 5.6.3，只是 JMeter 不在 PATH —— 见 HANDOFF §7/§8；本文全部数字仍是回放引擎口径，原生压测尚未补跑）
 > 完整阶梯、原始样本、聚合数据、JMX 与配置均留存在本目录，见「可追溯性」
 
 ## 1. 被测环境与口径

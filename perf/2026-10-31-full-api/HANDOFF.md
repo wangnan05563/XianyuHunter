@@ -36,7 +36,7 @@
 | B4 缓存容量上限 | `63c2bee2` | 复用 `infra/lru.LRUDict` + `cache_max_entries=2000`，`create_app()` 装配期套用；**RSS 归因被推翻**（全量 GET 扫 106 个 label 只留 7 条 / 23 620 B） |
 | D4 真流式导出 | `a6f05d48` | 3 处导出改按块产出 / 游标取数：5 万行 items 峰值 38.27→2.52 MB、40 MB 日志 190.48→9.29 MB、18 403 行 events 导出 2 433→285 ms；**原文「db-admin 也是全内存拼接」被推翻**（它本来就流式，慢在逐行 yield × 线程池往返） |
 | D3 写侧批量 | `550e299b` | `recompute` 的 payload 改单事务批量写：500 条 **137.5 → 25.4 ms（5.41×）**、UPDATE 500 → 1 条；**写组 TPS 判据不成立**（61.6% 样本是夹具 4xx、真写单发全 <30 ms 且每请求 1 条），UPSERT 分支 / `busy_timeout` 调小 / 扩池判定不落 |
-| E1 多 worker（护栏） | `6e1930a1` | `--workers > 1` 与 `--with-scheduler` 改为互斥、直接 `Exit(2)`（此前会各起一套浏览器/调度器）；默认 worker 数与「80 → ≥150 rps」判定不落（缓存按 worker 分裂、本机无原生 JMeter） |
+| E1 多 worker（护栏） | `6e1930a1` | `--workers > 1` 与 `--with-scheduler` 改为互斥、直接 `Exit(2)`（此前会各起一套浏览器/调度器）；默认 worker 数与「80 → ≥150 rps」判定不落（缓存按 worker 分裂；~~本机无原生 JMeter~~ **2026-11-06 纠正：JMeter 5.6.3 在 `D:\code\Jmeter\`，只是不在 PATH，缺的是复跑不是工具**） |
 | E2 SSE 告警 | `6e1930a1` | 连接超限时补 WARNING（此前服务端完全无记录）；`/api/metrics` 新端点、单独进程、塞进 `CapacityLimiter` 三条判定不落 |
 | C3 残余 模板文件 memo | cb6cd5a8 | 指纹 memo + 写盘配对作废；进程内处理器 2.23 → 0.53~0.58 ms，deepcopy 方案被实测否掉（1.14 ms ≈ 重新 `json.load`）→ 返回浅拷贝；详见 OPTIMIZATIONS §C3 |
 | A2′ 品牌归一化 | `88e614c0` | 正则预编译 + 别名表压缩结果预计算；`_compact_text` 73 251 → 2 367 次、`_enrich_eval_record` 706.9 → 256.3 ms；**请求内 memo 被实测推翻**（377 条只有 363 个唯一 title，memo 版慢 15%） |
@@ -80,7 +80,7 @@
 | ~~**D1 判据在外部负载下自抖**~~ ✅ **2026-11-06 已硬化** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 已把 hold 抬到 **150/300 ms**，并加一条**相对**判据（`cheap["finished_at"] < slow["finished_at"]`，不依赖绝对耗时）；改完重跑 `d1_mutation_run.py`：**12 腿全红 + 负对照全绿（ALL LEGS OK）**，`test_slow_lane.py` 15 例 6.8 s 通过 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
 | **系统级 I/O / 带宽水位** | 本轮只采 SUT 进程侧 RSS/私有内存/CPU/句柄 | 外置压测机 + `typeperf`/`nmon` 补一轮（属「未覆盖」，不是缺陷） |
-| **服务端真实极限吞吐** | 96 并发已近 `python_replay` 客户端上限 | 原生 JMeter 或分布式压测机；当前 P95/P99 一律读作**上界** |
+| **服务端真实极限吞吐** | 96 并发已近 `python_replay` 客户端上限；**2026-11-06 复核：本机有 JMeter 5.6.3（不在 PATH）**，原生 jmx 已派生且鉴权打通（401 归零），缺的只是实跑 | `rerun_jmx_for_jmeter.py` 派生 + `java -jar bin\ApacheJMeter.jar -n -t … -Jthreads=N -Jduration=120`，再用 `rerun_jmeter_summary.py` 汇总；分布式压测机仍需第二台机器。当前 P95/P99 一律读作**上界** |
 
 ---
 
@@ -176,7 +176,7 @@ perf/2026-10-31-full-api/
   aggregate.py            读 results/*.jsonl(.gz) + sut_resource.csv → 接口级基线/拐点/长跑退化表（就地可复算）
 ```
 
-- 回放引擎在**技能目录**，不在仓库：`C:\Users\hspcadmin\.qoder-cn\skills\jmeter-performance-test\scripts\python_replay_engine.py`（本机无 JMeter 时的等价回放；有 Java 时优先原生 JMeter 跑 `jmx/*.jmx`）。
+- 回放引擎在**技能目录**，不在仓库：`C:\Users\hspcadmin\.qoder-cn\skills\jmeter-performance-test\scripts\python_replay_engine.py`（与基线同构的复跑用它）。**原生 JMeter 在本机可用**：`D:\code\Jmeter\apache-jmeter-5.6.3`（不在 PATH），用 `java -jar bin\ApacheJMeter.jar`（`jmeter.bat` 结尾会 `pause`，别用）；先跑 `rerun_jmx_for_jmeter.py` 派生带鉴权的 jmx。
 - `D:\tmp\xh-perf` 是**临时工作区，跑完应删除**：沙箱里有 `.env` 的完整副本（含明文 token）。若中途崩溃留下目录，删掉并按需轮换 token。
 - 沙箱探针**不要用固定目录名无锁并发跑**：D1 的 `d1_lane_arms_c.json` 整轮 `server not ready` 就是两个探针互相 `rmtree` 同一目录的事故现场；临时目录带 PID 后缀。
 - `aggregate.py` 支持 `XH_PERF_DIR` 指向临时工作区；仓库内归档是 gzip，两处都能就地复算。
@@ -202,6 +202,7 @@ perf/2026-10-31-full-api/
 | 回放引擎没有资源采样实现 | 配置里写了 `resource_monitor`（含 `output_csv`），跑完却没有 `sut_resource.csv` | 当前技能版 `python_replay_engine.py` 源码里搜不到该配置键的处理 —— 是工具能力缺失，不是配置写错。内存判据改用进程内 `rerun_sample_resource.py`（psutil 每 5 s 一条）或 `rerun_run_sut_heap.py`（堆口径） |
 | **`tracemalloc` 在本应用上会让服务起不来** | 2026-11-06 两次实测：`start(25)` → 6 分钟不监听 8011、WS 966 MB；`start(10)` + 延迟 90 s 再开 → t=207 s 时 traced 只 76 MB 而进程 WS 已 1 034 MB、8011 仍未监听 | 帧追踪把 import 阶段的每次分配都按帧回溯，启动路径从秒级变成分钟级。**不要再试**；判「Python 堆在不在涨」用 `sys.getallocatedblocks()` + `gc.get_objects()` 按类型分组（`rerun_run_sut_heap.py`，O(1)/O(存活对象)、不碰分配快路径），判页缓存用 `cache_size` 单变量对照（A/B 两组同夹具各跑 5 min，`rerun_analyze_heap.py` 汇总） |
 | **`gc` 探针本身会抬高 RSS 斜率** | 2026-11-06：带探针的 A 组与**无探针**的 30 min 轮同 t 比高出 **+31 / +124 / +221 MB**（t=180/240/300），差值随时间增长 —— 探针污染的是斜率不是基线 | 每 60 s 的 `gc.get_objects()` 要临时分配「40 万引用」的 list，反复冲击 pymalloc arena。**测 RSS 斜率时不能用它**；它只配同一次测量内的 Python 堆对比。4 h 长跑用 `run_sut.py`（无探针）+ `rerun_sample_resource.py`，归档用 `rerun_archive_soak4h.py` |
+| **JMeter 的 `HeaderManager` guiclass 写错会静默丢掉整个元素** | 2026-11-06：派生 jmx 里用 `guiclass="HeaderManagerGui"`，JMeter 5.6.3 解析成功、日志零 ERROR，但请求不带 `Authorization` —— 业务全 401（91.2%），`sentBytes` 与无 header 时完全相同（123） | 必须是 `guiclass="HeaderPanel"`（值抄自 `bin/templates/build-adv-web-test-plan.jmx`）。判定手段：起一个本地回显请求头的服务（8012）对照 `sentBytes`/响应体，别只看 JMeter summary 的 Err 计数。修完 401 归零（200×52 / 422×5 / 404×7） |
 | 引擎跑完会定向关停 SUT | 每组配置 `--all` 结束后日志出现「定向关停外部 SUT pid=[…]」，下一组直接连不上 | 这是 `sandbox.lifecycle` 的预期行为；每组之间重启 `run_sut.py` 并确认 `/healthz` 200 |
 | `Start-Process` 起的 SUT 活不过 shell 退出 | healthz 检查通过，但下一条命令就 `无法连接到远程服务器` | 用 `run_in_background` 的 shell 任务跑 `run_sut.py`（前台阻塞），进程才常驻 |
 | **E3 之后混合场景里的 `links/live` 会把回放引擎挂死** | 2026-11-06 第一次 soak：13139 样本 / 1800 s = **7.3 TPS**（基线 59.6），几乎所有接口 `max ≈ 1 632 s`（正好等于窗口时长），句柄 423 → 531 | 该端点 E3 后返回 200 + `text/event-stream`、流不结束，而 `python_replay` 引擎不给流式响应设读超时 → sampler 挂到窗口结束；12 线程 × 135 sampler 顺序轮转下 TPS 崩到 1/8，且**挂起连接本身污染 RSS/句柄序列**（那轮 +34.1 MB/h 不可用作泄漏证据）。修法：`rerun_prepare_soak.py` 从原 jmx 派生 `mixed_biz_no_sse.jmx`，只把该 sampler 的 `enabled` 置 false（其余 134 个不动，保住同构性） |
@@ -220,6 +221,21 @@ perf/2026-10-31-full-api/
 6. `XH_PERF_DIR=D:\tmp\xh-perf` + `aggregate.py` → `compare_rerun.py` → `archive_rerun.py`（归档成 `results/rerun_*`，不覆盖基线）
 
 脚本本体：`rerun_run_sut.py` / `rerun_prepare_light_write.py` / `rerun_prepare_heavy.py` / `rerun_prep_aggregate.py` / `rerun_merge_cfg.py` / `rerun_compare.py` / `rerun_archive.py`（都在本目录；与 `setup_sandbox.py` 一样写死 `D:\tmp\xh-perf`）。踩过的坑见 §7 最后四行。
+
+**原生 JMeter 测极限吞吐（2026-11-06 验证可用，Java 25.0.1 + JMeter 5.6.3）：**
+
+```powershell
+$jh='D:\code\Jmeter\apache-jmeter-5.6.3'
+$tok=(Get-Content D:\tmp\xh-perf\token.txt -Raw).Trim()
+python perf/2026-10-31-full-api/rerun_jmx_for_jmeter.py     # 派生带鉴权的 jmx
+& 'D:\code\Java\jdk-25.0.1\bin\java.exe' "-Djmeter.home=$jh" -jar "$jh\bin\ApacheJMeter.jar" `
+  -n -t D:\tmp\xh-perf\jmx_native\reads_light_native.jmx `
+  -Jthreads=96 -Jramp=10 -Jduration=120 -Jport=8011 "-Jtoken=$tok" `
+  -l D:\tmp\xh-perf\output\jmeter_light_t96.jtl
+python perf/2026-10-31-full-api/rerun_jmeter_summary.py D:\tmp\xh-perf\output\jmeter_light_t96.jtl
+```
+
+不要用 `jmeter.bat`（结尾 `pause` 会在非交互里挂住）；`-Djmeter.save.saveservice.*` 在 5.6.3 上不生效（jtl 仍是 CSV），要改 jtl 格式只能改 `jmeter.properties`。
 
 ```bash
 # 单文件/子集

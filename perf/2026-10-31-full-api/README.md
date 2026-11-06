@@ -16,7 +16,7 @@ XianyuHunter 全量 `/api/*`（272 端点）系统化性能测试的一次完整
 | `swr_probe.py` | B5 取证探针：证明 `stale_while_revalidate` 的刷新实际发生在请求线程里（异步分支静默失效）。只读、不落库、不发请求 |
 | `results/` | 10 个阶段的逐请求原始样本（`.jsonl.gz`）、聚合 JSON、阶梯/接口/长跑表、SUT 资源采样 CSV、单发探针、`engine_v2.log`（各阶段实测墙钟，聚合吞吐的分母来源） |
 
-执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（本机无 Java/JMeter，自动回退等价回放引擎）；被测实例为隔离沙箱（端口 8011 + SQLite backup 副本库 + 调度器关闭），生产数据未被触碰。
+执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（**2026-11-06 复核纠正**：本机有 Java 25.0.1 与 JMeter 5.6.3，只是 JMeter 不在 PATH；本轮仍为回放引擎口径，原生压测待补）；被测实例为隔离沙箱（端口 8011 + SQLite backup 副本库 + 调度器关闭），生产数据未被触碰。
 
 安全说明：配置里只留 `token_file` / `token_env` 的**引用路径**，令牌明文存在于临时目录并已随目录删除；复跑前需重新注入（环境变量 `WEB_TOKEN` 或指向你自己的 token 文件）。
 

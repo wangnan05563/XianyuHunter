@@ -23,8 +23,11 @@ SOURCES = ("reads_light.jmx", "reads_heavy.jmx", "writes_idem.jmx", "mixed_biz_n
 
 
 def _new_header_manager() -> ET.Element:
+    # guiclass 必须是 "HeaderPanel"：写成 "HeaderManagerGui" 时 JMeter 5.6.3 的
+    # XStream 反序列化会**静默丢弃整个元素**（日志里没有 ERROR，只能靠 sentBytes
+    # 没变长才发现）—— 值取自 bin/templates/build-adv-web-test-plan.jmx。
     hm = ET.Element("HeaderManager", {
-        "guiclass": "HeaderManagerGui", "testclass": "HeaderManager",
+        "guiclass": "HeaderPanel", "testclass": "HeaderManager",
         "testname": "Auth Header", "enabled": "true",
     })
     col = ET.SubElement(hm, "collectionProp", {"name": "HeaderManager.headers"})
