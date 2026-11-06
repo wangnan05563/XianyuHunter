@@ -9,13 +9,21 @@
 （B 组的采样在第一点就已是 threads=32，A 组要到第二点才涨到 30），所以判据取
 「稳定段（t≥180）的 RSS 斜率」，并用各自引擎报告的 TPS 归一化。
 
-输入读仓库内归档（`results/rerun_heap_*.jsonl`），不依赖 `D:/tmp/xh-perf`，
-这样结论可就地复算。
+**两组都带探针，绝对斜率不可用**（2026-11-06 实测）：与**无探针**的 30 min 轮
+同 t 对比，A 组高出 `+31 / +124 / +221 MB`（t=180/240/300），差值随时间增长 ——
+每 60 s 一次的 `gc.get_objects()` 要临时分配 40 万引用的 list，反复冲击 pymalloc
+arena，把 RSS 斜率额外抬高了一个量级。因此本脚本只支持**相对**比较（B 组是否比
+A 组小），不给倍数；干净斜率由无探针的 4 h 长跑（`rerun_soak_trend.py`）给出。
 """
 import json
 from pathlib import Path
 
 RES = Path(__file__).resolve().parent / "results"
+CLEAN_BASELINE = {          # 无探针的 30 min 轮（results/rerun_soak_resource_r1.csv）同 t 实测
+    "t180_mb": 284.5,
+    "t255_mb": 289.1,
+    "t300_mb": 296.2,
+}
 GROUPS = {
     "A_cache_20mb": {
         "heap": RES / "rerun_heap_A_cs20000.jsonl",
@@ -53,6 +61,7 @@ def main() -> None:
             "samples": len(rows),
             "tps": round(tps, 1),
             "rss_first": {"t": first["t"], "mb": first["rss_mb"]},
+            "rss_first_stable": {"t": stable[0][0], "mb": stable[0][1]},
             "rss_last": {"t": last["t"], "mb": last["rss_mb"]},
             "rss_delta_all_mb": round(last["rss_mb"] - first["rss_mb"], 1),
             "rss_slope_stable_mb_per_h": round(_slope(stable), 1),
@@ -64,6 +73,16 @@ def main() -> None:
             "engine": {k: v for k, v in cfg["engine"].items() if k != "wall_sec"},
         }
     a, b = summary["A_cache_20mb"], summary["B_cache_2mb"]
+    summary["_caveat"] = {
+        "note": ("两组的 RSS 都被 gc 探针抬高，绝对值与斜率不可与无探针轮对比；"
+                 "只保留 B/A 的相对结论，且不给倍数"),
+        "clean_baseline_30min_mb": CLEAN_BASELINE,
+        "probe_overhead_vs_clean_mb": {
+            "t180": round(a["rss_first_stable"]["mb"] - CLEAN_BASELINE["t180_mb"], 1),
+            "note": "只作量级示意：差值随时间增长，说明探针抬高的是斜率而非固定基线",
+        },
+        "clean_slope_source": "rerun_soak_trend.py（无探针的 4 h 长跑）",
+    }
     summary["_ratio"] = {
         "note": "B/A，<1 表示小页缓存下增量更小",
         "rss_slope_stable": round(b["rss_slope_stable_mb_per_h"] / a["rss_slope_stable_mb_per_h"], 2),
