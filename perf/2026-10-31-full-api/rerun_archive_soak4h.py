@@ -68,6 +68,46 @@ def _by_label_stats(path, top=20):
     return {"total_labels": len(rows), "slowest": rows[:top], "all": rows}
 
 
+def _by_label_windows(path, windows=4, min_count=50):
+    """按样本**行序**分 N 段，每段给各 label 的 p50/p95。
+
+    为什么按行序而不是按时间：引擎产出的 jsonl 每行只有 `{label, code, ok, el}`，
+    **没有时间戳** —— 本轮 4 h 与两次 30 min 都因此做不了「首段 vs 末段」，
+    只能给整体分位数，于是「某接口是否随时间变慢」永远答不了。行序即时间序，
+    用它至少能把「首段快、末段慢」定性出来（本轮遗留的
+    「category-comparison 从 <66.8 涨到 309 是否由 RSS 上行导致」就卡在这里）。
+    """
+    path = Path(path)  # 调用方可能传 str（自测就踩过），统一成 Path
+    if not path.exists():
+        return {"note": "soak_mixed.jsonl 不存在，无法分窗"}
+    total = 0
+    with path.open(encoding="utf-8") as f:
+        for _ in f:
+            total += 1
+    if total == 0:
+        return {"note": "空文件"}
+    buckets = [{} for _ in range(windows)]
+    with path.open(encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            w = min(windows - 1, i * windows // total)
+            d = json.loads(line)
+            buckets[w].setdefault(d["label"], []).append(d["el"])
+    out = []
+    for w, b in enumerate(buckets):
+        rows = []
+        for lb, els in b.items():
+            if len(els) < min_count:
+                continue
+            els.sort()
+            rows.append({"label": lb, "count": len(els),
+                         "p50_ms": round(_pct(els, 50), 2),
+                         "p95_ms": round(_pct(els, 95), 2)})
+        rows.sort(key=lambda r: r["p95_ms"], reverse=True)
+        out.append({"window": w + 1, "slowest": rows[:10]})
+    return {"note": "按行序等分，行序≈时间序；每段只列 p95 最高的 10 条",
+            "windows": windows, "total_lines": total, "by_window": out}
+
+
 def _window_stats(points, start, end):
     """窗口内的首末 / 斜率 / 峰值 / P95"""
     seg = [p for p in points if start <= p[0] < end]
@@ -189,6 +229,9 @@ def main() -> None:
                     "peak": max(r["handles"] for r in live)},
         "segments_30min": segments,
         "by_label": _by_label_stats(SRC / "soak_mixed.jsonl"),
+        # 分窗必须和整体聚合一起产出：只给整体分位数时，「首段快末段慢」与
+        # 「全程恒定」在数据上不可区分 —— 本轮 4 h 就卡在这一步
+        "by_label_windows": _by_label_windows(SRC / "soak_mixed.jsonl"),
         "raw_samples_policy": {
             "note": ("逐请求样本（soak_mixed.jsonl，本轮实测 152.4 万行 / 125.8 MB）不入库 —— 与 30 min 那轮同口径；"
                      "P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv；"

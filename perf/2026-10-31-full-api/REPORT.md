@@ -568,4 +568,8 @@
 
 **一处旁证但要谨慎读**：19 019 行库上直连 SQL 是 **5.39 ms**，而 12 039 行时是 **2.24 ms**；单发总墙钟却仍是 8~11 ms。这说明「CPU 时间在 SQL 里的占比」可能上升了（并发下更吃 GIL），但那两次 SQL 计时不在同一缓存状态下（后者在重启后首次），**只能作方向，不能定量**。
 
+**遗留假设（本轮无法验证，但取证能力已补上）**：`category-comparison` 从 <66.8 涨到 309.22，而 `items` 恒 **774 行**、`price_history` 为 **0**、夹具参数固定（`sort_by=mean / order=asc / limit=20 / range_days=30`，缓存 key 唯一）—— 所以**不能归给数据增长、也不能归给缓存 key 分散**。最可能的剩余解释是「4 h 末尾的进程内压力（RSS 466 MB、句柄 657）抬高 GC 成本，拖慢 CPU-bound 重接口」。**本轮验证不了**：引擎产出的 jsonl 每行只有 `{label, code, ok, el}`，**没有时间戳**，做不了「首段 vs 末段」。
+
+**已补的取证能力**：`rerun_archive_soak4h.py` 新增 `_by_label_windows()` —— 按**行序**等分 4 段（行序即时间序），每段给 p95 最高的 10 条 label。已用构造样本验证：前两段 10 ms、后两段 100 ms 的合成数据能被正确分成 `10 / 10 / 100 / 100`。下次长跑的归档 JSON 会直接带 `by_label_windows.by_window`，不必再重跑。这是本线第二次栽在同一缺口（第一次是 152 万行样本未入库导致无法做接口级对比），所以这次把能力固化进了归档脚本而不是只写进文档。
+
 **样本与方法**：`results/rerun_sysio_30min.csv`（系统级 376 采样）、`results/rerun_sysio_30min_resource.csv`（进程级 362 采样）、`results/rerun_sysio_30min_summary.json`（汇总，含与 §8.7 的逐项对照）。复现：`python rerun_sample_sysio.py 1900` + `python rerun_prepare_soak.py 1800` + 引擎 `--config jmeter-config-soak.yml --all`。
