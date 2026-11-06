@@ -1,0 +1,53 @@
+{
+ "note": "单接口对照：12 k tasks 下 /api/tasks/options 的 12 并发（独立 JVM 客户端），用于分离「Python 回放引擎客户端效应」与「服务端状态」。",
+ "config": {
+  "jmx": "jmeter/tasks_options_12.jmx",
+  "threads": 12,
+  "ramp_s": 1,
+  "duration_s": 60,
+  "target": "/api/tasks/options",
+  "sut": "沙箱 8011，tasks 灌到 12000 行"
+ },
+ "result": {
+  "samples": 3624,
+  "codes": [
+   "200"
+  ],
+  "error_rate_pct": 0.0,
+  "tps": 60.4,
+  "mean_ms": 197.0,
+  "p50_ms": 164.0,
+  "p90_ms": 341.0,
+  "p95_ms": 403.0,
+  "p99_ms": 546.0,
+  "max_ms": 891.0
+ },
+ "compare": {
+  "AB_probe_python_8threads": {
+   "p50_ms": 114.8,
+   "p95_ms": 255.5,
+   "note": "同机 Python 探针，客户端与服务端共用 GIL"
+  },
+  "jmeter_12threads": {
+   "p50_ms": 164.0,
+   "p95_ms": 403.0
+  },
+  "soak4h_engine_12threads": {
+   "p50_ms": 554.4,
+   "p95_ms": 1147.8,
+   "note": "4 h 长跑中的同接口读数（回放引擎，库 12 163 行）"
+  }
+ },
+ "findings": [
+  "JMeter（独立 JVM）12 并发下 p50 = 164 ms，仅为 4 h 轮 554 ms 的约 30%。",
+  "因此「Python 客户端 GIL 争用」不足以解释 554 ms：换成独立 JVM 客户端后仍然只有 164 ms。",
+  "「12 并发 + 12 k 行」本身也不足以解释：同样条件下 p95 = 403 ms，而 4 h 轮已达 1148 ms。",
+  "三条解释已被逐一排除（数据量、跨接口池传染、Python 客户端），剩下的只能是 4 h 运行期累积的服务端状态或当时的系统状态。",
+  "唯一能分离这两者的实验：在 4 h 跑完的同一个 SUT 上，立刻用 JMeter 复测该接口 —— 若仍慢则是服务端运行期累积，若恢复则是引擎/系统侧。本轮环境已删，未做。"
+ ],
+ "limitations": [
+  "JMeter 与 SUT 仍同机（会抬高绝对值，但方向可比）。",
+  "本轮是冷启动 SUT、无 4 h 运行史，不能替代「跑完 4 h 再测」。",
+  "只测了 1 个接口（4 h 轮最慢的那个），未覆盖其它变慢接口。"
+ ]
+}
