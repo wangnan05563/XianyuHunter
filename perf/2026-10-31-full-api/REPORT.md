@@ -572,4 +572,6 @@
 
 **已补的取证能力**：`rerun_archive_soak4h.py` 新增 `_by_label_windows()` —— 按**行序**等分 4 段（行序即时间序），每段给 p95 最高的 10 条 label。已用构造样本验证：前两段 10 ms、后两段 100 ms 的合成数据能被正确分成 `10 / 10 / 100 / 100`。下次长跑的归档 JSON 会直接带 `by_label_windows.by_window`，不必再重跑。这是本线第二次栽在同一缺口（第一次是 152 万行样本未入库导致无法做接口级对比），所以这次把能力固化进了归档脚本而不是只写进文档。
 
+**顺手用它复核了 §8.7 的 30 min 真实样本**（`results/soak_mixed.jsonl.gz`，107 324 行，按行序 6 等分 ≈ 每 5 min）：`tasks/options` 的 p50 在可读段为 **309.31 / 269.68 / 335.53**（w3–w5 未进各段 p95 前 10），**没有单调上升趋势**。所以退化**不是「30 min 内就已开始的短周期效应」**；4 h 的 562.93 与 30 min 的 308.45 之间的差，更可能与两轮结束时的库规模不同（30 min 轮远小于 4 h 轮的 19 019 行 `tasks`）所带来的**并发争用强度差异**有关，而不是某个接口自身随时间长出状态。
+
 **样本与方法**：`results/rerun_sysio_30min.csv`（系统级 376 采样）、`results/rerun_sysio_30min_resource.csv`（进程级 362 采样）、`results/rerun_sysio_30min_summary.json`（汇总，含与 §8.7 的逐项对照）。复现：`python rerun_sample_sysio.py 1900` + `python rerun_prepare_soak.py 1800` + 引擎 `--config jmeter-config-soak.yml --all`。
