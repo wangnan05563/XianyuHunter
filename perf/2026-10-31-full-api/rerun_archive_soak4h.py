@@ -187,8 +187,9 @@ def main() -> None:
         "segments_30min": segments,
         "by_label": _by_label_stats(SRC / "soak_mixed.jsonl"),
         "raw_samples_policy": {
-            "note": ("逐请求样本（soak_mixed.jsonl，约 220 万行 / 180 MB）不入库 —— 与 30 min 那轮同口径；"
-                     "P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv"),
+            "note": ("逐请求样本（soak_mixed.jsonl，本轮实测 152.4 万行 / 125.8 MB）不入库 —— 与 30 min 那轮同口径；"
+                     "P50/P95/P99/TPS 已由引擎汇总进 engine 段，资源序列归档为 rerun_soak4h_resource.csv；"
+                     "接口级聚合见 by_label 段（jsonl 尚存时自动产出）"),
         },
         "compare_30min_run": {
             "note": "同一夹具的 30 min 那轮（results/rerun_soak_summary.json）",
