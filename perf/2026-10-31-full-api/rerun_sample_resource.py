@@ -2,9 +2,12 @@
 
 为什么自己写：当前技能版回放引擎没有 `resource_monitor` 的实现（HANDOFF §7），
 跑 soak 时拿不到内存序列；基线那 30 min 的 +75.9 MB/h 就是这样采出来的。
+
+时长从命令行读（默认 1860 s，稍长于 30 min 负载）；4 h 跑用 `14520`。
 """
 import csv
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -12,7 +15,7 @@ import psutil
 
 PID_FILE = Path(r"D:\tmp\xh-perf\sut.pid")
 OUT = Path(r"D:\tmp\xh-perf\output\sut_resource_soak.csv")
-DURATION = 1860          # 稍长于 1800 s 负载，覆盖到关停前后
+DURATION = int(sys.argv[1]) if len(sys.argv) > 1 else 1860
 INTERVAL = 5
 
 
