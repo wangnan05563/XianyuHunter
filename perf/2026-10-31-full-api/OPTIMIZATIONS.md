@@ -451,6 +451,12 @@ python -m xianyu_hunter web --port 8011 --no-with-scheduler --workers 2
 
 **这改变了本条的定性**：E1 不是「缓存会分裂所以暂不默认」，而是**实现层面待修**。修复方向明确 —— 改成 `uvicorn.run("xianyu_hunter.web.app:app", workers=N)`；但必须连带验证三件事：① **Windows** 上 uvicorn 多 worker 是否可用（`multiprocessing` spawn 行为）；② 进程内 TTL 缓存按 worker 分裂后的命中率；③ SQLite 多进程写竞争（WAL 单写者 + `busy_timeout=10s`）。**这三项都未验证，本轮不改代码**；在此之前，内部文档里 `--workers > 1` 应标注为「未实现」而不是「已支持」。
 
+**2026-11-07 补充：Windows 上多 worker 拿不到收益 —— 这才是「不落」的硬理由**
+
+用一个最小 FastAPI 应用（不碰产品代码）在 Windows 上验证：`uvicorn.run("wtest:app", workers=2)`（**已经用 import string**）下，`python.exe` 进程只有 **2 个**（1 主管 + 1 worker，按 workers=2 应有 3 个），连打 8 次 `/ping` 只命中 **1 个 pid**。也就是说，即使把 `__main__.py` 的 app 改成 import string，**Windows 开发机上也拿不到多 worker 的吞吐增益**。
+
+**所以 E1 的正确定性是**：它不是「本机可做的优化」，而是**部署形态建议** —— 生产若跑 Linux/容器，`uvicorn --workers N` 是标准用法且有收益；但在当前 Windows 开发/单机场景，改代码只能修掉「`--workers > 1` 静默退出」这个体验 bug，换不来吞吐。**因此本项判定不落（含那段修复）**：修复的唯一价值是让用户看到明确报错而不是服务起不来，优先级低于本清单其他项；若将来要改，最小形态是在现有护栏里补一条「Windows 不支持多 worker」的显式提示（3 行左右），不动 `uvicorn.run` 的调用方式。
+
 **E1 落地状态（2026-11-06）：只落运维护栏；默认 worker 数不动，吞吐判据不发布**
 
 - 落地：`__main__.web` 的注释一直写着「多 worker + 调度器会让每个 worker 各起一套浏览器/调度器」，但代码不拦 —— 用户执行 `--workers 4`（默认 `--with-scheduler`）会起 4 个 Chromium + 4 份轮询。现加互斥校验：`workers > 1` 且 `with_scheduler` 时直接 `Exit(2)` 并提示改用 `--no-with-scheduler`；**不静默降级**（静默降级会让用户以为多 worker 生效，实际仍是单进程）。回归 `tests/test_web_workers_guard.py` 3 例（默认拒绝且不启动 uvicorn、`--no-with-scheduler` 放行并原样透传 workers、`--reload` 仍强制降为 1）。
