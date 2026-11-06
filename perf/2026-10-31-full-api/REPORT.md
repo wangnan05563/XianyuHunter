@@ -350,4 +350,4 @@
 4. 线程数随负载 11 → 41（anyio 40 令牌全开），线程栈也是 RSS 的一部分，但它随并发到顶即止，不解释 30 min 的持续爬升。
 5. **两组 `blocks`/`objs` 增量比例（0.477 / 0.516）都低于 TPS 比例（0.754）**，但绝对量都在 10 MB 量级 —— 在 5 min 窗口与冷启动差异下，这个口径不足以定量，只作为「Python 堆非主因」的旁证。
 
-**结论与剩余缺口**：内存不再是「未知」，而是「**与吞吐成正比、主要是 SQLite 每连接页缓存 + 线程栈 + 分配器 arena，Python 对象只占 10 MB 量级**」；但**饱和点仍未知**（30 min 后段未趋平），4 h 长跑仍是必要证据。样本：`results/rerun_soak_resource_r1.csv`、`rerun_soak_summary.json`、`rerun_heap_ab_summary.json`。
+**结论与剩余缺口**：内存不再是「未知」，而是「**与吞吐成正比、主要是 SQLite 每连接页缓存 + 线程栈 + 分配器 arena，Python 对象只占 10 MB 量级**」；但**饱和点仍未知**（30 min 后段未趋平），4 h 长跑仍是必要证据。样本：`results/rerun_soak_resource_r1.csv`、`rerun_soak_summary.json`、`rerun_heap_ab_summary.json`、`rerun_heap_{A,B}_cs*.jsonl`（堆曲线）、`rerun_heap_{A,B}_soak.jsonl.gz`（逐请求样本）；`rerun_analyze_heap.py` 直接读这些归档即可复算汇总。
