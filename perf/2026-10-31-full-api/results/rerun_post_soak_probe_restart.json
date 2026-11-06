@@ -1,0 +1,33 @@
+{
+ "options_12t": {
+  "samples": 2002,
+  "codes": [
+   "200"
+  ],
+  "p50_ms": 352.0,
+  "p95_ms": 445.0,
+  "p99_ms": 482.0,
+  "max_ms": 542.0,
+  "mean_ms": 357.3
+ },
+ "config_8t": {
+  "samples": 19544,
+  "codes": [
+   "200"
+  ],
+  "p50_ms": 24.0,
+  "p95_ms": 32.0,
+  "p99_ms": 40.0,
+  "max_ms": 132.0,
+  "mean_ms": 24.3
+ },
+ "verdict": "endpoint_runtime_accumulation",
+ "baseline_cold": {
+  "options_p50_ms": 164.0,
+  "config_p50_ms": 59.2
+ },
+ "ratio": {
+  "options": 2.15,
+  "config": 0.41
+ }
+}
