@@ -355,7 +355,7 @@
 ### 8.8 4 h 长跑（2026-11-06）：内存判据收敛，但**吞吐/延迟明显劣化**且归因指向夹具写库
 
 > 配置：`mixed_biz_no_sse.jmx`（135 接口、剔除 SSE）、12 并发恒定、`duration_override=14400`，实测墙钟 **14 401.4 s**；SUT 单进程单 worker、关闭调度器；资源序列由 `rerun_sample_resource.py 14520` 每 5 s 采一次。
-> 样本：`results/rerun_soak4h_summary.json`、`rerun_soak4h_resource.csv`（逐请求 152 万行 / 125.8 MB 的 `soak_mixed.jsonl` 按既有政策不入库）。
+> 样本：`results/rerun_soak4h_summary.json`、`rerun_soak4h_resource.csv`（逐请求 152 万行 / 125.8 MB 的 `soak_mixed.jsonl` 按既有政策不入库）。**这条政策的代价要记下**：本轮因此无法做「按接口的前后对比」，只能给整体分位数——下次跑长跑应至少额外保留按 label 聚合的 `p50/p95/count`（体积 <100 KB），否则「哪些接口变慢了」只能靠猜（见 OPTIMIZATIONS §E4）。
 
 **总账（同夹具、同并发、同机，与 §8.7 的 30 min 轮直接对照）**：
 
