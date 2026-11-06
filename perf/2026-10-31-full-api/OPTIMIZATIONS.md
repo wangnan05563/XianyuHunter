@@ -194,7 +194,13 @@
   - 变异验证（`b4_mutation_run.py`，7 腿串行、判定只认 `exit == 1`）**5 红 2 绿且全部符合预期**：写入绕过 LRU（只写不驱逐）→ 14 例红；上限套用变空操作 → 5 例红；读命中不续命（LRU 退化为 FIFO）→ 1 例红；非正上限放行 → 1 例红；装配期漏接 `create_app` → 1 例红；「接错对象」把前缀匹配改成等价 `any()` → 28 例绿；只改 docstring 措辞 → 28 例绿。`web/cache.py` + `web/app.py` + `infra/lru.py` 按 sha256 逐字节还原。
   - **首轮 M01 的教训**：最初把「退回普通 dict」作为变异，结果 pytest `exit=2`（4 个用例文件在收集期就撞 `'dict' has no attribute 'maxsize'`）—— 按本条自己的纪律，`exit != 1` 不算红，判 INVALID 并重做；改成「保留 LRUDict 类型、只绕过 `__setitem__`」后才得到有效红腿。**判据要能失败，也要失败得「合法」**。
   - 环境项：全量前一轮（同一套代码）出现 7 条红 —— `test_health_unified.py` 5 条、`test_anticrawl_integration.py` 的噪声比例用例（100 次 p=0.3 落在 19/100）、`test_cache_swr_refresh.py` 的计时用例（0.408 s > 0.083 s 门限），整轮墙钟 **46 min**；随后一轮 **2 818 passed / 0 failed / 17 min 28 s**。三组失败单独复跑全部转绿，与 D2 记录的外部负载抖动一致，不作为本条回归判据。
-- **仍未定论**：RSS 斜率（`sut_resource.csv` 1.18 h 内 222 → 374 MB）**不能归给这份缓存**，本轮只把它从嫌疑名单里划掉；定论仍需 §E4 的 ≥4 h 长跑 + `tracemalloc`，不由本条宣布「已解决」。
+- **仍未定论 → 2026-11-06 已把归因收敛（仍未宣布「已解决」）**：RSS 斜率（`sut_resource.csv` 1.18 h 内 222 → 374 MB）**不能归给这份缓存**，本轮只把它从嫌疑名单里划掉。2026-11-06 的补充证据（REPORT §8.7）：
+  - **干净 30 min soak**（剔除 `links/live` 的 SSE 后）：183.1 TPS 下 RSS `202.5 → 387.9 MB`（+219.7 MB/h），私有内存 `403.9 → 595.5`，句柄 `424 → 634`。
+  - **归一化否掉「随时间泄漏」**：本轮 **1.20 MB/(TPS·h)** vs 基线 **1.27 MB/(TPS·h)** —— 爬升与请求量成正比，而不是挂在那里一直涨。
+  - **`tracemalloc` 在本应用上不可用**（两次实测）：`start(25)` 让 8011 六分钟不监听、WS 966 MB；`start(10)` 延迟 90 s 同样在 t=207 s 只追到 76 MB 而进程 WS 已 1 034 MB。
+  - **替代口径（`rerun_run_sut_heap.py`）**：同场景 RSS +272.6 MB 期间，`sys.getallocatedblocks()` +298 590、`gc.get_objects()` +128 785（**10 MB 量级**）——Python 堆不是主因。
+  - **`cache_size` 单变量对照（20 MB → 2 MB）**：稳定段斜率 `3 644.0 → 1 257.1 MB/h`、按 TPS 归一化 **0.46 倍** —— 页缓存占可观测的一大块但不是全部；代价是 TPS `152.7 → 115.2`，**故 `cache_size=-20000` 不能撤**。
+  - **剩余未知只有饱和点**：30 min 后段仍在爬（前 1/3 均值 288.8 → 后 1/3 364.2），4 h 长跑仍是必要证据；`tracemalloc` 那条路线已判不可用，不要再按原文复跑。
 
 ### B5. `stale_while_revalidate` 的「后台刷新」其实是同步的，异步分支还会静默失效 — 优先级 **高**（B1 落地后新暴露，非负载测量得出）✅ **已于 2026-10-31 落地**
 **具体优化内容**：`web/cache.py` 的 `_maybe_refresh_stale` docstring 写「启动守护线程异步刷新」，函数体却直接在请求线程里 `func(*args, **kwargs)` —— 快路径因此变成「先跑完整重算，再把**旧值**返回给这个请求」。`_maybe_refresh_stale_async` 更糟：它在已运行的事件循环里调 `asyncio.run(...)`，必然抛 `RuntimeError` 并被 `except Exception: pass` 吞掉（还留下一条 `coroutine was never awaited` 警告），于是走 SWR 的协程接口**过期后再也不会被刷新**。修法：同步分支改成真正起守护线程（或复用 B1 的单飞 + 一个「仅一个线程去重算」的分支），异步分支改成 `loop.create_task(...)` 而非 `asyncio.run`。

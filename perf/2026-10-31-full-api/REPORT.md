@@ -139,7 +139,7 @@
 | B5 | **写侧 8 并发饱和** | §3.3：TPS 66.4（8 并发，峰值）→ 51.9（16 并发，−22%） | SQLite WAL 单写者；连接池 20 但 `busy_timeout=10000` 会把写冲突变成「等待」而非报错，因此表现为吞吐回落而不是 5xx —— 与技能判据「饱和非逻辑回归」一致。**⚠️ D3 清点（2026-11-06）修正了这条的前提**：16 并发 3 170 个样本里 **61.6% 是夹具 4xx**（在 FastAPI 校验层返回、不写库），真写接口单发全部 <30 ms，且**每请求只写 1 条** —— 「跨请求批量 UPSERT」无处施力。真实 N+1 在 `recompute` 的逐条 `update_event_payload`（500 条 = 500 事务），已改单事务批量写：端到端 **137.5 → 25.4 ms（5.41×）**。`busy_timeout` 调小与 UPSERT 分支判定不落，见 OPTIMIZATIONS §D3 |
 | B6 | **无索引的过滤列** | 代码核对（`db_models.py` 的 `Index(...)` 与 `init_db` 的 `_migrate_create_index`）后确认下列被查询列**无索引**：`items.price`（`stats_price_trend.py:49-51` 区间过滤）、`evaluations.risk_level`（`stats_overview.py:134-141` 全表 `SUM(CASE)`）、`price_history.user_id`（`repo_price_history.py:126,137` 过滤但该表不在 `_MU2_TABLES`）、`orders.type`（`repo_orders.py:90`）、`task_links.updated_at`（`price_dashboard.py:421`）、`events.level` / 单独 `events.stage`；`error_logs.error_type/request_path` 用 `%LIKE%` 前后通配（`repo_error_logs.py:63-65`，索引不可用） | 数据量小时不明显，本轮 items 774/evaluations·events 数万，全表扫已是百毫秒级；随采集累积会线性恶化 |
 | B7 | **503 语义污染可观测性** | 30 min 内 795 次 503 全部来自 `links/live`（100%） | 依赖（采集器）不可用时直接 5xx。它既是本次缺陷率的全部来源，也说明生产中该状态会淹没真实故障信号。**✅ 2026-11-03 E3 已落地**：`scheduler_off` / `browser_unavailable` 改为 HTTP 200 + 单条 SSE `{"stage":"error","status":503,"code":…,"detail":…}`，前端本来就按事件里的 status/code 还原错误，UI 行为不变；HTTP 5xx 不再被这类部署态灌满。404/400 与 `/links/refresh` 的 HTTP 语义保持不变 |
-| B8 | **长跑内存呈爬升形态，但 30 min 不足以定论泄漏** | 长跑窗口 RSS `346.8 → 378.4 MB`（拟合 +75.9 MB/h），后半程趋平、负载停止后不回落；句柄同期恒定（627~631） | ~~与「进程内缓存 `_cache_store` 无容量上限/淘汰 + `invalidate_stats_cache()` 全清」（`web/cache.py`）以及分配器 arena 预热一致~~ **← 缓存这一半已被 B4 取证推翻（2026-11-05）**：全量 GET 扫一遍只留 7 条 / 0.02 MB，逐 task 打满外推全库 248 个 task 也只有 2.1 MB；合成 327 条时深量 0.66 MB 而 RSS Δ 26.4 MB。剩下的是分配器 arena / SQLite 页缓存 / 别处。若是真泄漏，句柄也应上涨，而它没有。**排除需 ≥4 h 复跑 + `tracemalloc`**（见 §4 未达成项与 OPTIMIZATIONS B4 落地记录） |
+| B8 | **长跑内存呈爬升形态，但 30 min 不足以定论泄漏** | 长跑窗口 RSS `346.8 → 378.4 MB`（拟合 +75.9 MB/h），后半程趋平、负载停止后不回落；句柄同期恒定（627~631） | ~~与「进程内缓存 `_cache_store` 无容量上限/淘汰 + `invalidate_stats_cache()` 全清」（`web/cache.py`）以及分配器 arena 预热一致~~ **← 缓存这一半已被 B4 取证推翻（2026-11-05）**：全量 GET 扫一遍只留 7 条 / 0.02 MB，逐 task 打满外推全库 248 个 task 也只有 2.1 MB；合成 327 条时深量 0.66 MB 而 RSS Δ 26.4 MB。剩下的是分配器 arena / SQLite 页缓存 / 别处。若是真泄漏，句柄也应上涨，而它没有。**排除需 ≥4 h 复跑 + `tracemalloc`**（见 §4 未达成项与 OPTIMIZATIONS B4 落地记录）。**2026-11-06 首次复核作废**：那一轮 soak 被 `links/live` 的 SSE 流挂死（E3 之后该端点返回 200 + 不结束的 `text/event-stream`，回放引擎不给流式响应设读超时），TPS 只有 7.3（基线 59.6）、几乎所有接口 `max ≈ 1 632 s`，挂起连接本身污染了 RSS/句柄序列 —— 算出的 +34.1 MB/h **不能**当作泄漏证据（本次已改夹具：派生 `mixed_biz_no_sse.jmx` 禁用该 sampler）。**干净复跑与内存归因见 §8.7**：30 min / 183.1 TPS 下 RSS `202.5 → 387.9 MB`（+219.7 MB/h），但按吞吐归一化 **1.20 vs 基线 1.27 MB/(TPS·h)**；同场景 Python 堆（`sys.getallocatedblocks()` / `gc.get_objects()`）只增 10 MB 量级，`cache_size` 单变量对照把斜率砍到 0.46 倍 —— **不是 Python 对象泄漏，主要是页缓存 + 线程栈 + 分配器**；但**饱和点仍未知**，4 h 长跑仍是必要证据 |
 | B9 | **`stale_while_revalidate` 的「后台刷新」并未在后台**（来源：B1 落地时的实现复核 + 专项探针，**非负载观测**） | 探针（重算人为 0.6 s、TTL 1 s）：过期后首次调用墙钟 `0.602 s` 且返回**旧值**，第二次才 `0.000 s` 拿到新值；异步分支 6 次调用恒返回同一旧值、底层重算次数恒为 1 | `_maybe_refresh_stale` docstring 承诺守护线程刷新，函数体却在请求线程内直接重算后才返回旧值；`_maybe_refresh_stale_async` 在已运行的事件循环里 `asyncio.run(...)` → `RuntimeError` 被 `except Exception: pass` 吞掉，缓存从此不再刷新。全仓现仅 `maintenance_status`（同步 `def`；A4 后 TTL 300 s）在用，故本轮只表现为「过期请求付全款」；异步那条是给下一个 SWR 端点挖的坑。详见 OPTIMIZATIONS B5 与 `swr_probe.py`。**本条已于 2026-10-31 随 B1 之后的 B5 落地修复**（同步分支真起线程、异步分支改 `create_task`），修复后探针打印「过期请求被重算阻塞 = False / 值被冻结 = False」；表中其余数字仍为修复前基线 |
 
 ### 表 C：必须与「服务缺陷」区分开的环境/工具口径
@@ -309,8 +309,45 @@
 
 ### 8.6 本节未覆盖（不得读作「全部达成」）
 
-1. **30 min / 4 h 长跑**未重跑 —— §4 的 RSS `+75.9 MB/h` 与停载不回落仍是**未定论**。
+1. **4 h 长跑**仍未跑 —— 30 min 已由 §8.7 干净复跑覆盖（RSS `+219.7 MB/h`，但按吞吐归一化后与基线同量级、Python 堆只增 10 MB 量级），**饱和点仍未知**，§4 的「停载不回落」还没被 4 h 排除。
 2. **SUT 资源序列未采到**：当前技能版回放引擎没有 `resource_monitor` 的实现（源码里搜不到该配置键的处理），因此本轮没有 `sut_resource.csv`；内存判据只能引用 D4 的进程内 `tracemalloc` 前后对照。
 3. **重读组并发档没有基线对照**（基线 v2 轮只跑了 `baseline_heavy` 单发），只能与 §3.1 抄录的 v1 汇总（16 并发 73.7 TPS）做量级参考，**不可当作严格前后对照**。
 4. **`stress_heavy_t16/t64` 的 P99 2 637 / 3 640 ms** 被 `category-comparison`（2.4~3.4 s）与导出类拉高，读作「仍有慢接口在并发下爆尾」，不是整体回归。
 5. 9 个阶段的原始样本已按逐轮唯一命名归档（`results/rerun_*.jsonl.gz`、`rerun_agg_phases.json`、`rerun_vs_baseline.json`、`rerun_engine_wall.json`），可与基线 `results/*.jsonl.gz` 同口径复算。
+
+### 8.7 30 min soak 干净复跑与内存归因（2026-11-06）
+
+**夹具修正**：首次 soak 被 `links/live` 的 SSE 流挂死 —— E3 之后该端点返回 200 + 不结束的 `text/event-stream`，回放引擎不给流式响应设读超时，sampler 挂到窗口结束。那一轮 13 139 样本 / 1 800 s = **7.3 TPS**（基线 59.6）、几乎所有接口 `max ≈ 1 632 s`、句柄 423→531，算出的 +34.1 MB/h **作废**。现由 `rerun_prepare_soak.py` 从原 jmx 派生 `mixed_biz_no_sse.jmx`（只把该 sampler 改 `enabled="false"`，`assert n == 1`）。
+
+**干净复跑（30 min / 12 并发 / 135 接口）**：
+
+| 指标 | 基线 v2 | 复跑 |
+|---|---|---|
+| 样本 / 墙钟 | 107 324 / 1 801.4 s | 329 975 / 1 801.8 s |
+| TPS | 59.6 | **183.1（3.07×）** |
+| p50 / p95 / p99 | 198.3 / 545.0 / 1194.5 | **50.93 / 144.35 / 314.35** |
+| 4xx（夹具口径） | 27.7% | 28.1% |
+| RSS | 346.8 → 378.4（+75.9 MB/h） | 202.5 → 387.9（峰值 419.5，**+219.7 MB/h**） |
+| 私有内存 | 峰值 617.7 | 403.9 → 595.5（+236.6 MB/h） |
+| 句柄 | 627~631 恒定 | 424 → 634（峰值 653） |
+
+**关键归一化**：RSS 斜率按吞吐折算 —— 基线 **1.27 MB/(TPS·h)**、本轮 **1.20 MB/(TPS·h)**。两者几乎相同 ⇒ 爬升**与请求量成正比**，「随时间推移的泄漏」这一形态得不到支持。前 1/3 均值 288.8 → 后 1/3 364.2（+75.4，约占总增量 185.4 的 41%）⇒ 后段仍在爬，**未见饱和平台**。
+
+**为什么不用 `tracemalloc`**（两次实测都不可用）：`start(25)` 在进程启动时开 → 6 分钟不监听 8011、WS 966 MB；`start(10)` 延迟 90 s 再开 → t=207 s 时 traced 仅 76 MB 而进程 WS 已 1 034 MB、8011 仍未监听。根因是帧追踪把 import 阶段的每次分配都按 10~25 帧回溯，启动路径从秒级变成分钟级；`sys.getallocatedblocks()` 只证明「Python 堆没涨」，无法定位到文件:行。
+
+**替代探针**（`rerun_run_sut_heap.py`，每 60 s 记 `sys.getallocatedblocks()` + `gc.get_objects()` 按类型分组，两者都不碰分配快路径）：
+
+| 组 | 配置 | TPS | RSS（首 → 峰 → 停载后 60 s） | blocks | objs | 线程峰值 |
+|---|---|---|---|---|---|---|
+| A | `cache_size=-20000`（现状） | 152.7 | 206.3 → 517.3 → 478.9 | +298 590 | +128 785 | 41 |
+| B | `cache_size=-2000`（单变量） | 115.2 | 227.3 → 324.7（缺末点） | +142 402 | +66 390 | 32 |
+
+判读：
+
+1. **Python 堆不是主因**：A 组 RSS +272.6 MB 期间，GC 可见对象只增 12.9 万个 —— 即使按每个 200 B 计也不到 26 MB，与 RSS 差 20 倍以上。
+2. **页缓存占可观测的一大块**：B 组把每连接页缓存上限砍到 1/10，稳定段斜率 3 644.0 → **1 257.1 MB/h**、按 TPS 归一化 23.9 → **10.9 MB/(TPS·h)（0.46 倍）**；但它**不是全部**，残余仍在 10 MB/(TPS·h) 量级。
+3. **`cache_size=-20000` 不能撤**：B 组代价是 TPS 152.7 → 115.2（−24.5%）、p50 57.69 → 71.1、p95 167.83 → 226.54 —— 这个参数有真实收益。
+4. 线程数随负载 11 → 41（anyio 40 令牌全开），线程栈也是 RSS 的一部分，但它随并发到顶即止，不解释 30 min 的持续爬升。
+5. **两组 `blocks`/`objs` 增量比例（0.477 / 0.516）都低于 TPS 比例（0.754）**，但绝对量都在 10 MB 量级 —— 在 5 min 窗口与冷启动差异下，这个口径不足以定量，只作为「Python 堆非主因」的旁证。
+
+**结论与剩余缺口**：内存不再是「未知」，而是「**与吞吐成正比、主要是 SQLite 每连接页缓存 + 线程栈 + 分配器 arena，Python 对象只占 10 MB 量级**」；但**饱和点仍未知**（30 min 后段未趋平），4 h 长跑仍是必要证据。样本：`results/rerun_soak_resource_r1.csv`、`rerun_soak_summary.json`、`rerun_heap_ab_summary.json`。

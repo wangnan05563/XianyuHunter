@@ -1,0 +1,52 @@
+{
+ "note": "剔除 SSE（links/live）后的 30 min soak；上一轮被 SSE 挂起污染，已作废",
+ "config": {
+  "jmx": "mixed_biz_no_sse.jmx",
+  "threads": 12,
+  "duration_s": 1800,
+  "wall_sec": 1801.8
+ },
+ "engine": {
+  "total": 329975,
+  "errors": 92802,
+  "error_rate_pct": 28.124,
+  "p50_ms": 50.93,
+  "p95_ms": 144.35,
+  "p99_ms": 314.35,
+  "tps": 183.1
+ },
+ "baseline_v2": {
+  "total": 107324,
+  "wall_sec": 1801.4,
+  "p50_ms": 198.3,
+  "p95_ms": 545.0,
+  "p99_ms": 1194.5,
+  "tps": 59.6
+ },
+ "rss": {
+  "start_mb": 202.5,
+  "end_mb": 387.9,
+  "peak_mb": 419.5,
+  "slope_mb_per_h": 219.7,
+  "per_tps_h_mb": 1.2
+ },
+ "rss_baseline": {
+  "start_mb": 346.8,
+  "end_mb": 378.4,
+  "slope_mb_per_h": 75.9,
+  "per_tps_h_mb": 1.27
+ },
+ "handles": {
+  "start": 424,
+  "end": 634,
+  "peak": 653,
+  "baseline": "627~631 恒定"
+ },
+ "polluted_r1": {
+  "note": "首次 soak：links/live 的 SSE 流挂死引擎线程，已作废",
+  "total": 13139,
+  "tps": 7.3,
+  "max_ms": 1632802.3,
+  "rss_slope_mb_per_h": 34.1
+ }
+}

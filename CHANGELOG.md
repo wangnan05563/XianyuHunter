@@ -10,6 +10,11 @@
 
 ### Changed
 
+- **长跑内存爬升的定性（2026-11-06；只动压测工具链与文档，无产品代码变更）**：把 `perf/2026-10-31-full-api` 的 30 min soak 从「无法与慢泄漏区分」推进到「与吞吐成正比、非 Python 对象」。
+  - **夹具修正**：`links/live` 在 E3 之后返回 200 + 永不结束的 `text/event-stream`，而 `python_replay` 引擎不给流式响应设读超时 —— 第一次 soak 的 sampler 挂到窗口结束（13 139 样本 / 1 800 s = **7.3 TPS**，基线 59.6），该轮 +34.1 MB/h **作废**。`rerun_prepare_soak.py` 从原 jmx 派生 `mixed_biz_no_sse.jmx`（只关这一个 sampler，其余 134 个不动，保住同构性）。
+  - **干净复跑**：**183.1 TPS**（基线 59.6，3.07×）、p50/p95/p99 `50.93 / 144.35 / 314.35`（基线 `198.3 / 545.0 / 1194.5`）；RSS `202.5 → 387.9 MB`（+219.7 MB/h），但按吞吐归一化 **1.20 vs 基线 1.27 MB/(TPS·h)** —— 爬升与请求量成正比，不是「随时间推移的泄漏」。
+  - **`tracemalloc` 在本应用上不可用**（两次实测都让 8011 六分钟不监听、WS 超 960 MB），改用 `sys.getallocatedblocks()` + `gc.get_objects()` 按类型分组：同场景 RSS **+272.6 MB** 期间 Python 堆只增 **10 MB 量级**（`rerun_run_sut_heap.py`）。再把 `PRAGMA cache_size` 从 20 MB 降到 2 MB 做单变量对照，稳定段斜率 `3 644 → 1 257 MB/h`（按 TPS 归一化 **0.46 倍**），代价是 TPS −24.5% —— 说明 `cache_size=-20000` 有真实收益、**不能撤**。
+  - **剩余未知只有饱和点**（30 min 后段仍在爬），4 h 长跑仍是必要证据。详见 `perf/2026-10-31-full-api/REPORT.md` §8.7。
 - **根目录整理（2026-09-30）**：散落文件归类，根目录文件数 27 → 24
   - 移动：`run_sonar.bat` → `scripts/`；`VERSIONING.md` → `docs/standards/`（同步更新 CHANGELOG、概要设计文档、目录结构.md 中的引用链接）
   - 删除（维护者确认的一次性 Sonar 调试快照，可从 git 历史找回）：`issues.json`、`qg.json`、`sonar-scan-log.txt`

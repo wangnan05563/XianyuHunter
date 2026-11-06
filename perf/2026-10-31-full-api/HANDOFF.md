@@ -76,7 +76,7 @@
 | 缺口 | 具体内容 | 做法 |
 |---|---|---|
 | ~~**同一套 JMX 复跑**~~ ✅ **2026-11-06 已跑 9 个阶段** | D1/D2/D4/D3/E1 的接口级数字此前都未发布；`results/per_endpoint.json` 等曾是优化前基线 | 已用入库的 `jmeter-config-v2.yml`（只改路径）跑出重读/轻读/写三组共 9 阶段，原始样本按 `results/rerun_*.jsonl.gz` 归档。**核心结果**：48/96 缺陷率 2.03%/3.17% → **0.00%**；轻组 96 并发 P95 3 893.2 → **835.0**、P99 4 296.9 → **1 838.9**；写组 16 并发 TPS 51.9 → **257.5**；`cache-scan` 96 并发 avg 1 822.8 → **292.5**。**仍未覆盖**：30 min / 4 h 长跑、重读组并发档基线对照、SUT 资源序列（引擎无 `resource_monitor`）。见 REPORT §8 |
-| **≥4 h 长跑 + `tracemalloc`** | RSS +75.9 MB/h、停载不回落、句柄恒定（627~631）；B4 已排除「缓存值驻留」（差 3~4 个数量级） | `jmeter-config-v2.yml` 里 `soak_mixed.duration_override` 改 `14400` 后原样跑；同时开 `tracemalloc` 快照差分（或按对象类型排行）。**不能由 B4 宣布关闭** |
+| **≥4 h 长跑**（`tracemalloc` 已判不可用） | RSS 斜率已定性但**饱和点未知**：30 min 干净复跑 183.1 TPS / RSS `202.5 → 387.9 MB`（+219.7 MB/h），按吞吐归一化 **1.20 vs 基线 1.27 MB/(TPS·h)**；同场景 Python 堆只增 10 MB 量级；`cache_size` 单变量对照 0.46 倍（REPORT §8.7） | 用 `rerun_prepare_soak.py` 派生剔除 SSE 的配置，把 `soak_mixed.duration_override` 改 `14400` 原样跑，配 `rerun_sample_resource.py` 采 RSS。**`tracemalloc` 不要再试**：`start(25)` 与「`start(10)` + 延迟 90 s」两次都让 8011 六分钟不监听、WS 超 960 MB；替代探针见 `rerun_run_sut_heap.py` |
 | ~~**D1 判据在外部负载下自抖**~~ ✅ **2026-11-06 已硬化** | `tests/test_slow_lane.py::test_cheap_route_not_blocked_by_slow_lane` 的 `hold_ms` 30/60 取样窗口与调度延迟同量级；机器被别的会话占住时自红（同一轮**未加变异的基线**也红，51 例从 22 s → 198 s） | 已把 hold 抬到 **150/300 ms**，并加一条**相对**判据（`cheap["finished_at"] < slow["finished_at"]`，不依赖绝对耗时）；改完重跑 `d1_mutation_run.py`：**12 腿全红 + 负对照全绿（ALL LEGS OK）**，`test_slow_lane.py` 15 例 6.8 s 通过 |
 | ~~**REPORT 复现链口径**~~ ✅ **2026-11-06 已订正** | `REPORT.md` 的复现链（行号已变为 214）已把 `setup_sandbox.py` / `emit_config.py` / `aggregate.py`（`perf/2026-10-31-full-api/`）、`gen_jmx.py`（`scripts/perf/`）、`python_replay_engine.py`（技能目录，**不在本仓库**）三处真实位置写清，并注明 `D:\tmp\xh-perf` 跑完应删 | 无需再订正 |
 | **系统级 I/O / 带宽水位** | 本轮只采 SUT 进程侧 RSS/私有内存/CPU/句柄 | 外置压测机 + `typeperf`/`nmon` 补一轮（属「未覆盖」，不是缺陷） |
@@ -199,9 +199,11 @@ perf/2026-10-31-full-api/
 | `TMP` 没跟 `TEMP` 一起改到 D 盘 | 临时 SQLite 仍写 C 盘，报 `database or disk is full`（C 盘 0 可用） | 跑 pytest 前 **`TEMP` 和 `TMP` 都要设**到 D 盘，且目录先存在（D4 实测踩到） |
 | PowerShell 管道缓冲外部进程输出 | `... \| Tee-Object log` 时输出要等进程退出才落盘，中途被杀只剩半份进度 | 让脚本自己开文件写日志（`d4_mutation_run.py` 就这么做） |
 | 随机性用例在全量里偶发翻红 | `test_anticrawl_integration.py::TestFreqDisguiseIntegration::test_request_pattern_not_robot_like` 断言请求间隔分布 `< 0.3`，机器负载变化时偶发 `0.353`；隔离复跑 3 次全绿 | 先隔离复跑；全绿即判环境抖动，不要为它改随机阈值 |
-| 回放引擎没有资源采样实现 | 配置里写了 `resource_monitor`（含 `output_csv`），跑完却没有 `sut_resource.csv` | 当前技能版 `python_replay_engine.py` 源码里搜不到该配置键的处理 —— 是工具能力缺失，不是配置写错。内存判据改用进程内 `tracemalloc` 探针（D4）或另接 `typeperf` |
+| 回放引擎没有资源采样实现 | 配置里写了 `resource_monitor`（含 `output_csv`），跑完却没有 `sut_resource.csv` | 当前技能版 `python_replay_engine.py` 源码里搜不到该配置键的处理 —— 是工具能力缺失，不是配置写错。内存判据改用进程内 `rerun_sample_resource.py`（psutil 每 5 s 一条）或 `rerun_run_sut_heap.py`（堆口径） |
+| **`tracemalloc` 在本应用上会让服务起不来** | 2026-11-06 两次实测：`start(25)` → 6 分钟不监听 8011、WS 966 MB；`start(10)` + 延迟 90 s 再开 → t=207 s 时 traced 只 76 MB 而进程 WS 已 1 034 MB、8011 仍未监听 | 帧追踪把 import 阶段的每次分配都按帧回溯，启动路径从秒级变成分钟级。**不要再试**；判「Python 堆在不在涨」用 `sys.getallocatedblocks()` + `gc.get_objects()` 按类型分组（`rerun_run_sut_heap.py`，O(1)/O(存活对象)、不碰分配快路径），判页缓存用 `cache_size` 单变量对照（A/B 两组同夹具各跑 5 min，`rerun_analyze_heap.py` 汇总） |
 | 引擎跑完会定向关停 SUT | 每组配置 `--all` 结束后日志出现「定向关停外部 SUT pid=[…]」，下一组直接连不上 | 这是 `sandbox.lifecycle` 的预期行为；每组之间重启 `run_sut.py` 并确认 `/healthz` 200 |
 | `Start-Process` 起的 SUT 活不过 shell 退出 | healthz 检查通过，但下一条命令就 `无法连接到远程服务器` | 用 `run_in_background` 的 shell 任务跑 `run_sut.py`（前台阻塞），进程才常驻 |
+| **E3 之后混合场景里的 `links/live` 会把回放引擎挂死** | 2026-11-06 第一次 soak：13139 样本 / 1800 s = **7.3 TPS**（基线 59.6），几乎所有接口 `max ≈ 1 632 s`（正好等于窗口时长），句柄 423 → 531 | 该端点 E3 后返回 200 + `text/event-stream`、流不结束，而 `python_replay` 引擎不给流式响应设读超时 → sampler 挂到窗口结束；12 线程 × 135 sampler 顺序轮转下 TPS 崩到 1/8，且**挂起连接本身污染 RSS/句柄序列**（那轮 +34.1 MB/h 不可用作泄漏证据）。修法：`rerun_prepare_soak.py` 从原 jmx 派生 `mixed_biz_no_sse.jmx`，只把该 sampler 的 `enabled` 置 false（其余 134 个不动，保住同构性） |
 
 ---
 
@@ -212,7 +214,7 @@ perf/2026-10-31-full-api/
 1. `setup_sandbox.py` 建沙箱（119 MB 的 sqlite backup 副本 → `D:\tmp\xh-perf\sandbox`）
 2. 从 `.env` 取 `WEB_TOKEN` 写 `D:\tmp\xh-perf\token.txt`（**不打印明文**）
 3. 用 `run_in_background` 跑 `D:\tmp\xh-perf\run_sut.py`（cwd=沙箱，`PYTHONPATH=backend`，**不要** `XH_WITH_SCHEDULER`）；脚本自己写 `sut.pid=os.getpid()`
-4. `prepare_rerun.py` / `prepare_heavy.py` 生成两份配置（只改路径，**不重新生成 scenarios**，否则端点集与基线不同构）
+4. `prepare_rerun.py` / `prepare_heavy.py` 生成两份配置（只改路径，**不重新生成 scenarios**，否则端点集与基线不同构）；**soak 用 `rerun_prepare_soak.py`** —— 它会派生 `mixed_biz_no_sse.jmx`（`links/live` 在 E3 后是永不结束的 SSE 流，会把引擎线程挂死，见 §7）
 5. 引擎逐组跑：`python_replay_engine.py --config … --all`（**每组之间重启 SUT**，引擎跑完会定向关停它）
 6. `XH_PERF_DIR=D:\tmp\xh-perf` + `aggregate.py` → `compare_rerun.py` → `archive_rerun.py`（归档成 `results/rerun_*`，不覆盖基线）
 

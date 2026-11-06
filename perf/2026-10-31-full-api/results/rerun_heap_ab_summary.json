@@ -1,0 +1,58 @@
+{
+ "A_cache_20mb": {
+  "samples": 6,
+  "tps": 152.7,
+  "rss_first": {
+   "t": 60.8,
+   "mb": 206.3
+  },
+  "rss_last": {
+   "t": 362.0,
+   "mb": 478.9
+  },
+  "rss_delta_all_mb": 272.6,
+  "rss_slope_stable_mb_per_h": 3644.0,
+  "per_tps_h_mb": 23.9,
+  "blocks_delta": 298590,
+  "objs_delta": 128785,
+  "threads_max": 41,
+  "engine": {
+   "total": 46048,
+   "p50_ms": 57.69,
+   "p95_ms": 167.83,
+   "p99_ms": 434.11
+  }
+ },
+ "B_cache_2mb": {
+  "samples": 4,
+  "tps": 115.2,
+  "rss_first": {
+   "t": 60.3,
+   "mb": 227.3
+  },
+  "rss_last": {
+   "t": 256.5,
+   "mb": 324.7
+  },
+  "rss_delta_all_mb": 97.4,
+  "rss_slope_stable_mb_per_h": 1257.1,
+  "per_tps_h_mb": 10.9,
+  "blocks_delta": 142402,
+  "objs_delta": 66390,
+  "threads_max": 32,
+  "engine": {
+   "total": 34657,
+   "p50_ms": 71.1,
+   "p95_ms": 226.54,
+   "p99_ms": 572.63
+  }
+ },
+ "_ratio": {
+  "note": "B/A，<1 表示小页缓存下增量更小",
+  "rss_slope_stable": 0.34,
+  "per_tps_h": 0.46,
+  "tps": 0.754,
+  "blocks_delta": 0.477,
+  "objs_delta": 0.516
+ }
+}
