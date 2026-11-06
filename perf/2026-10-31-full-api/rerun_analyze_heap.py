@@ -8,19 +8,22 @@
 两组都是冷启动后的同形状采样（60/120/180/240/300 s），但**压测起始时刻不同**
 （B 组的采样在第一点就已是 threads=32，A 组要到第二点才涨到 30），所以判据取
 「稳定段（t≥180）的 RSS 斜率」，并用各自引擎报告的 TPS 归一化。
+
+输入读仓库内归档（`results/rerun_heap_*.jsonl`），不依赖 `D:/tmp/xh-perf`，
+这样结论可就地复算。
 """
 import json
 from pathlib import Path
 
-OUT = Path(r"D:\tmp\xh-perf\output")
+RES = Path(__file__).resolve().parent / "results"
 GROUPS = {
     "A_cache_20mb": {
-        "heap": OUT / "heap_series_A_cs20000.jsonl",
+        "heap": RES / "rerun_heap_A_cs20000.jsonl",
         "engine": {"total": 46048, "wall_sec": 301.5,
                    "p50_ms": 57.69, "p95_ms": 167.83, "p99_ms": 434.11},
     },
     "B_cache_2mb": {
-        "heap": OUT / "heap_series_B_cs2000.jsonl",
+        "heap": RES / "rerun_heap_B_cs2000.jsonl",
         "engine": {"total": 34657, "wall_sec": 300.8,
                    "p50_ms": 71.1, "p95_ms": 226.54, "p99_ms": 572.63},
     },
@@ -69,8 +72,7 @@ def main() -> None:
         "blocks_delta": round(b["blocks_delta"] / a["blocks_delta"], 3),
         "objs_delta": round(b["objs_delta"] / a["objs_delta"], 3),
     }
-    out = Path(r"D:\code\otherProjects\XianyuHunter\perf\2026-10-31-full-api"
-               r"\results\rerun_heap_ab_summary.json")
+    out = RES / "rerun_heap_ab_summary.json"
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
 
