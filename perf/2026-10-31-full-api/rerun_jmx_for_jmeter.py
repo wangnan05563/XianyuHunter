@@ -18,8 +18,19 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-OUT = Path(r"D:\tmp\xh-perf\jmx_native")
+WORK = Path(r"D:\tmp\xh-perf")
+OUT = WORK / "jmx_native"
 SOURCES = ("reads_light.jmx", "reads_heavy.jmx", "writes_idem.jmx", "mixed_biz_no_sse.jmx")
+# mixed_biz_no_sse 由 rerun_prepare_soak.py 派生到临时工作区，不在仓库 jmx/ 下
+SEARCH = (REPO / "jmx", WORK / "jmeter")
+
+
+def _find(name: str) -> Path | None:
+    for base in SEARCH:
+        p = base / name
+        if p.exists():
+            return p
+    return None
 
 
 def _new_header_manager() -> ET.Element:
@@ -76,8 +87,8 @@ def derive(src: Path, dst: Path) -> int:
 
 def main() -> None:
     for name in SOURCES:
-        src = REPO / "jmx" / name
-        if not src.exists():
+        src = _find(name)
+        if src is None:
             print(f"[skip] {name} 不存在（先跑 rerun_prepare_soak.py 生成 mixed_biz_no_sse）")
             continue
         dst = OUT / name.replace(".jmx", "_native.jmx")
