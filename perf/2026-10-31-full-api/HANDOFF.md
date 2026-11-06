@@ -214,7 +214,7 @@ perf/2026-10-31-full-api/
 1. `setup_sandbox.py` 建沙箱（119 MB 的 sqlite backup 副本 → `D:\tmp\xh-perf\sandbox`）
 2. 从 `.env` 取 `WEB_TOKEN` 写 `D:\tmp\xh-perf\token.txt`（**不打印明文**）
 3. 用 `run_in_background` 跑 `D:\tmp\xh-perf\run_sut.py`（cwd=沙箱，`PYTHONPATH=backend`，**不要** `XH_WITH_SCHEDULER`）；脚本自己写 `sut.pid=os.getpid()`
-4. `prepare_rerun.py` / `prepare_heavy.py` 生成两份配置（只改路径，**不重新生成 scenarios**，否则端点集与基线不同构）；**soak 用 `rerun_prepare_soak.py`** —— 它会派生 `mixed_biz_no_sse.jmx`（`links/live` 在 E3 后是永不结束的 SSE 流，会把引擎线程挂死，见 §7）
+4. `prepare_rerun.py` / `prepare_heavy.py` 生成两份配置（只改路径，**不重新生成 scenarios**，否则端点集与基线不同构）；**soak 用 `rerun_prepare_soak.py`** —— 它会派生 `mixed_biz_no_sse.jmx`（`links/live` 在 E3 后是永不结束的 SSE 流，会把引擎线程挂死，见 §7）。时长从命令行读：30 min 不传，**4 h 传 `14400`**，并用 `rerun_sample_resource.py 14520` 采资源序列（比负载长 120 s）
 5. 引擎逐组跑：`python_replay_engine.py --config … --all`（**每组之间重启 SUT**，引擎跑完会定向关停它）
 6. `XH_PERF_DIR=D:\tmp\xh-perf` + `aggregate.py` → `compare_rerun.py` → `archive_rerun.py`（归档成 `results/rerun_*`，不覆盖基线）
 
