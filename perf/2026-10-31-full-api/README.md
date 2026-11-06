@@ -1,6 +1,6 @@
 # perf/2026-10-31-full-api
 
-XianyuHunter 全量 `/api/*`（272 端点）系统化性能测试的一次完整留档：基准 / 压力阶梯 / 30 分钟耐久长跑，含瓶颈定位与优化建议。
+XianyuHunter 全量 `/api/*`（272 端点）系统化性能测试的一次完整留档：基准 / 压力阶梯 / 30 分钟耐久长跑，含瓶颈定位与优化建议。**2026-11-06 追加**：4 h 长跑（REPORT §8.8）与原生 JMeter 极限吞吐阶梯（§8.9）。
 
 | 文件 | 用途 |
 |---|---|
@@ -14,9 +14,9 @@ XianyuHunter 全量 `/api/*`（272 端点）系统化性能测试的一次完整
 | `setup_sandbox.py` / `coverage_probe.py` / `aggregate.py` / `patch_and_v2.py` | 沙箱搭建、覆盖率探针、结果聚合、口径修正 |
 | `soak_trend.py` | 长跑资源趋势判定（按窗口算斜率/分段，区分「缓存增长」与「真泄漏」；只统计 SUT 存活样本） |
 | `swr_probe.py` | B5 取证探针：证明 `stale_while_revalidate` 的刷新实际发生在请求线程里（异步分支静默失效）。只读、不落库、不发请求 |
-| `results/` | 10 个阶段的逐请求原始样本（`.jsonl.gz`）、聚合 JSON、阶梯/接口/长跑表、SUT 资源采样 CSV、单发探针、`engine_v2.log`（各阶段实测墙钟，聚合吞吐的分母来源） |
+| `results/` | 10 个阶段的逐请求原始样本（`.jsonl.gz`）、聚合 JSON、阶梯/接口/长跑表、SUT 资源采样 CSV、单发探针、`engine_v2.log`（各阶段实测墙钟，聚合吞吐的分母来源）；**2026-11-06 追加** `rerun_soak4h_*`（4 h 长跑汇总 + 资源序列）与 `rerun_jmeter_ladder_reads_light*`（原生阶梯汇总 + 4 份 jtl.gz） |
 
-执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（**2026-11-06 复核纠正**：本机有 Java 25.0.1 与 JMeter 5.6.3，只是 JMeter 不在 PATH；本轮仍为回放引擎口径，原生压测待补）；被测实例为隔离沙箱（端口 8011 + SQLite backup 副本库 + 调度器关闭），生产数据未被触碰。
+执行方式：`jmeter-performance-test` 技能，`mode: python_replay`（**2026-11-06 复核纠正**：本机有 Java 25.0.1 与 JMeter 5.6.3，只是 JMeter 不在 PATH。正文数字仍为回放引擎口径；**原生 JMeter 已于 2026-11-06 补跑极限吞吐阶梯**，见 REPORT §8.9，其绝对值因库状态/冷启动不可与正文直接比）；被测实例为隔离沙箱（端口 8011 + SQLite backup 副本库 + 调度器关闭），生产数据未被触碰。
 
 安全说明：配置里只留 `token_file` / `token_env` 的**引用路径**，令牌明文存在于临时目录并已随目录删除；复跑前需重新注入（环境变量 `WEB_TOKEN` 或指向你自己的 token 文件）。
 
