@@ -1,0 +1,96 @@
+{
+ "note": "30 min mixed_biz（135 接口 / 12 并发 / 剔除 SSE），补 HANDOFF §2 的「系统级 I/O / 带宽水位」缺口；同时用同库起点、同夹具复核 30 min 轮的 TPS 可比性",
+ "engine": {
+  "wall_sec": 1800.8,
+  "total": 381717,
+  "errors": 107365,
+  "error_rate_pct": 28.127,
+  "tps": 212.0,
+  "p50_ms": 48.87,
+  "p95_ms": 102.49,
+  "p99_ms": 184.86,
+  "errors_note": "errors 含夹具 4xx（同口径 28.1%），非真实缺陷率；服务端 5xx 见下方 health"
+ },
+ "sysio": {
+  "samples": 376,
+  "disk_write_Bps": {
+   "p50": 2287061.0,
+   "p95": 2559697.0,
+   "max": 3555584.0
+  },
+  "disk_read_Bps": {
+   "p50": 0.0,
+   "p95": 12162.0,
+   "max": 2829905.0
+  },
+  "disk_write_iops": {
+   "p50": 486.8,
+   "p95": 537.8,
+   "max": 763.4
+  },
+  "ctx_switches_s": {
+   "p50": 72206.0,
+   "p95": 90382.0,
+   "max": 120098.0
+  },
+  "cpu_pct": {
+   "p50": 44.2,
+   "p95": 62.4,
+   "max": 81.6
+  },
+  "net_total_Bps": {
+   "p50": 4148.0,
+   "p95": 32170.0,
+   "max": 591313.0
+  }
+ },
+ "process": {
+  "samples": 362,
+  "rss_start_mb": 181.5,
+  "rss_end_mb": 337.2,
+  "rss_peak_mb": 370.3,
+  "rss_slope_mb_per_h": 139.9,
+  "handles_start": 406,
+  "handles_end": 565,
+  "handles_peak": 617
+ },
+ "by_label": {
+  "GET /api/tasks/options": {
+   "count": 2831,
+   "p50_ms": 232.5,
+   "p95_ms": 761.5
+  },
+  "GET /api/config": {
+   "count": 2828,
+   "p50_ms": 52.2,
+   "p95_ms": 89.0
+  },
+  "GET /api/auth/me": {
+   "count": 2828,
+   "p50_ms": 51.2,
+   "p95_ms": 96.9
+  },
+  "GET /api/logs": {
+   "count": 2832,
+   "p50_ms": 92.0,
+   "p95_ms": 178.9
+  }
+ },
+ "compare_30min_8_7": {
+  "note": "§8.7 的 30 min 轮（同夹具 / 同库起点 170 行 / 同 12 并发）",
+  "prev_tps": 183.1,
+  "prev_p50": 50.93,
+  "prev_p95": 144.35,
+  "prev_p99": 314.35,
+  "this_tps": 212.0,
+  "this_p50": 48.87,
+  "this_p95": 102.49,
+  "this_p99": 184.86,
+  "delta_note": "同一口径两轮相差 +15.8% TPS、p95 −29% —— 说明 30 min 基准本身有 ±15% 量级漂移，因此「30 min 183.1 vs 4 h 146.0 = −20%」不能全部归给时长"
+ },
+ "health": {
+  "5xx": 0,
+  "database_is_locked": 0,
+  "sut_stderr_MB": 16.9
+ }
+}
