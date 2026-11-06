@@ -1,0 +1,40 @@
+{
+ "note": "A/B 探针：重接口占并发时廉价接口是否被拖慢。用于检验 REPORT §8.8 对 554 ms 的归因（数据量 vs 跨接口池争用）。",
+ "date": "2026-11-06",
+ "environment": {
+  "sandbox": "D:\\tmp\\xh-perf\\sandbox（setup_sandbox.py 重建，库 119.3 MB）",
+  "data_prepared": "tasks 从 326 行灌到 12000 行，created_at 递增（模拟 4 h 夹具每次新建）",
+  "sut": "python -m xianyu_hunter web --port 8011 --no-with-scheduler，单进程单 worker",
+  "startup_seconds": 70,
+  "startup_note": "12k tasks 下启动约 70 s 才监听（此前 4 h 轮未记录启动耗时，不能判断是否异常）"
+ },
+ "baseline_single": {
+  "cheap_/api/config": {"p50_ms": 7.8, "samples": [2170.7, 9.6, 7.8, 6.7, 7.7], "note": "首条 2170.7 为冷启动，已排除"},
+  "heavy_/api/tasks/options": {"p50_ms": 10.9, "samples": [176.6, 10.4, 21.6, 10.9, 8.6], "note": "首条 176.6 为冷启动，已排除；12000 行下单发仅 10.9 ms"}
+ },
+ "groups": {
+  "A_cheap_only": {"threads": 8, "n": 96, "cheap_p50_ms": 59.2, "cheap_p95_ms": 96.2},
+  "B1_heavy8_cheap1": {"heavy_threads": 8, "cheap_threads": 1, "cheap_n": 12, "cheap_p50_ms": 12.7, "cheap_p95_ms": 60.2,
+                       "heavy_n": 96, "heavy_p50_ms": 114.8, "heavy_p95_ms": 255.5},
+  "B2_heavy4_cheap4": {"heavy_threads": 4, "cheap_threads": 4, "cheap_n": 48, "cheap_p50_ms": 27.4, "cheap_p95_ms": 51.3,
+                       "heavy_n": 48, "heavy_p50_ms": 53.2, "heavy_p95_ms": 201.4}
+ },
+ "findings": [
+  "12000 行 tasks 下 /api/tasks/options 单发 p50 = 10.9 ms，与库内 SQL 实测 2.24 ms 同一量级 —— 数据量本身不足以解释 4 h 轮看到的 554 ms。",
+  "跨接口拖慢未复现：B1/B2 的廉价接口 p95（60.2 / 51.3）都低于 A 组（8 并发只打廉价，96.2），方向与「重接口占池传染」相反。",
+  "8 并发打同一廉价接口反而比混跑更慢（A 组 59.2 vs B1 组 12.7），说明同接口自身争用比跨接口干扰更明显。",
+  "因此 4 h 轮的 554 ms 最可能来自引擎侧请求排队（回放引擎的 el 含客户端等待），或 4 h 时其它表/资源的长期状态，而非「tasks 行数增长」或「共享线程池传染」。"
+ ],
+ "limitations": [
+  "只把 tasks 灌到 12k，未复制 4 h 时 items/evaluations/events 等表的增长。",
+  "本实验无并发引擎负载（4 h 轮是 12 并发 + 同机引擎）。",
+  "未测 12 并发档（本实验用了 4/8）。",
+  "结论只能否掉「单靠 tasks 行数」与「跨接口池传染」两个解释，不能定位 554 ms 的真因。"
+ ],
+ "reproduce": [
+  "python perf/2026-10-31-full-api/setup_sandbox.py（需 venv python）",
+  "向 D:\\tmp\\xh-perf\\sandbox\\data\\xianyu.db 的 tasks 灌到 12000 行（INSERT 复制现有行，created_at 递增）",
+  "在沙箱 cwd 起 SUT：<venv>\\python.exe -m xianyu_hunter web --port 8011 --no-with-scheduler",
+  "python perf/2026-10-31-full-api/rerun_ab_pool_probe.py"
+ ]
+}
