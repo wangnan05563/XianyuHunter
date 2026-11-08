@@ -18,7 +18,7 @@ click==8.5.0
 colorama==0.4.6
 cryptography==50.0.2
 durationpy==0.11
-fastapi==0.162.0
+fastapi==0.136.3
 filelock==4.2.6
 flatbuffers==25.12.19
 frozenlist==1.8.0
@@ -74,6 +74,7 @@ playwright==1.60.0
 pluggy==1.6.0
 propcache==0.5.2
 protobuf==7.35.1
+psutil==7.2.2
 pybase64==1.4.3
 pycparser==3.0
 pydantic==2.13.4
@@ -126,5 +127,5 @@ watchfiles==1.2.0
 websocket-client==1.9.0
 websockets==17.0.1
 win32_setctime==1.2.0
--e git+https://github.com/wangnan05563/xianyu-hunter.git@90055800c109cf3d51893ecf24f87d08411dd092#egg=xianyu_hunter
+-e git+https://github.com/wangnan05563/XianyuHunter.git@a46aca1418d8deb9fab66eeed2f3bab60eb3a041#egg=xianyu_hunter
 yarl==1.25.1
