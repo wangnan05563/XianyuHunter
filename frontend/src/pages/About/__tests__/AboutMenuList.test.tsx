@@ -59,10 +59,10 @@ describe('AboutMenuList', () => {
   it('社区与上报问题项指向公开仓真实地址（非占位）', () => {
     renderList()
     const community = screen.getByText(TEXTS.menu.community).closest('a')
-    expect(community).toHaveAttribute('href', 'https://github.com/wangnan05563/xianyu-hunter')
+    expect(community).toHaveAttribute('href', 'https://github.com/wangnan05563/XianyuHunter')
     expect(community).toHaveAttribute('target', '_blank')
     const report = screen.getByText(TEXTS.menu.report).closest('a')
-    expect(report).toHaveAttribute('href', 'https://github.com/wangnan05563/xianyu-hunter/issues/new')
+    expect(report).toHaveAttribute('href', 'https://github.com/wangnan05563/XianyuHunter/issues/new')
     expect(report).toHaveAttribute('target', '_blank')
     expect(report).toHaveAttribute('rel', 'noopener noreferrer')
   })

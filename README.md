@@ -133,8 +133,8 @@
 
 ```powershell
 # 克隆仓库
-git clone https://github.com/wangnan05563/xianyu-hunter.git
-cd xianyu-hunter
+git clone https://github.com/wangnan05563/XianyuHunter.git
+cd XianyuHunter
 
 # 创建并激活虚拟环境
 python -m venv .venv
@@ -439,7 +439,7 @@ scripts\构建打包.bat
 
 ## 贡献
 
-欢迎在 [Issues](https://github.com/wangnan05563/xianyu-hunter/issues) 反馈问题、提交 Pull Request。提交前请确保：
+欢迎在 [Issues](https://github.com/wangnan05563/XianyuHunter/issues) 反馈问题、提交 Pull Request。提交前请确保：
 
 1. 后端测试通过：`python -m pytest tests/`
 2. 前端测试通过：`cd frontend && npm run test`

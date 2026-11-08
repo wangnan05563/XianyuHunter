@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/about", tags=["meta"])
 
 # 目标 GitHub 仓库（用户指定）
 _REPO_OWNER = "wangnan05563"
-_REPO_NAME = "xianyu-hunter"
+_REPO_NAME = "XianyuHunter"
 _REPO_URL = f"https://github.com/{_REPO_OWNER}/{_REPO_NAME}"
 _RELEASES_API = f"https://api.github.com/repos/{_REPO_OWNER}/{_REPO_NAME}/releases/latest"
 # release_url 始终指向 releases 页面（即使无 latest release 也可让用户浏览所有版本）

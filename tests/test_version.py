@@ -217,8 +217,8 @@ class TestUpdateChangelog:
             "## [0.1.0] - 2026-06-06\n\n"
             "### Added\n"
             "- 初始版本\n\n"
-            "[Unreleased]: https://github.com/wangnan05563/xianyu-hunter/compare/v0.1.0...HEAD\n"
-            "[0.1.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.1.0\n"
+            "[Unreleased]: https://github.com/wangnan05563/XianyuHunter/compare/v0.1.0...HEAD\n"
+            "[0.1.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.1.0\n"
         )
         changelog.write_text(content, encoding="utf-8")
         monkeypatch.setattr(bump_version, "CHANGELOG_FILE", changelog)
@@ -243,9 +243,9 @@ class TestUpdateChangelog:
         bump_version.update_changelog("0.2.0")
 
         text = changelog_with_unreleased.read_text(encoding="utf-8")
-        assert "[0.2.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.2.0" in text
+        assert "[0.2.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.2.0" in text
         # 原链接保留
-        assert "[0.1.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.1.0" in text
+        assert "[0.1.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.1.0" in text
 
     def test_idempotent_no_duplicate_section(self, changelog_with_unreleased):
         """重复运行不产生重复段落"""
@@ -273,9 +273,9 @@ class TestUpdateChangelog:
             "## [0.2.0] - 2026-06-28\n\n"
             "### Summary\n"
             "本次发布的完整说明\n\n"
-            "[Unreleased]: https://github.com/wangnan05563/xianyu-hunter/compare/v0.1.0...HEAD\n"
-            "[0.2.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.2.0\n"
-            "[0.1.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.1.0\n"
+            "[Unreleased]: https://github.com/wangnan05563/XianyuHunter/compare/v0.1.0...HEAD\n"
+            "[0.2.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.2.0\n"
+            "[0.1.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.1.0\n"
         )
         changelog.write_text(content, encoding="utf-8")
         monkeypatch.setattr(bump_version, "CHANGELOG_FILE", changelog)

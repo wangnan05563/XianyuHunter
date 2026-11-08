@@ -485,7 +485,7 @@ def create_app() -> FastAPI:
         # openapi_tags：为每个 tag 提供 description，Swagger UI 顶部分类展示
         openapi_tags=_OPENAPI_TAGS,
         # 联系信息（GitHub Issues）
-        contact={"name": "GitHub Issues", "url": "https://github.com/xianyu-hunter/xianyu-hunter/issues"},
+        contact={"name": "GitHub Issues", "url": "https://github.com/wangnan05563/XianyuHunter/issues"},
         # 开源协议
         license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
     )

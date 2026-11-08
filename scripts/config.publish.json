@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "XianyuHunter",
-    "repo": "wangnan05563/xianyu-hunter"
+    "repo": "wangnan05563/XianyuHunter"
   },
   "runtime": {
     "python_candidates": [
@@ -28,7 +28,7 @@
   },
   "github_release": {
     "enabled": true,
-    "repo": "wangnan05563/xianyu-hunter",
+    "repo": "wangnan05563/XianyuHunter",
     "asset": {
       "dir": "release",
       "glob": "XianyuHunter-Setup-v*.exe",

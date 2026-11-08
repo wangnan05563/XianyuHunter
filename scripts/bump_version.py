@@ -206,7 +206,7 @@ def update_changelog(new_version: str) -> None:
         print(f"  [SKIP] CHANGELOG.md 中 [{new_version}] 段落已存在，跳过插入")
 
     # 2. 更新 [Unreleased] 的 compare 链接（始终执行，确保指向最新版本）
-    new_compare = f"[Unreleased]: https://github.com/wangnan05563/xianyu-hunter/compare/v{new_version}...HEAD"
+    new_compare = f"[Unreleased]: https://github.com/wangnan05563/XianyuHunter/compare/v{new_version}...HEAD"
     old_compare_pattern = re.compile(
         r"\[Unreleased\]: https://[^\n]+compare/v[^\n]+\.\.\.HEAD",
     )
@@ -221,7 +221,7 @@ def update_changelog(new_version: str) -> None:
         changed = True
 
     # 3. 追加新版本链接（若不存在）
-    link_line = f"[{new_version}]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v{new_version}"
+    link_line = f"[{new_version}]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v{new_version}"
     link_pattern = re.compile(
         rf"^\[{re.escape(new_version)}\]:\s*https://",
         re.MULTILINE,

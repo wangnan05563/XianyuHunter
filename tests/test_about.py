@@ -351,7 +351,7 @@ def test_check_update_has_update_false_when_same_version(
     assert data["latest"] == "v1.0.0"
     assert data["source"] == "remote"
     # has_update=False 时 release_url 指向 releases 列表页（让用户浏览所有版本）
-    assert data["release_url"] == "https://github.com/wangnan05563/xianyu-hunter/releases"
+    assert data["release_url"] == "https://github.com/wangnan05563/XianyuHunter/releases"
 
 
 def test_check_update_release_url_not_empty(

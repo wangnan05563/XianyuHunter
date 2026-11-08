@@ -231,7 +231,7 @@ _本次发布周期的变更已封版至 [0.3.0]，新变更请在此段落积�
 - **开源软件声明**：41 个依赖（21 前端 + 20 后端）+ 搜索过滤。
 - **构建元信息**：`scripts/build_info.py` 自动生成 `_build_info.py`。
 - **5 个入口**：顶栏按钮、Sider、Command Palette、快捷键 `g+a`、Swagger UI。
-- **GitHub 自动更新检查**：后端 `/api/about/check-update` 接入 GitHub Releases API（仓库 `wangnan05563/xianyu-hunter`），5 分钟缓存避免限速，失败安全降级。
+- **GitHub 自动更新检查**：后端 `/api/about/check-update` 接入 GitHub Releases API（仓库 `wangnan05563/XianyuHunter`），5 分钟缓存避免限速，失败安全降级。
 - **前端自动定期检查**：About 页面挂载 5 秒后自动检查一次，每 60 分钟复查；卸载时清理所有定时器，杜绝内存泄漏。
 - **BrandCard 发布时间展示**：newer 态 Tooltip 展示 release 发布日期。
 
@@ -307,9 +307,9 @@ _本次发布周期的变更已封版至 [0.3.0]，新变更请在此段落积�
 
 ---
 
-[Unreleased]: https://github.com/wangnan05563/xianyu-hunter/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.4.0
-[0.3.1]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.3.1
-[0.3.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.3.0
-[0.2.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.2.0
-[0.1.0]: https://github.com/wangnan05563/xianyu-hunter/releases/tag/v0.1.0
+[Unreleased]: https://github.com/wangnan05563/XianyuHunter/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.4.0
+[0.3.1]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.3.1
+[0.3.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.3.0
+[0.2.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.2.0
+[0.1.0]: https://github.com/wangnan05563/XianyuHunter/releases/tag/v0.1.0
