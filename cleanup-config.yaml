@@ -1,9 +1,16 @@
 # ============================================================
-# Workspace Cleanup 配置 - 项目：17_xianyu (XianyuHunter)
+# Workspace Cleanup 配置 - 项目：XianyuHunter
 # 由 workspace-cleanup skill 生成（2026-08-14）。配置驱动，无硬编码。
 # 注意：本配置已吸收首轮人工核查结论，尤其是 .cache/ 的陷阱。
 #
 # 修订记录：
+#   - 2026-10-31（第十轮清理）：修复 3 项配置漂移 ——
+#       root_allowlist 缺 LICENSE（法律文件无扩展名，被漏判）；
+#       assets/ 未纳入保护（README 引用其预览图，且被 *.png 连坐忽略）；
+#       service_indicators 的 logs/ 父目录缺失属正常态（启动脚本动态创建），
+#       配置改用独占打开 + 命令行归属作为主证据。
+#     .gitignore 同步把裸 data/ 改为根锚定 /data/，解除对
+#       backend/xianyu_hunter/data/（含源码资源 preset_templates.yaml）的误忽略。
 #   - 2026-09-10（第九轮清理）：修正配置漂移 —— changelog_path 指向不存在的
 #     英文文件名、verification 硬校验 release/（第七轮已删除的生成物）、
 #     python_imports 为空导致 Phase 5 空转；并补齐 Vite 临时产物模式与隔离区配置。
@@ -61,6 +68,7 @@ root_allowlist:
     - "sonar-project.properties"
     - "xianyu-hunter.spec"        # 手工维护的 PyInstaller spec，必须随仓库提交
     - "installer.iss"
+    - "LICENSE"                   # 法律文件无扩展名，仅按扩展名判断会被误判为散落文件
     # 真实密钥 / 运行配置（绝不删）
     - ".env"
     - "backend/.env"
@@ -82,6 +90,7 @@ preserve_roots:
   - "backend/config/"                          # 源码配置目录（untracked 但属源码，勿删）
   - "backend/xianyu_hunter/resources/"         # 源码资源目录（untracked 但属源码，勿删）
   - "release/spa/"                         # 前端编译产物（vite outDir；exe 从 release 副本加载；可重建，REVIEW 级）
+  - "assets/"                              # README 首屏引用的社交预览图 + 应用图标源文件
   - "frontend/public/"                     # favicon 等被 SPA 引用的必要资产（*.png 被全局忽略但必需）
   - "scripts/export_embedding_onnx.py"     # 源码脚本（untracked，勿删）
   - "scripts/quantize_embedding_onnx.py"   # 源码脚本（untracked，勿删）
@@ -317,9 +326,11 @@ ignored_audit:
     - "browser-data/"
 
 # ---------- 服务检测（Phase 3）----------
-# 本工作区当前无常驻服务；端口 8000/8001/8080/5173 均无监听。
-# 注意（2026-09-10）：logs/ 目录当前不存在，pid_files 因此恒为空。
-#   此时必须以 file_occupancy_probes 的【独占打开】结果作为唯一依据，
+# 本工作区无常驻服务；端口 8000/8001/8080/5173 均无监听。
+# 【已核对，非配置漂移】logs/web.pid 的父目录 logs/ 只在 `scripts/启动服务.bat`
+#   启动时由 `if not exist "logs" mkdir logs` 动态创建，服务停止后目录可能不存在。
+#   因此 pid_files 为空是正常态，不是漂移：此时必须以 file_occupancy_probes 的
+#   【独占打开】结果 + command_line_probe 的进程归属作为主证据，
 #   不可仅凭 PID 文件缺失就断定"无服务"。
 service_indicators:
   pid_files: ["logs/web.pid"]

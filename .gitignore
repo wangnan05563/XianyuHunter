@@ -48,8 +48,15 @@ browser-data.bak/
 browser-data.recovery-*/
 
 # 应用运行时数据目录（仅保留 .gitkeep 占位）
-data/
-!data/.gitkeep
+# 必须根锚定（前导斜杠）：裸 data/ 会匹配任意层级同名目录，曾把
+# backend/xianyu_hunter/data/ 整个吞掉——那里的 preset_templates.yaml 是随代码发布的
+# 只读资源（api_templates.py 直接读取），此前从未进入版本库，克隆后模板市场为空。
+# 裸规则还会让 !data/.gitkeep 失效（父目录被排除时无法重包含内部文件）。
+# 因此忽略 data 的「内容」而非目录本身：/data/ 会连 .gitkeep 一起排除。
+/data/*
+!/data/.gitkeep
+# 同目录下的用户私有模板属用户数据，不入库（preset_templates.yaml 保持可见）
+backend/xianyu_hunter/data/user_templates.json
 
 # 备份目录
 backup/
@@ -102,6 +109,9 @@ scripts/.screenshots/
 !frontend/tests/visual/**/*.png
 # README 与产品介绍文档引用的界面截图（T03676）同样需要随仓分发，否则 GitHub 上显示为破图。
 !docs/assets/product-shots/*.png
+# 第十轮清理新增（2026-10-31）：README 首屏引用的社交预览图，被上面的 *.png 连坐忽略，
+# 导致 GitHub 仓库首页显示破图。放行后该文件变为 untracked（可见），需人工 git add 入库。
+!assets/*.png
 
 # ---------- 临时文件 ----------
 *.tmp

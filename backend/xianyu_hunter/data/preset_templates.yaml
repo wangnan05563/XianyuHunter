@@ -1,0 +1,101 @@
+# F-11 预置模板：覆盖相机/游戏/球鞋/票务/数码 5 大品类
+# 每个模板包含搜索关键词、价格区间、执行模式等，用户可一键复制为任务
+- id: preset_camera_a7m4
+  name: 95新索尼A7M4套机
+  keyword: 索尼A7M4 95新 套机
+  min_price: 10000
+  max_price: 14000
+  mode: notify
+  icon: "\U0001F4F7"
+  category: 相机
+  is_preset: true
+
+- id: preset_camera_x100v
+  name: 富士X100V
+  keyword: 富士X100V 二手
+  min_price: 7000
+  max_price: 9000
+  mode: notify
+  icon: "\U0001F4F7"
+  category: 相机
+  is_preset: true
+
+- id: preset_game_switch
+  name: Switch OLED
+  keyword: Switch OLED 二手
+  min_price: 1500
+  max_price: 2000
+  mode: notify
+  icon: "\U0001F3AE"
+  category: 游戏
+  is_preset: true
+
+- id: preset_game_ps5
+  name: PS5光驱版
+  keyword: PS5 光驱版 二手
+  min_price: 2500
+  max_price: 3200
+  mode: notify
+  icon: "\U0001F3AE"
+  category: 游戏
+  is_preset: true
+
+- id: preset_shoes_aj1
+  name: AJ1芝加哥43码
+  keyword: AJ1 芝加哥 43码
+  min_price: 1500
+  max_price: 3000
+  mode: notify
+  icon: "\U0001F45F"
+  category: 球鞋
+  is_preset: true
+
+- id: preset_shoes_yeezy
+  name: Yeezy 350斑马
+  keyword: Yeezy 350 斑马
+  min_price: 1200
+  max_price: 2000
+  mode: notify
+  icon: "\U0001F45F"
+  category: 球鞋
+  is_preset: true
+
+- id: preset_ticket_concert
+  name: 演唱会门票
+  keyword: 演唱会 门票 转让
+  min_price: 200
+  max_price: 1500
+  mode: confirm
+  icon: "\U0001F3AB"
+  category: 票务
+  is_preset: true
+
+- id: preset_ticket_drama
+  name: 话剧/音乐剧
+  keyword: 话剧 音乐剧 门票
+  min_price: 100
+  max_price: 800
+  mode: notify
+  icon: "\U0001F3AB"
+  category: 票务
+  is_preset: true
+
+- id: preset_digital_macbook
+  name: MacBook Air M3
+  keyword: MacBook Air M3 二手
+  min_price: 6000
+  max_price: 8000
+  mode: notify
+  icon: "\U0001F4BB"
+  category: 数码
+  is_preset: true
+
+- id: preset_digital_ipad
+  name: iPad Pro M4
+  keyword: iPad Pro M4 二手
+  min_price: 5000
+  max_price: 7500
+  mode: notify
+  icon: "\U0001F4BB"
+  category: 数码
+  is_preset: true
