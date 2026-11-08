@@ -205,7 +205,8 @@ def main() -> None:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         (OUT_DIR / f"c2_ladder_{args.label}.json").write_text(
             json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"\n[落盘] results/c2_ladder_{args.label}.json")    finally:
+        print(f"\n[落盘] results/c2_ladder_{args.label}.json")
+    finally:
         proc.terminate()
         try:
             proc.wait(timeout=20)
