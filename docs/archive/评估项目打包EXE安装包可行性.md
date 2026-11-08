@@ -1,6 +1,6 @@
 # 评估项目打包EXE安装包可行性
 
-> **Workspace:** d:\code\otherProjects\17_xianyu
+> **Workspace:** <项目根>
 >
 > **文档状态**：可行性评估 + 概要设计（已修订）
 > **修订记录**：
@@ -51,8 +51,8 @@
 | 前端 SPA | React + Vite（已构建产物） | ✅ 友好 | 静态文件，外置即可 |
 | 数据库 | SQLite | ✅ 友好 | 文件型，无需独立服务 |
 | 浏览器自动化 | Playwright + Chromium | ⚠️ 难点 | 浏览器二进制 ~150-200 MB |
-| **系统 Edge 依赖** | CDP 模式连接系统 Edge | ⚠️ 难点 | [browser.py:30](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/browser.py#L30) 硬编码 Edge 路径，未安装时需降级 |
-| 向量库 | chromadb 1.x | ⚠️ 难点 | **可选依赖**（[vector_store.py:23](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/modules/chatbot/vector_store.py#L23) try/except），含 onnxruntime/duckdb C 扩展 |
+| **系统 Edge 依赖** | CDP 模式连接系统 Edge | ⚠️ 难点 | [browser.py:30](../../backend/xianyu_hunter/infra/browser.py#L30) 硬编码 Edge 路径，未安装时需降级 |
+| 向量库 | chromadb 1.x | ⚠️ 难点 | **可选依赖**（[vector_store.py:23](../../backend/xianyu_hunter/modules/chatbot/vector_store.py#L23) try/except），含 onnxruntime/duckdb C 扩展 |
 | Embedding 模型 | sentence-transformers + BAAI/bge-small-zh-v1.5 | ⚠️ 难点 | 模型权重 ~100 MB，首次运行自动下载 |
 | 加密 | cryptography | ✅ 友好 | 已有预编译 wheel |
 | 密钥存储 | keyring（Windows DPAPI） | ✅ 友好 | 依赖 Windows 凭据管理器 |
@@ -67,10 +67,10 @@
 - **方案**：将浏览器安装到固定子目录，安装包内置；启动时设置 `PLAYWRIGHT_BROWSERS_PATH` 环境变量指向该目录
 
 ### 2. 系统 Edge 浏览器依赖（CDP 模式）
-- **问题**：[browser.py:30](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/browser.py#L30) 在 CDP 模式下连接系统 Edge（`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`），用户机器未安装 Edge 时登录功能不可用
+- **问题**：[browser.py:30](../../backend/xianyu_hunter/infra/browser.py#L30) 在 CDP 模式下连接系统 Edge（`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`），用户机器未安装 Edge 时登录功能不可用
 - **方案**：
   1. 安装程序检测 Edge 是否存在，缺失时引导安装（Windows 10/11 默认预装，覆盖率 >99%）
-  2. 在 [browser.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/browser.py) 中增加 Edge 路径检测与降级逻辑：找不到系统 Edge 时回退到 Playwright Chromium launch 模式
+  2. 在 [browser.py](../../backend/xianyu_hunter/infra/browser.py) 中增加 Edge 路径检测与降级逻辑：找不到系统 Edge 时回退到 Playwright Chromium launch 模式
   3. 启动器首次运行时打印 Edge 检测结果，便于用户排查
 
 ### 3. chromadb C 扩展（可选依赖）
@@ -78,7 +78,7 @@
 - **方案**：
   1. 在 `.spec` 文件中显式添加 `collect_submodules('chromadb')`、`collect_submodules('onnxruntime')`、`collect_submodules('duckdb')`
   2. Embedding 模型 `BAAI/bge-small-zh-v1.5`（约 100 MB）预置到安装目录 `models/` 下，启动时通过 `SENTENCE_TRANSFORMERS_HOME` 指向该目录，避免首次运行联网下载
-  3. chromadb 在 [vector_store.py:23](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/modules/chatbot/vector_store.py#L23) 是 try/except 可选导入，打包时即使收集失败也不影响主功能
+  3. chromadb 在 [vector_store.py:23](../../backend/xianyu_hunter/modules/chatbot/vector_store.py#L23) 是 try/except 可选导入，打包时即使收集失败也不影响主功能
 
 ### 4. 运行时数据持久化（路径改造）
 - **问题**：单 exe 内部只读，SQLite/cookies/logs/config 无法写入 exe 内部
@@ -89,17 +89,17 @@
 
 | 文件 | 行号 | 硬编码 | 用途 |
 |---|---|---|---|
-| [config.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/config.py#L67) | 67 | `project_root = Path(__file__).resolve().parent.parent.parent.parent` | 项目根，PyInstaller 下指向 `_MEIPASS` |
-| [config.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/config.py#L159) | 159, 191 | `Path(".env")` | 环境变量读写 |
-| [yaml_config.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/yaml_config.py#L578) | 578 | `base = Path("config")` | YAML 配置加载 |
-| [cookie_store.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/services/cookie_store.py#L30) | 30, 47 | `Path("data")` | Cookie JSON 存储 |
-| [user_manager.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/services/user_manager.py#L476) | 476-477 | `Path("data") / "cookies.json"` | 用户 Cookie 迁移 |
-| [notification_engine.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/services/notification_engine.py#L92) | 92 | `Path("data") / "userinfo.json"` | 通知用户信息 |
-| [auth_manager.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/services/auth_manager.py#L29) | 29 | `_REPO / "data" / "auth_cache"` | 认证缓存 |
-| [tunnel_service.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/services/tunnel_service.py#L54) | 54 | `Path(__file__).resolve().parents[3] / "data"` | 隧道数据 |
-| [api_maintenance.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/web/routes/api_maintenance.py#L31) | 31, 36 | `Path("data")`, `Path("data/logs")` | 维护接口数据/日志 |
-| [yaml_config.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/yaml_config.py#L285) | 285 | `persist_path: str = "data/chromadb"` | chromadb 持久化 |
-| [kb_manager.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/modules/chatbot/kb_manager.py#L911) | 911 | `f"data/chromadb/snapshots/{version_id}"` | 快照路径 |
+| [config.py](../../backend/xianyu_hunter/config.py#L67) | 67 | `project_root = Path(__file__).resolve().parent.parent.parent.parent` | 项目根，PyInstaller 下指向 `_MEIPASS` |
+| [config.py](../../backend/xianyu_hunter/config.py#L159) | 159, 191 | `Path(".env")` | 环境变量读写 |
+| [yaml_config.py](../../backend/xianyu_hunter/infra/yaml_config.py#L578) | 578 | `base = Path("config")` | YAML 配置加载 |
+| [cookie_store.py](../../backend/xianyu_hunter/web/services/cookie_store.py#L30) | 30, 47 | `Path("data")` | Cookie JSON 存储 |
+| [user_manager.py](../../backend/xianyu_hunter/web/services/user_manager.py#L476) | 476-477 | `Path("data") / "cookies.json"` | 用户 Cookie 迁移 |
+| [notification_engine.py](../../backend/xianyu_hunter/web/services/notification_engine.py#L92) | 92 | `Path("data") / "userinfo.json"` | 通知用户信息 |
+| [auth_manager.py](../../backend/xianyu_hunter/web/services/auth_manager.py#L29) | 29 | `_REPO / "data" / "auth_cache"` | 认证缓存 |
+| [tunnel_service.py](../../backend/xianyu_hunter/web/services/tunnel_service.py#L54) | 54 | `Path(__file__).resolve().parents[3] / "data"` | 隧道数据 |
+| [api_maintenance.py](../../backend/xianyu_hunter/web/routes/api_maintenance.py#L31) | 31, 36 | `Path("data")`, `Path("data/logs")` | 维护接口数据/日志 |
+| [yaml_config.py](../../backend/xianyu_hunter/infra/yaml_config.py#L285) | 285 | `persist_path: str = "data/chromadb"` | chromadb 持久化 |
+| [kb_manager.py](../../backend/xianyu_hunter/modules/chatbot/kb_manager.py#L911) | 911 | `f"data/chromadb/snapshots/{version_id}"` | 快照路径 |
 
 ### 5. 前端 SPA 资源
 - **问题**：Docker 构建时已将 SPA 输出到 `backend/xianyu_hunter/web/static/spa/`，但单 exe 不应内置大量静态资源到 `_internal`
@@ -132,7 +132,7 @@
 5. UPX 已启用但 `*.dll` 被排除（避免杀软误报），可考虑用 7z 压缩安装包分发，最终用户体积预计可压至 ~400 MB
 
 ### 7. 依赖锁定不完整
-- **问题**：[requirements.txt](file:///d:/code/otherProjects/17_xianyu/requirements.txt) 由 `pip freeze` 生成，但未包含 chromadb、onnxruntime、duckdb、sentence-transformers、torch 等（虽然 [pyproject.toml:38](file:///d:/code/otherProjects/17_xianyu/pyproject.toml#L38) 声明了 `chromadb>=1.0.0`），导致 PyInstaller 收集时缺少 hidden imports 依据
+- **问题**：[requirements.txt](../../requirements.txt) 由 `pip freeze` 生成，但未包含 chromadb、onnxruntime、duckdb、sentence-transformers、torch 等（虽然 [pyproject.toml:38](../../pyproject.toml#L38) 声明了 `chromadb>=1.0.0`），导致 PyInstaller 收集时缺少 hidden imports 依据
 - **方案**：打包前在干净 venv 中 `pip install -e .` 后 `pip freeze > requirements.txt`，确保传递依赖完整锁定
 
 ---
@@ -167,7 +167,7 @@ C:\Program Files\XianyuHunter\
 |---|---|---|
 | PyInstaller（目录模式） | Python → exe 启动器 | 成熟稳定，对 FastAPI/Playwright 兼容性最好 |
 | Inno Setup | 安装程序制作 | 中文支持好、免费、可注册表/快捷方式/卸载完整 |
-| pystray（可选） | 系统托盘管理 | **注意**：项目当前未使用 pywebview/WebView2 作为桌面 UI（[browser_login.py:10](file:///d:/code/otherProjects/17_xianyu/scripts/browser_login.py#L10) 注释明确「比 WebView2 更可靠」），pystray 与现有 bat 脚本启动方式兼容，无冲突 |
+| pystray（可选） | 系统托盘管理 | **注意**：项目当前未使用 pywebview/WebView2 作为桌面 UI（[browser_login.py:10](../../scripts/browser_login.py#L10) 注释明确「比 WebView2 更可靠」），pystray 与现有 bat 脚本启动方式兼容，无冲突 |
 
 ---
 
@@ -175,10 +175,10 @@ C:\Program Files\XianyuHunter\
 
 1. **新增 `paths.py` 模块**：集中管理路径，所有路径基于 `%APPDATA%\XianyuHunter\` 派生，提供 `get_data_dir() / get_config_dir() / get_log_dir() / get_models_dir() / get_app_dir()` 单一入口
 2. **替换 8 处硬编码路径**：见 §三-4 清单，全部改为调用 `paths.py`
-3. **[browser.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/browser.py) Edge 检测**：增加系统 Edge 路径检测与降级到 Playwright Chromium 的回退逻辑
+3. **[browser.py](../../backend/xianyu_hunter/infra/browser.py) Edge 检测**：增加系统 Edge 路径检测与降级到 Playwright Chromium 的回退逻辑
 4. **PyInstaller spec 文件**：配置 `hiddenimports`、`datas`、`collect_submodules('chromadb')`、`collect_submodules('onnxruntime')`、`collect_submodules('duckdb')`
 5. **启动器 `launcher.py`**：启动 uvicorn 后调用 `webbrowser.open()` 打开默认浏览器
-6. **单实例锁**：用 `win32event.CreateMutex` 防止多开（与现有 [启动服务.bat:14-19](file:///d:/code/otherProjects/17_xianyu/scripts/启动服务.bat#L14) PID 文件机制互斥，二选一）
+6. **单实例锁**：用 `win32event.CreateMutex` 防止多开（与现有 [启动服务.bat:14-19](../../scripts/启动服务.bat#L14) PID 文件机制互斥，二选一）
 7. **Playwright 路径**：启动时设置 `PLAYWRIGHT_BROWSERS_PATH` 指向安装目录
 8. **sentence-transformers 模型预置**：设置 `SENTENCE_TRANSFORMERS_HOME` 指向 `models/`，避免首次运行联网下载
 9. **数据迁移脚本**：Inno Setup 安装时检测旧版相对路径数据，迁移到 `%APPDATA%\XianyuHunter\`（详见「概要设计 §6」）
@@ -197,13 +197,13 @@ C:\Program Files\XianyuHunter\
 
 ## 七、与现有 Docker 部署的关系
 
-项目已有完整的 [Dockerfile](file:///d:/code/otherProjects/17_xianyu/Dockerfile) 与 [部署指南](file:///d:/code/otherProjects/17_xianyu/docs/standards/部署指南.md)，Docker 部署仍应作为**服务器场景的首选**。EXE 安装包面向**桌面小白用户单机使用**场景，两者互补：
+项目已有完整的 [Dockerfile](../../Dockerfile) 与 [部署指南](../standards/部署指南.md)，Docker 部署仍应作为**服务器场景的首选**。EXE 安装包面向**桌面小白用户单机使用**场景，两者互补：
 
 - **服务器/VPS 部署** → Docker（已成熟）
 - **个人电脑单机使用** → EXE 安装包（待开发）
 
 ### 与现有 bat 脚本的兼容
-现有 [scripts/启动服务.bat](file:///d:/code/otherProjects/17_xianyu/scripts/启动服务.bat) 已实现端口清理、PID 管理、健康检查、自动开浏览器。EXE 启动器应**复用这些逻辑**（端口清理、健康轮询、自动开浏览器），并替换原有的 `.venv\Scripts\python.exe` 调用为 `xianyu-hunter.exe` 直接启动。打包后 bat 脚本不再需要（开发者模式仍保留）。
+现有 [scripts/启动服务.bat](../../scripts/启动服务.bat) 已实现端口清理、PID 管理、健康检查、自动开浏览器。EXE 启动器应**复用这些逻辑**（端口清理、健康轮询、自动开浏览器），并替换原有的 `.venv\Scripts\python.exe` 调用为 `xianyu-hunter.exe` 直接启动。打包后 bat 脚本不再需要（开发者模式仍保留）。
 
 ---
 
@@ -660,7 +660,7 @@ end;
 
 ## §5 Edge 检测与降级设计
 
-### [browser.py](file:///d:/code/otherProjects/17_xianyu/backend/xianyu_hunter/infra/browser.py) 改造
+### [browser.py](../../backend/xianyu_hunter/infra/browser.py) 改造
 
 ```python
 # backend/xianyu_hunter/infra/browser.py 增量改造

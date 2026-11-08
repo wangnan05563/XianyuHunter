@@ -319,7 +319,7 @@ docs/
 
 ## 联系与支持
 
-- 项目路径：`d:\code\otherProjects\17_xianyu`
+- 项目路径：`<项目根>`
 - 前端源码：`frontend/`
 - 后端源码：`backend/xianyu_hunter/`
 - 配置文件：`config/`

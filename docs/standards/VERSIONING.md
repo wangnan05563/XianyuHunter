@@ -159,7 +159,7 @@ git push origin --tags
 
 ### 发布 GitHub Release
 
-1. 推送 tag 后，访问 https://github.com/wangnan05563/xianyu-hunter/releases/new
+1. 推送 tag 后，访问 https://github.com/wangnan05563/XianyuHunter/releases/new
 2. 选择刚推送的 tag
 3. 标题填 `v0.2.0`
 4. 描述从 `CHANGELOG.md` 的 `[0.2.0]` 段落复制

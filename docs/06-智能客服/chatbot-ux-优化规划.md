@@ -1,7 +1,7 @@
 # 智能客服 UX 优化规划
 
 > **状态**：仅规划，未实现
-> **范围**：基于现有 17_xianyu 智能客服（chromaDB + OpenAI 兼容 LLM + FastAPI + React + antd 马卡龙风格）做 UX 系统性优化
+> **范围**：基于现有 XianyuHunter 智能客服（chromaDB + OpenAI 兼容 LLM + FastAPI + React + antd 马卡龙风格）做 UX 系统性优化
 > **基线版本**：基于 2026-06-29 代码现状，含已落地的 vision_model 图片输入能力
 > **目标**：不引入大改动、不重构，按 5 大类共 15 个子功能给出可分批落地的设计方案
 
@@ -13,13 +13,13 @@
 
 | 能力 | 现状 | 位置 |
 |---|---|---|
-| 会话列表/分页/创建/重命名/删除 | 完整 | [index.tsx](file:///d:/code/otherProjects/17_xianyu/frontend/src/pages/Chatbot/index.tsx) Sider |
+| 会话列表/分页/创建/重命名/删除 | 完整 | [index.tsx](../../frontend/src/pages/Chatbot/index.tsx) Sider |
 | FAQ 库（增删改查/匹配） | 完整 | `api_chatbot.py:list_faqs` + Config.tsx |
 | 消息列表分页（before_id 游标） | 完整 | `api_chatbot.py:list_messages` |
 | 助手消息点赞/点踩 + 文字反馈 | 完整 | `AssistantMessage.tsx:handleFeedback` |
 | 转人工（点踩触发 / 主动 / 关键词） | 完整 | `escalation.py` |
 | 会话记录复制导出 | 完整 | `AssistantMessage.tsx:copySession` |
-| 图片上传/拖拽/粘贴（vision） | 已落地 | [index.tsx](file:///d:/code/otherProjects/17_xianyu/frontend/src/pages/Chatbot/index.tsx) cb-image-* |
+| 图片上传/拖拽/粘贴（vision） | 已落地 | [index.tsx](../../frontend/src/pages/Chatbot/index.tsx) cb-image-* |
 | 输入框 TextArea + 工具开关 | 基础 | index.tsx cb-input-area |
 | 引用来源 / 工具调用次数 / 降级标记 | 完整 | AssistantMessage.tsx |
 | 流式 SSE 推送 | 完整 | useSSEChat.ts |
@@ -79,7 +79,7 @@
 
 ### 1.3 前端设计
 
-- **新增组件**：[ChatbotOnboarding.tsx](file:///d:/code/otherProjects/17_xianyu/frontend/src/pages/Chatbot/components/ChatbotOnboarding.tsx)
+- **新增组件**：[ChatbotOnboarding.tsx](../../frontend/src/pages/Chatbot/components/ChatbotOnboarding.tsx)
   - props: `onQuestionClick(q: string)` 点击常见问题直接发送
   - props: `onDismiss()` 用户关闭引导
 - **数据来源**：
