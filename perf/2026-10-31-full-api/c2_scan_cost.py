@@ -19,7 +19,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(r"D:/code/otherProjects/17_xianyu") / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 TMP = Path(r"D:/tmp/xh-c2-scan")
 TMP.mkdir(parents=True, exist_ok=True)
 import os

@@ -9,9 +9,12 @@
 认证: WEB_TOKEN 默认从 -Jweb_token=xxx 注入（JMeter __P），不在文件内硬编码密钥。
 参数化 ID: 从测试库抽取的真实 ID 作为 TestPlan 变量，避免 404 噪声。
 """
+from pathlib import Path
 import os
 
-OUT_DIR = "D:/code/otherProjects/17_xianyu/test_results/jmeter/scripts"
+
+ROOT = Path(__file__).resolve().parents[2]
+OUT_DIR = str(ROOT / "test_results/jmeter/scripts")
 
 # 从测试库抽取的真实 ID（见 inspect 结果）
 IDS = {

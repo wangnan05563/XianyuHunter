@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path(r"D:/tmp/xh-c2-probe")
 
 FILE_OPS: dict[str, int] = {}

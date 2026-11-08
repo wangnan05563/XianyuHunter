@@ -2,7 +2,7 @@
 
 为什么需要 Cookie JSON 隔离：tests/test_cookie_layers_sync_repro.py 和
 tests/test_api_anticrawl.py 通过 client.post('/api/anticrawl/cookies/update')
-调用真实端点，会写入 d:/code/otherProjects/17_xianyu/data/cookies_*.json。
+调用真实端点，会写入 data/cookies_*.json。
 teardown_method 在 KeyboardInterrupt/IDE 停止/setup 自身失败时不执行，
 留下污染数据导致生产环境 Cookie 被测试 fixture 覆盖。
 

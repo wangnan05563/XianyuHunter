@@ -6,6 +6,7 @@
 - 截图前在页面内做 DOM 级脱敏：头像模糊、含订单号/链接/令牌的单元格与输入框模糊、
   长数字串打码；不打印 WEB_TOKEN
 """
+from pathlib import Path
 import io
 import json
 import os
@@ -14,11 +15,13 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+
+ROOT = Path(__file__).resolve().parents[1]
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 BASE = "http://127.0.0.1:8010"
 ENV_PATH = r"C:\Users\hspcadmin\AppData\Local\Temp\xh-shots\.env"
-OUT_DIR = r"D:\code\otherProjects\17_xianyu\docs\assets\product-shots"
+OUT_DIR = str(ROOT / "docs/assets/product-shots")
 
 DESKTOP = (1600, 900)
 MOBILE = (390, 844)

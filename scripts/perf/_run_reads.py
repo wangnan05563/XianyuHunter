@@ -1,8 +1,11 @@
+from pathlib import Path
 import sys
 sys.path.insert(0, ".")
 from regression_replay import run
 
+
+ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "PgEECYNIneqtk7fb-dyYvA4nzj3YTcjqPOVjZqAJATQ"
-JMX = "D:/code/otherProjects/17_xianyu/test_results/jmeter/scripts/xianyu_load_test_reads.jmx"
-OUT = "D:/code/otherProjects/17_xianyu/test_results/jmeter/runs_p0p1/reads.jsonl"
+JMX = str(ROOT / "test_results/jmeter/scripts/xianyu_load_test_reads.jmx")
+OUT = str(ROOT / "test_results/jmeter/runs_p0p1/reads.jsonl")
 run(JMX, "http://127.0.0.1:8011", TOKEN, OUT)

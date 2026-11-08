@@ -63,7 +63,7 @@ $testLocations = @(
     $env:TEMP,
     $sonarHome,
     $tmpDir,
-    "d:\code\otherProjects\17_xianyu"
+    (Split-Path $PSScriptRoot -Parent)
 )
 foreach ($loc in $testLocations) {
     try {

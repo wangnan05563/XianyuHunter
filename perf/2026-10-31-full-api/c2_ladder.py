@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SANDBOX = Path(r"D:/tmp/xh-c2-srv")
 OUT_DIR = REPO / "perf" / "2026-10-31-full-api" / "results"
 PROBE_UID = "135379001"

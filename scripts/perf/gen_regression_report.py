@@ -3,12 +3,15 @@
 """生成 P0/P1 回归压测报告：所有"修复后"数字均从 runs_p0p1 的 jsonl 实测计算，
 "修复前"数字取自性能报告 + 本轮修复验证证据（存储的 before_p04/after_p1 JTL 早于当前
 66 端点 JMX 且已 0% 缺陷，非 apple-to-apple，故不用于逐端点对比）。"""
+from pathlib import Path
 import json
 from collections import defaultdict
 
-READS = "D:/code/otherProjects/17_xianyu/test_results/jmeter/runs_p0p1/reads.jsonl"
-WRITES = "D:/code/otherProjects/17_xianyu/test_results/jmeter/runs_p0p1/writes.jsonl"
-OUT = "D:/code/otherProjects/17_xianyu/test_results/jmeter/runs_p0p1/regression_report.md"
+
+ROOT = Path(__file__).resolve().parents[2]
+READS = str(ROOT / "test_results/jmeter/runs_p0p1/reads.jsonl")
+WRITES = str(ROOT / "test_results/jmeter/runs_p0p1/writes.jsonl")
+OUT = str(ROOT / "test_results/jmeter/runs_p0p1/regression_report.md")
 
 def pct(vals, p):
     if not vals:

@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SANDBOX = Path(r"D:/tmp/xh-c2-srv")
 N = 30
 PROBE_UID = "135379001"  # 合成 unb，非真实账号

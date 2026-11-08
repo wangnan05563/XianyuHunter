@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path(r"D:/tmp/xh-a2-probe2")
 
 DATA_UID = ""  # main() 里由 resolve_data_owner() 填充；该 id 形如手机号，不写死进版本库

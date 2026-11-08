@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path(r"D:/tmp/xh-a2-ab")
 OUT_DIR = REPO / "perf" / "2026-10-31-full-api" / "results"
 SQL_LOG: list[str] = []

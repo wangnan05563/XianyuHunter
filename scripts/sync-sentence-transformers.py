@@ -6,7 +6,7 @@
 需要按构建 venv 的包体补齐。
 
 判据为什么改成「PYZ 收录结果」（T04184 取证）：
-- 原脚本把 `venv_st`/`dist_st` 两条路径硬编码成 `D:\\code\\otherProjects\\17_xianyu\\...`，
+- 原脚本把 `venv_st`/`dist_st` 两条路径硬编码成 `<项目根>\\...`，
   而 `build-exe.ps1` 调它时不传参 —— 换个仓库位置就必然走「目录不存在」分支。
 - 实测当前 spec（ST 5.7.0）把 185 个 ST 子模块收进 PYZ，构建产物 `_internal/` 下
   根本没有 `sentence_transformers` 目录（`COLLECT-00.toc` 命中 0 条）。也就是说

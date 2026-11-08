@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(r"D:\code\otherProjects\17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SANDBOX = Path(r"D:\tmp\xh-perf\sandbox")
 OUT = Path(r"D:\tmp\xh-perf\output")
 

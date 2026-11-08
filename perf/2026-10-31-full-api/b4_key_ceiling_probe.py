@@ -29,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 PERF = REPO / "perf" / "2026-10-31-full-api"
 SANDBOX = Path(r"D:/tmp/xh-perf-b4b/sandbox")
 MB = 1024 * 1024

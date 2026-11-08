@@ -1,9 +1,12 @@
+from pathlib import Path
 import importlib.util
+
+ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("rr", "regression_replay.py")
 rr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rr)
 
-JMX = "D:/code/otherProjects/17_xianyu/test_results/jmeter/scripts/xianyu_load_test_reads.jmx"
+JMX = str(ROOT / "test_results/jmeter/scripts/xianyu_load_test_reads.jmx")
 info = rr.parse_jmx(JMX)
 print("threads", info["threads"], "duration", info["duration"], "samplers", len(info["samplers"]))
 print("sample:", {k: info["samplers"][0][k] for k in ("method", "path", "name")})

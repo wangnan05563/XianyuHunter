@@ -18,7 +18,7 @@ import pathlib
 import subprocess
 import sys
 
-REPO_ROOT = pathlib.Path(r"D:/code/otherProjects/17_xianyu")
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 REPO_EVENTS = pathlib.Path("backend/xianyu_hunter/infra/repo_events.py")
 EC = pathlib.Path("backend/xianyu_hunter/web/routes/evaluations_common.py")
 EL = pathlib.Path("backend/xianyu_hunter/web/routes/evaluations_list.py")

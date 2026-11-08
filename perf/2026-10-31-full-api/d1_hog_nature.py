@@ -34,7 +34,7 @@ import threading
 import time
 from pathlib import Path
 
-REPO = Path(r"D:/code/otherProjects/17_xianyu")
+REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path(r"D:/tmp/xh-d1-hog")
 OUT_DIR = REPO / "perf" / "2026-10-31-full-api" / "results"
 
