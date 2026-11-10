@@ -15,7 +15,7 @@ import io
 from datetime import datetime
 from typing import Any, Iterable, Iterator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from xianyu_hunter.container import Container
@@ -122,6 +122,7 @@ def _build_csv_response(
 @router.get("/{dataset}")
 def export_dataset(
     dataset: str,
+    request: Request,
     task_id: str | None = Query(None, description="按任务 ID 过滤"),
     start: str | None = Query(None, description="起始时间 ISO 格式（如 2026-06-01T00:00:00）"),
     end: str | None = Query(None, description="截止时间 ISO 格式"),
@@ -152,6 +153,11 @@ def export_dataset(
             detail=f"未知数据集 {dataset}，可用: {list(_DATASET_COLUMNS.keys())}",
         )
 
+    # 多用户隔离（FR-D-4）：导出是读操作，必须按当前账号过滤，
+    # 否则多账号部署时一份 CSV 会混入其他账号的数据。
+    # 口径与 timeline.py 一致：中间件保证正常请求必有 user_id，getattr 兜底 None 不过滤。
+    user_id = getattr(request.state, "user_id", None)
+
     columns = _DATASET_COLUMNS[dataset]
     # 用 to_datetime 而非 parse_iso_datetime：确保返回 aware datetime，
     # 与 _filter_by_time 中 to_datetime(row[time_col]) 的结果类型一致，
@@ -160,43 +166,45 @@ def export_dataset(
     end_dt = to_datetime(end)
 
     if dataset == "items":
-        rows = container.repo.list_items(task_id=task_id, limit=limit)
+        rows = container.repo.list_items(task_id=task_id, limit=limit, user_id=user_id)
         rows = _filter_by_time(rows, "first_seen", start_dt, end_dt)
 
     elif dataset == "evaluations":
         # evaluations 表无 task_id 列，需通过 items 表间接过滤
         if task_id:
-            item_ids = {r["id"] for r in container.repo.list_items(task_id=task_id, limit=limit)}
+            item_ids = {
+                r["id"]
+                for r in container.repo.list_items(task_id=task_id, limit=limit, user_id=user_id)
+            }
             # evaluations 无 list 方法，通过 events 表反查或直接查 DB
-            rows = _list_evaluations_by_items(container, item_ids, limit)
+            rows = _list_evaluations_by_items(container, item_ids, limit, user_id)
         else:
-            rows = _list_all_evaluations(container, limit)
+            rows = _list_all_evaluations(container, limit, user_id)
         rows = _filter_by_time(rows, "created_at", start_dt, end_dt)
 
     elif dataset == "orders":
-        rows = container.repo.list_orders(status=status, limit=limit)
+        rows = container.repo.list_orders(status=status, limit=limit, user_id=user_id)
         if task_id:
             rows = [r for r in rows if r.get("task_id") == task_id]
         rows = _filter_by_time(rows, "created_at", start_dt, end_dt)
 
     else:  # events
-        rows = container.repo.list_events(level=level, task_id=task_id, limit=limit) or []
+        rows = container.repo.list_events(level=level, task_id=task_id, limit=limit, user_id=user_id) or []
         rows = _filter_by_time(rows, "created_at", start_dt, end_dt)
 
     return _build_csv_response(rows, columns, dataset)
 
 
-def _list_all_evaluations(container: Container, limit: int) -> list[dict[str, Any]]:
+def _list_all_evaluations(container: Container, limit: int, user_id: str | None = None) -> list[dict[str, Any]]:
     """列出所有评估记录（直接查表，避免新增 DAO 方法）"""
     from sqlalchemy import select
     from xianyu_hunter.infra.db_models import EvaluationRow
 
     with container.repo.engine.connect() as conn:
-        stmt = (
-            select(EvaluationRow)
-            .order_by(EvaluationRow.created_at.desc())
-            .limit(limit)
-        )
+        stmt = select(EvaluationRow)
+        if user_id:
+            stmt = stmt.where(EvaluationRow.user_id == user_id)
+        stmt = stmt.order_by(EvaluationRow.created_at.desc()).limit(limit)
         return [container.repo._row_to_dict(r) for r in conn.execute(stmt).all()]
 
 
@@ -204,6 +212,7 @@ def _list_evaluations_by_items(
     container: Container,
     item_ids: set[str],
     limit: int,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """按 item_id 集合查评估记录"""
     if not item_ids:
@@ -218,12 +227,12 @@ def _list_evaluations_by_items(
     with container.repo.engine.connect() as conn:
         for i in range(0, len(item_list), batch_size):
             batch = item_list[i:i + batch_size]
-            stmt = (
-                select(EvaluationRow)
-                .where(EvaluationRow.item_id.in_(batch))
-                .order_by(EvaluationRow.created_at.desc())
-                .limit(limit)
-            )
+            stmt = select(EvaluationRow).where(EvaluationRow.item_id.in_(batch))
+            if user_id:
+                # 双保险：item_ids 已经过 user 过滤，这里再按评估行自身归属收一遍，
+                # 防止历史脏数据（评估行 user_id 与 item 不一致）漏进导出
+                stmt = stmt.where(EvaluationRow.user_id == user_id)
+            stmt = stmt.order_by(EvaluationRow.created_at.desc()).limit(limit)
             out.extend(container.repo._row_to_dict(r) for r in conn.execute(stmt).all())
             if len(out) >= limit:
                 out = out[:limit]
