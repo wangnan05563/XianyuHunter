@@ -129,6 +129,9 @@ export interface ChatbotConfig {
   }
   // 欢迎语：M1 引导卡数据源。null/空串 = 使用后端 _DEFAULT_WELCOME_MESSAGE 兜底文案
   welcome_message: string | null
+  // T05209 元数据（后端 GET /config 返回）：保存后必须重启才对运行时生效的键。
+  // 热加载键保存即生效（组件实时读 config 对象）；重启生效键在 diff 弹窗标注「重启生效」。
+  restart_required_keys?: string[]
 }
 
 export interface AuditLog {

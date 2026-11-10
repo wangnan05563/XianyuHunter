@@ -72,8 +72,9 @@ interface ChatbotConfigState {
   hasChanges: () => boolean
   /** dry-run：POST /config/batch dry_run=true，返回 diff 供预览弹窗 */
   previewSave: () => Promise<DiffChange[]>
-  /** 确认保存：dry_run=false 实际落库，成功后 original 前移 */
-  confirmSave: () => Promise<void>
+  /** 确认保存：dry_run=false 实际落库，成功后 original 前移；
+   *  T05209：返回热加载结果供页面提示（reloaded=已实时生效，restartRequired=需重启） */
+  confirmSave: () => Promise<{ reloaded: string[]; restartRequired: string[] }>
 }
 
 // 后端 diffs（op: 'add'|'modify'|'delete'）已与前端 DiffChange 同形，仅做 op 兜底映射
@@ -144,11 +145,16 @@ export const useChatbotConfigStore = create<ChatbotConfigState>((set, get) => ({
 
   confirmSave: async () => {
     const { config } = get()
-    if (!config) return
+    if (!config) return { reloaded: [], restartRequired: [] }
     set({ loading: true, error: null })
     try {
-      await chatbotApi.saveConfig(config, false)
+      const res = await chatbotApi.saveConfig(config, false)
       set({ original: structuredClone(config), loading: false })
+      // T05209：透传后端热加载结果（dry_run=false 响应）；dry-run/旧后端无此字段时兜底空
+      return {
+        reloaded: res?.hot_reload?.reloaded ?? [],
+        restartRequired: res?.hot_reload?.restart_required ?? [],
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '保存客服配置失败'
       set({ error: msg, loading: false })

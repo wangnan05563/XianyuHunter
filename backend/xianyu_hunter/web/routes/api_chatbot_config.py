@@ -115,40 +115,60 @@ def _hash_value(value: str | None) -> str | None:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-# DB 覆盖应用规则表：(db_key, result_path, type_converter)
+# DB 覆盖应用规则表：(db_key, result_path, type_converter, hot_reload)
 # S3776 修复：将 17 个重复 if 分支合并为表驱动遍历，主函数复杂度从 17 降至 ~3
 # type_converter 决定如何把 DB 中的字符串转换为目标类型：
 # - "bool": "true"→True（小写比较）
 # - "int": int()
 # - "float": float()
 # - "str": 原样保留
-_DB_OVERRIDE_RULES: list[tuple[str, str, str]] = [
-    (KEY_ENABLED, "enabled", "bool"),
-    (KEY_MAX_HISTORY_TURNS, "max_history_turns", "int"),
-    (KEY_SESSION_TIMEOUT_MIN, "session_timeout_min", "int"),
-    (KEY_RAG_TOP_K, "rag.top_k", "int"),
-    (KEY_RAG_SIMILARITY_THRESHOLD, "rag.similarity_threshold", "float"),
-    (KEY_RAG_MAX_CONTEXT_CHARS, "rag.max_context_chars", "int"),
-    (KEY_AGENT_ENABLE_TOOLS, "agent.enable_tools", "bool"),
-    (KEY_AGENT_MAX_TOOL_ROUNDS, "agent.max_tool_rounds", "int"),
-    (KEY_AGENT_TOOL_TRIGGER_MODE, "agent.tool_trigger_mode", "str"),
-    (KEY_KB_AUTO_UPDATE_ENABLED, "kb.auto_update_enabled", "bool"),
-    (KEY_KB_UPDATE_INTERVAL_HOURS, "kb.update_interval_hours", "int"),
-    (KEY_FAQ_SIMILARITY_THRESHOLD, "faq.similarity_threshold", "float"),
-    (KEY_FAQ_CONFIRM_THRESHOLD, "faq.confirm_threshold", "float"),
-    (KEY_ESCALATION_CONTACT, "escalation.contact", "str"),
-    (KEY_ESCALATION_FEEDBACK_THRESHOLD, "escalation.feedback_threshold", "int"),
-    (KEY_ESCALATION_FEEDBACK_WINDOW_MIN, "escalation.feedback_window_min", "int"),
-    (KEY_ESCALATION_SANITIZE_PII, "escalation.sanitize_pii", "bool"),
+# hot_reload（T05209，FR-E-2）：该键保存后是否对运行时组件立即生效。
+# 口径 = 组件是否实时读 config 对象（True）vs 构造时固化（False）：
+# - True：RAGEngine/Agent/Orchestrator/ContextManager/FAQMatcher/Escalation
+#         均在每次调用时实时读 self._config.xxx / self._llm_config.xxx，
+#         原地更新 chatbot["config"] 对应字段即可生效；
+# - False：构造时固化的键，热加载只改快照不改行为，必须诚实标重启生效：
+#   * enabled：chatbot 子容器启停在启动时判断（container.py:555）
+#   * session_timeout_min：Escalation.__init__ 拷贝为 self._session_timeout_min
+#   * kb.auto_update_enabled / kb.update_interval_hours：KBRefreshScheduler.start() 固化
+#   * llm.http_timeout_sec：RAGEngine/Agent/IntentClassifier 的 httpx client 构造时固化
+# welcome_message 不在此表：只存 DB，GET /welcome 实时读 DB，天然热，无需应用到 cfg 对象。
+_DB_OVERRIDE_RULES: list[tuple[str, str, str, bool]] = [
+    (KEY_ENABLED, "enabled", "bool", False),
+    (KEY_MAX_HISTORY_TURNS, "max_history_turns", "int", True),
+    (KEY_SESSION_TIMEOUT_MIN, "session_timeout_min", "int", False),
+    (KEY_RAG_TOP_K, "rag.top_k", "int", True),
+    (KEY_RAG_SIMILARITY_THRESHOLD, "rag.similarity_threshold", "float", True),
+    (KEY_RAG_MAX_CONTEXT_CHARS, "rag.max_context_chars", "int", True),
+    (KEY_AGENT_ENABLE_TOOLS, "agent.enable_tools", "bool", True),
+    (KEY_AGENT_MAX_TOOL_ROUNDS, "agent.max_tool_rounds", "int", True),
+    (KEY_AGENT_TOOL_TRIGGER_MODE, "agent.tool_trigger_mode", "str", True),
+    (KEY_KB_AUTO_UPDATE_ENABLED, "kb.auto_update_enabled", "bool", False),
+    (KEY_KB_UPDATE_INTERVAL_HOURS, "kb.update_interval_hours", "int", False),
+    (KEY_FAQ_SIMILARITY_THRESHOLD, "faq.similarity_threshold", "float", True),
+    (KEY_FAQ_CONFIRM_THRESHOLD, "faq.confirm_threshold", "float", True),
+    (KEY_ESCALATION_CONTACT, "escalation.contact", "str", True),
+    (KEY_ESCALATION_FEEDBACK_THRESHOLD, "escalation.feedback_threshold", "int", True),
+    (KEY_ESCALATION_FEEDBACK_WINDOW_MIN, "escalation.feedback_window_min", "int", True),
+    (KEY_ESCALATION_SANITIZE_PII, "escalation.sanitize_pii", "bool", True),
     # T05072：llm.* 六键进 DB 覆盖规则，与白名单对齐——GET /config 才能把
     # 已保存的 LLM 草稿值回读出来，否则写进了 DB 却永远读不回。
-    (KEY_LLM_MODEL, "llm.model", "str"),
-    (KEY_LLM_TEMPERATURE, "llm.temperature", "float"),
-    (KEY_LLM_MAX_TOKENS, "llm.max_tokens", "int"),
-    (KEY_LLM_HTTP_TIMEOUT_SEC, "llm.http_timeout_sec", "int"),
-    (KEY_LLM_FIRST_TOKEN_TIMEOUT_SEC, "llm.first_token_timeout_sec", "int"),
-    (KEY_LLM_VISION_MODEL, "llm.vision_model", "str"),
+    # T05209：http_timeout_sec 构造固化标重启生效，其余五键组件实时读标热加载。
+    (KEY_LLM_MODEL, "llm.model", "str", True),
+    (KEY_LLM_TEMPERATURE, "llm.temperature", "float", True),
+    (KEY_LLM_MAX_TOKENS, "llm.max_tokens", "int", True),
+    (KEY_LLM_HTTP_TIMEOUT_SEC, "llm.http_timeout_sec", "int", False),
+    (KEY_LLM_FIRST_TOKEN_TIMEOUT_SEC, "llm.first_token_timeout_sec", "int", True),
+    (KEY_LLM_VISION_MODEL, "llm.vision_model", "str", True),
 ]
+
+# db_key → 规则 索引（热加载与 restart_required_keys 元数据共用）
+_RULE_BY_KEY: dict[str, tuple[str, str, str, bool]] = {r[0]: r for r in _DB_OVERRIDE_RULES}
+
+
+def _restart_required_keys() -> list[str]:
+    """白名单中保存后必须重启才对运行时生效的键（T05209 元数据，供前端标注）。"""
+    return sorted(key for key, (_p, _c, _h, hot) in _RULE_BY_KEY.items() if not hot)
 
 
 def _convert_db_override(raw: str, conv: str) -> bool | int | float | str:
@@ -164,7 +184,7 @@ def _convert_db_override(raw: str, conv: str) -> bool | int | float | str:
 
 def _apply_db_overrides(result: dict[str, Any], db_overrides: dict[str, str]) -> None:
     """按 _DB_OVERRIDE_RULES 表把 DB 覆盖值写入 result 对应路径。"""
-    for db_key, path, conv in _DB_OVERRIDE_RULES:
+    for db_key, path, conv, _hot in _DB_OVERRIDE_RULES:
         if db_key not in db_overrides:
             continue
         converted = _convert_db_override(db_overrides[db_key], conv)
@@ -184,6 +204,77 @@ def get_config() -> dict[str, Any]:
     """
     chatbot = _get_chatbot_or_403()
     return _merged_config(chatbot)
+
+
+# ============== 运行时热加载（T05209 / FR-E-2） ==============
+
+def _get_nested_attr(root: Any, path: str) -> Any:
+    """按点号路径沿属性链取值（如 "rag.top_k" → root.rag.top_k）。"""
+    obj = root
+    for part in path.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _set_nested_attr(root: Any, path: str, value: Any) -> None:
+    """按点号路径沿属性链赋值（原地更新，组件持引用即可见）。"""
+    parts = path.split(".")
+    obj = root
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], value)
+
+
+def hot_reload_runtime_config(chatbot: dict[str, Any], keys: list[str]) -> dict[str, Any]:
+    """把变更键应用到运行时配置对象（原地更新 chatbot["config"]）。
+
+    数据源：
+    - DB 中存在覆盖值 → 类型转换后 setattr；
+    - DB 中不存在（空串恢复默认已删行）→ 从 chatbot["yaml_baseline"] 读启动基线值回填。
+
+    口径（与 _DB_OVERRIDE_RULES 第 4 列一致）：
+    - hot_reload=True：原地更新 cfg 对应字段——组件实时读 self._config.xxx，立即生效；
+    - hot_reload=False：跳过并归入 restart_required——组件构造时固化，热改快照不改行为；
+    - 不在规则表的键（welcome_message）：只存 DB、GET /welcome 实时读 DB，天然热，无需应用。
+
+    单键失败不中断整体（failed 列表上报），保证保存主流程不受热加载异常拖累。
+    """
+    cfg = chatbot["config"]
+    baseline = chatbot.get("yaml_baseline") or cfg
+    repo = chatbot["repo"]
+    reloaded: list[str] = []
+    restart_required: list[str] = []
+    failed: list[dict[str, str]] = []
+
+    for key in keys:
+        rule = _RULE_BY_KEY.get(key)
+        if rule is None:
+            continue
+        _db_key, path, conv, hot = rule
+        if not hot:
+            restart_required.append(key)
+            continue
+        try:
+            raw = repo.get_config(key)
+            if raw is None:
+                value = _get_nested_attr(baseline, path)
+            else:
+                value = _convert_db_override(raw, conv)
+            _set_nested_attr(cfg, path, value)
+            reloaded.append(key)
+        except Exception as e:  # noqa: BLE001 单键失败不阻断其他键
+            logger.warning(f"热加载失败: key={key} error={e}")
+            failed.append({"key": key, "error": str(e)})
+
+    if reloaded:
+        logger.info(f"配置热加载生效: {reloaded}")
+    if restart_required:
+        logger.info(f"配置已保存，重启后生效: {restart_required}")
+    return {
+        "reloaded": reloaded,
+        "restart_required": restart_required,
+        "failed": failed,
+    }
 
 
 def _merged_config(chatbot: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +309,9 @@ def _merged_config(chatbot: dict[str, Any]) -> dict[str, Any]:
     result["welcome_message"] = db_overrides.get(KEY_WELCOME_MESSAGE)
 
     result["updatable_keys"] = sorted(_UPDATABLE_KEYS)
+    # T05209：重启生效键元数据——前端可据此对这类字段标注「重启生效」，
+    # 避免用户误以为保存即生效（运行时热加载口径见 _DB_OVERRIDE_RULES 第 4 列）
+    result["restart_required_keys"] = _restart_required_keys()
     return result
 
 
@@ -225,11 +319,15 @@ def _merged_config(chatbot: dict[str, Any]) -> dict[str, Any]:
 def update_config(req: ConfigUpdateRequest) -> dict[str, Any]:
     """更新配置（仅热更新字段）
 
-    流程：读旧值 → 写 DB → 写审计日志（仅 hash）→ 返回新旧值。
+    流程：读旧值 → 写 DB → 写审计日志（仅 hash）→ 热加载运行时 → 返回新旧值。
     T05072：保留为兼容入口；新前端统一走 POST /config/batch（dry-run diff 预览 + 批量原子提交）。
+    T05209：落库成功后调用 hot_reload_runtime_config，热加载键立即对运行时生效。
     """
     chatbot = _get_chatbot_or_403()
-    return _apply_single_update(chatbot, req.key, req.value)
+    result = _apply_single_update(chatbot, req.key, req.value)
+    if result.get("changed"):
+        result["hot_reload"] = hot_reload_runtime_config(chatbot, [req.key])
+    return result
 
 
 def _apply_single_update(chatbot: dict[str, Any], key: str, value: str) -> dict[str, Any]:
@@ -307,7 +405,8 @@ def list_audit_logs(
 # ============== 统一保存范式（T05072 / FR-E-4，D-7 裁决：纳入） ==============
 
 # GET /config 响应里的非配置元数据键：不算用户可编辑字段，diff 时必须剔除
-_META_KEYS = frozenset({"updatable_keys"})
+# T05209：restart_required_keys 与 updatable_keys 同属元数据
+_META_KEYS = frozenset({"updatable_keys", "restart_required_keys"})
 
 
 class ConfigBatchRequest(BaseModel):
@@ -380,7 +479,9 @@ def batch_update_config(req: ConfigBatchRequest) -> dict[str, Any]:
     """客服配置批量保存（统一保存范式）
 
     dry_run=true：只返回 diffs，不写库、不写审计（与 /api/config/save 的 dry_run 口径一致）。
-    dry_run=false：对 diff 逐项走 _apply_single_update（写 DB + 审计日志），返回应用结果。
+    dry_run=false：对 diff 逐项走 _apply_single_update（写 DB + 审计日志），返回应用结果；
+    落库成功后统一热加载（T05209）——热加载键立即对运行时组件生效，重启生效键归入
+    hot_reload.restart_required 由前端提示。
     """
     chatbot = _get_chatbot_or_403()
     diffs = _diff_updatable_fields(chatbot, req.config)
@@ -393,7 +494,16 @@ def batch_update_config(req: ConfigBatchRequest) -> dict[str, Any]:
         value_str = _normalize_for_db(_flatten_path(req.config, d["path"]))
         applied.append(_apply_single_update(chatbot, d["path"], value_str))
     changed = sum(1 for r in applied if r.get("changed"))
-    return {"ok": True, "dry_run": False, "diffs": diffs, "applied": applied, "changed": changed}
+    changed_keys = [r["key"] for r in applied if r.get("changed")]
+    hot_reload = hot_reload_runtime_config(chatbot, changed_keys) if changed_keys else None
+    return {
+        "ok": True,
+        "dry_run": False,
+        "diffs": diffs,
+        "applied": applied,
+        "changed": changed,
+        "hot_reload": hot_reload,
+    }
 
 
 # ============== FAQ 管理 ==============

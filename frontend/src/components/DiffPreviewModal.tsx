@@ -32,6 +32,9 @@ interface DiffPreviewModalProps {
   // T05072：参数计算器规则是按主配置（AppConfig）字段写的，客服配置字段不在
   // 规则表里，逐字段校验只会产出无关建议——调用方可关闭。
   readonly showValidation?: boolean
+  // T05209（FR-E-2）：保存后必须重启才对运行时生效的配置键（点号路径）。
+  // 命中的 diff 行在路径列追加「重启生效」标注；不传则无标注（主配置等调用方不受影响）。
+  readonly restartRequiredKeys?: readonly string[]
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }
@@ -89,6 +92,7 @@ export function DiffPreviewModal({
   config,
   loading,
   showValidation = true,
+  restartRequiredKeys,
   onCancel,
   onConfirm,
 }: DiffPreviewModalProps) {
@@ -122,7 +126,24 @@ export function DiffPreviewModal({
         size="small"
         scroll={{ x: 800 }}
         columns={[
-          { title: '路径', dataIndex: 'path', key: 'path', width: 200, fixed: 'left' },
+          {
+            title: '路径',
+            dataIndex: 'path',
+            key: 'path',
+            width: 200,
+            fixed: 'left',
+            // T05209：重启生效键在确认弹窗标注，避免用户误以为保存即生效
+            render: (path: string) => (
+              <>
+                <code style={{ fontSize: 12 }}>{path}</code>
+                {restartRequiredKeys?.includes(path) && (
+                  <Tag color="purple" style={{ marginLeft: 6 }}>
+                    重启生效
+                  </Tag>
+                )}
+              </>
+            ),
+          },
           {
             title: '原值',
             dataIndex: 'old_value',

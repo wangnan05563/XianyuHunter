@@ -191,9 +191,14 @@ export default function ChatbotConfigPage() {
   const handleConfirmSave = async () => {
     try {
       setSaving(true)
-      await confirmSave()
+      // T05209：保存后按热加载结果区分提示——热加载键已实时生效，重启生效键明示延迟
+      const result = await confirmSave()
       setDiffModalOpen(false)
-      message.success('客服配置已保存')
+      if (result.restartRequired.length > 0) {
+        message.success(`客服配置已保存；${result.restartRequired.length} 项需重启应用后才生效`, 6)
+      } else {
+        message.success('客服配置已保存，已实时生效')
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败，请重试', 5)
     } finally {
@@ -771,6 +776,7 @@ export default function ChatbotConfigPage() {
         config={config}
         loading={saving}
         showValidation={false}
+        restartRequiredKeys={config?.restart_required_keys}
         onCancel={() => setDiffModalOpen(false)}
         onConfirm={() => void handleConfirmSave()}
       />

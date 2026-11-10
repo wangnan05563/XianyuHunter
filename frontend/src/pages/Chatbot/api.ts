@@ -99,9 +99,15 @@ export const chatbotApi = {
 
   // T05072 统一保存范式：整份草稿批量提交（dry_run=true 只返回 diff 不落库）。
   // 逐 key updateConfig 保留为兼容入口，新前端统一走此通道。
+  // T05209：dry_run=false 响应含 hot_reload 结果（热加载键已实时生效 / 重启生效键清单）。
   saveConfig: (config: ChatbotConfig, dryRun: boolean) =>
     client
-      .post<{ ok: boolean; dry_run: boolean; diffs: Array<{ path: string; op: string; old: unknown; new: unknown }> }>(
+      .post<{
+        ok: boolean
+        dry_run: boolean
+        diffs: Array<{ path: string; op: string; old: unknown; new: unknown }>
+        hot_reload?: { reloaded: string[]; restart_required: string[]; failed: Array<{ key: string; error: string }> } | null
+      }>(
         `${BASE}/config/batch`,
         { config, dry_run: dryRun },
       )

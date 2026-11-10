@@ -685,6 +685,10 @@ def _build_chatbot_container(container: Container) -> Any:
         )
 
         logger.info("智能客服子容器初始化完成")
+        # T05209（FR-E-2）：yaml 基线快照——热加载「恢复默认」语义的数据源。
+        # 必须在 settings.openai_model 同步之后拷贝（同步值即启动真实基线）；
+        # DB 覆盖行被删除（前端空串提交）时，hot_reload_runtime_config 从这里
+        # 读回启动值回填运行时 cfg，而不是留下上一次热加载的脏值。
         return {
             "repo": chatbot_repo,
             "embedding_service": embedding_service,
@@ -700,6 +704,7 @@ def _build_chatbot_container(container: Container) -> Any:
             "orchestrator": orchestrator,
             "kb_scheduler": kb_scheduler,
             "config": cfg,
+            "yaml_baseline": copy.deepcopy(cfg),
         }
     except Exception as e:
         # ImportError：可选依赖（chromadb/sentence-transformers）缺失是合法状态，降级为 info
