@@ -37,6 +37,7 @@ import {
   QuestionCircleOutlined,
 } from '@ant-design/icons'
 import { authApi } from '../../api'
+import { confirmDanger, COUNT_UNKNOWN } from '../../components/DangerSummary'
 import type { LoginStatus, SavedCookieInfo, CookieImportReceipt } from '../../api/auth'
 import TidalForagers from '../../components/TidalForagers'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -1092,6 +1093,22 @@ export default function Login() {
   // ===== 浏览器导入 =====
   // autoClose: 检测到文件锁定时自动关闭浏览器进程后重试
   const handleImportFromBrowser = async (browser: 'edge' | 'chrome', autoClose: boolean = false) => {
+    // FR-H-1：autoClose 会强杀用户正在运行的浏览器进程，未保存的网页内容
+    // 随进程一起丢失且不可恢复——不能只靠按钮 danger 配色提示，必须二次确认。
+    // 运行中的进程数前端拿不到真实值，按文案规范传 COUNT_UNKNOWN 而非省略。
+    if (autoClose) {
+      const label = browser === 'edge' ? 'Edge' : 'Chrome'
+      const ok = await confirmDanger({
+        title: `确认自动关闭 ${label} 并导入？`,
+        action: `强制结束所有 ${label} 进程，然后读取其本地 Cookie 文件`,
+        scope: `只结束 ${label} 进程并读取本地 Cookie 存储，不改动浏览器配置、书签与已保存密码；`
+          + '正在浏览的网页和未提交的表单内容会随进程一起丢失',
+        count: COUNT_UNKNOWN,
+        recovery: '重新打开浏览器即可继续使用；若 Cookie 文件因未正常退出而损坏，'
+          + '请改用「Cookie 注入」标签页手动粘贴导入',
+      })
+      if (!ok) return
+    }
     setImporting(true)
     setImportResult(null)
     try {
