@@ -97,6 +97,16 @@ export const chatbotApi = {
   updateConfig: (key: string, value: string) =>
     client.put(`${BASE}/config`, { key, value }),
 
+  // T05072 统一保存范式：整份草稿批量提交（dry_run=true 只返回 diff 不落库）。
+  // 逐 key updateConfig 保留为兼容入口，新前端统一走此通道。
+  saveConfig: (config: ChatbotConfig, dryRun: boolean) =>
+    client
+      .post<{ ok: boolean; dry_run: boolean; diffs: Array<{ path: string; op: string; old: unknown; new: unknown }> }>(
+        `${BASE}/config/batch`,
+        { config, dry_run: dryRun },
+      )
+      .then((r) => r.data),
+
   // ============== FAQ ==============
   listFAQ: () => client.get<FAQ[]>(`${BASE}/faq`).then((r) => r.data),
 

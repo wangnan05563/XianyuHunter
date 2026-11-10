@@ -20,7 +20,10 @@ describe('DiffPreviewModal 与 configStore 解耦（D-6）', () => {
   })
 
   it('config 走 props 声明与解构', () => {
-    expect(modal).toMatch(/readonly config: AppConfig \| null/)
+    // T05072：类型从 `AppConfig | null` 放宽为 `object | null`——客服配置
+    // （ChatbotConfig）等非 AppConfig 体系页面也复用本弹窗（D-7 裁决），
+    // 解耦意图不变：config 仍由调用方 props 注入，组件不读 store。
+    expect(modal).toMatch(/readonly config: object \| null/)
     expect(modal).toMatch(/\r?\n  config,\r?\n/)
   })
 

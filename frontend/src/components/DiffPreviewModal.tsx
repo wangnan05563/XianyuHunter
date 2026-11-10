@@ -24,9 +24,14 @@ interface DiffPreviewModalProps {
   // 组件内部不应修改 props：加 readonly 防止意外赋值，符合 React 单向数据流
   readonly open: boolean
   readonly diffChanges: DiffChange[]
-  // D-6：config 由调用方注入，组件不再直连 store
-  readonly config: AppConfig | null
+  // D-6：config 由调用方注入，组件不读 store。
+  // T05072：放宽为 object，让客服配置（ChatbotConfig）等非 AppConfig 体系的
+  // 页面也能复用本弹窗（TS interface 无索引签名，不能赋给 Record<string, unknown>）。
+  readonly config: object | null
   readonly loading: boolean
+  // T05072：参数计算器规则是按主配置（AppConfig）字段写的，客服配置字段不在
+  // 规则表里，逐字段校验只会产出无关建议——调用方可关闭。
+  readonly showValidation?: boolean
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }
@@ -83,13 +88,14 @@ export function DiffPreviewModal({
   diffChanges,
   config,
   loading,
+  showValidation = true,
   onCancel,
   onConfirm,
 }: DiffPreviewModalProps) {
 
   // 展平嵌套配置为扁平 dict，传给参数计算器做规则校验
   // 为什么用 config 而非 diffChanges：config 是完整待保存状态，规则可基于完整配置做交叉校验
-  const validationFields = config
+  const validationFields = config && showValidation
     ? flattenConfig(config as unknown as Record<string, unknown>)
     : {}
 

@@ -19,6 +19,9 @@ const { chatbotMocks } = vi.hoisted(() => ({
 vi.mock('../api', () => ({ chatbotApi: chatbotMocks }))
 
 import ConfigPage from '../Config'
+// T05072：配置草稿收进了全局 chatbotConfigStore，用例之间必须清空，
+// 否则上一用例留下的 config 会让「配置请求失败」用例走不到错误态分支。
+import { useChatbotConfigStore } from '@/stores/chatbotConfigStore'
 
 const ERR = new Error('500')
 
@@ -59,6 +62,7 @@ async function openTab(name: string) {
 
 beforeEach(() => {
   Object.values(chatbotMocks).forEach((m) => m.mockReset())
+  useChatbotConfigStore.setState({ config: null, original: null, loading: false, error: null })
   setAllOk()
 })
 

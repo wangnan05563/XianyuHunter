@@ -7,6 +7,7 @@ import { useSheetSync } from '../../hooks/useSheetSync'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useSheetStore } from '../../stores/sheetStore'
 import { useConfigStore } from '../../stores/configStore'
+import { useChatbotConfigStore } from '../../stores/chatbotConfigStore'
 import {
   collectChangedPaths,
   filterChangedPaths,
@@ -39,6 +40,10 @@ export function SheetWorkspace() {
 
   const config = useConfigStore((s) => s.config)
   const original = useConfigStore((s) => s.original)
+  // T05072：客服配置独立 store，关闭确认的脏判断要把它的草稿算进去
+  const chatbotDirtyCount = useChatbotConfigStore((s) =>
+    s.config && s.original ? s.dirtyPaths().length : 0,
+  )
 
   const [prefOpen, setPrefOpen] = useState(false)
 
@@ -63,9 +68,12 @@ export function SheetWorkspace() {
   const handleClose = (id: string) => {
     const target = sheets.find((s) => s.id === id)
     const scope = target ? scopeForPath(target.path) : null
-    const dirty = scope && config && original
+    const scopeDirty = scope && config && original
       ? filterChangedPaths(collectChangedPaths(config, original), scope)
       : []
+    // T05072：/config/chatbot 的草稿在独立 store 里，不在 CONFIG_SCOPE_BY_ROUTE 内
+    const chatbotDirty = target?.path === '/config/chatbot' ? chatbotDirtyCount : 0
+    const dirty = [...scopeDirty, ...Array.from({ length: chatbotDirty }, () => 'chatbot')]
     const apply = () => {
       if (preferences.minimizeInsteadOfClose) {
         minimizeSheet(id)

@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Tabs, Switch, InputNumber, Input, Slider, Radio, Table, Modal,
-  Card, Tag, message, Space, Typography, List,
+  Card, Tag, message, Space, Typography, List, Alert,
 } from 'antd'
-import { PlusOutlined, DeleteOutlined, RollbackOutlined, HistoryOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, RollbackOutlined, HistoryOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons'
 import { chatbotApi } from './api'
 import { KBStatusCard } from './components/KBStatusCard'
 import { VectorAdminPanel } from './components/VectorAdminPanel'
+import { DiffPreviewModal } from '@/components/DiffPreviewModal'
+import { useChatbotConfigStore } from '@/stores/chatbotConfigStore'
+import type { DiffChange } from '@/stores/configStore'
 import { TipButton } from '@/components/TipButton'
 import FetchFailedHint from '@/components/FetchFailedHint'
 import DataBlock from '@/components/DataBlock'
@@ -26,19 +29,6 @@ const SOURCE_LABELS: Record<ConfigSource, string> = {
   rebuild: '重建记录',
 }
 
-// 按点分路径更新嵌套字段（如 'rag.top_k'），返回新对象保持不可变
-function setNestedField<T>(obj: T, path: string, value: unknown): T {
-  const keys = path.split('.')
-  if (keys.length === 1) {
-    return { ...obj, [keys[0]]: value } as T
-  }
-  const [first, ...rest] = keys
-  return {
-    ...obj,
-    [first]: setNestedField((obj as Record<string, unknown>)[first], rest.join('.'), value),
-  } as T
-}
-
 // 从审计日志中过滤出重建/回滚记录，按时间倒序取前 5 条
 // 后端 audit log 写入时 target 字段格式为 "{vid}|status:{status}|chunks:{n}" 或 "from:{vid}→to:{vid}|..."
 function pickRebuildLogs(logs: AuditLog[]): AuditLog[] {
@@ -48,7 +38,15 @@ function pickRebuildLogs(logs: AuditLog[]): AuditLog[] {
 }
 
 export default function ChatbotConfigPage() {
-  const [config, setConfig] = useState<ChatbotConfig | null>(null)
+  // T05072：配置草稿收进 useChatbotConfigStore（统一保存范式）。
+  // 页级只保留四路只读/动作数据源（kbStatus/kbVersions/faqs/auditLogs）。
+  const config = useChatbotConfigStore((s) => s.config)
+  const update = useChatbotConfigStore((s) => s.update)
+  const dirtyPaths = useChatbotConfigStore((s) => s.dirtyPaths)
+  const resetDraft = useChatbotConfigStore((s) => s.reset)
+  const previewSave = useChatbotConfigStore((s) => s.previewSave)
+  const confirmSave = useChatbotConfigStore((s) => s.confirmSave)
+  const loadConfig = useChatbotConfigStore((s) => s.load)
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null)
   const [kbVersions, setKbVersions] = useState<KBVersion[]>([])
   const [faqs, setFaqs] = useState<FAQ[]>([])
@@ -56,6 +54,10 @@ export default function ChatbotConfigPage() {
   const [loading, setLoading] = useState(false)
   const [faqModalOpen, setFaqModalOpen] = useState(false)
   const [editingFaq, setEditingFaq] = useState<FAQ | null>(null)
+  // 统一保存范式：dry-run 预览弹窗状态（口径同 SearchConfig 等五个配置页）
+  const [saving, setSaving] = useState(false)
+  const [diffChanges, setDiffChanges] = useState<DiffChange[]>([])
+  const [diffModalOpen, setDiffModalOpen] = useState(false)
   const { failed, mark, settle } = useFailedSources<ConfigSource>()
 
   const loadAll = useCallback(async (): Promise<void> => {
@@ -63,17 +65,18 @@ export default function ChatbotConfigPage() {
     // 错误隔离：allSettled 让单个失败不影响其他数据源（否则 chatbot 模块未启用时
     // Promise.all 整体 reject，kbVersions 保持空，看起来"无重建记录"）。
     // T02700：隔离不等于静默 —— 每一路失败都要上账，各区块据此显示错误态而不是空态。
-    const [cfgRes, statusRes, versionsRes, faqRes, auditRes] = await Promise.allSettled([
-      chatbotApi.getConfig(),
+    // 配置路走统一保存 store（T05072）：草稿合并在 store 内完成，失败返回 null 供上账。
+    const cfg = await loadConfig()
+    const [statusRes, versionsRes, faqRes, auditRes] = await Promise.allSettled([
       chatbotApi.getKBStatus(),
       chatbotApi.listKBVersions(),
       chatbotApi.listFAQ(),
       chatbotApi.listAuditLogs(1, 50),
     ])
-    const cfg = settle(cfgRes, 'config')
     if (cfg) {
-      setConfig(cfg)
+      mark('config', true)
     } else {
+      mark('config', false)
       message.error('智能客服模块未启用或加载失败')
     }
     const status = settle(statusRes, 'kbStatus')
@@ -91,7 +94,7 @@ export default function ChatbotConfigPage() {
       mark('rebuild', false)
     }
     setLoading(false)
-  }, [settle, mark])
+  }, [settle, mark, loadConfig])
 
   // T02900：区块级重试。原先每个失败区块的「重试」都指向 loadAll()，一处失败要把五路一起重取：
   // setLoading(true) 让整页骨架屏闪一遍，活动页签之外的区块被顺手重置，
@@ -101,9 +104,8 @@ export default function ChatbotConfigPage() {
     await Promise.all(sources.map(async (source) => {
       switch (source) {
         case 'config': {
-          const r = await Promise.allSettled([chatbotApi.getConfig()])
-          const latest = settle(r[0], 'config')
-          if (latest) setConfig(latest)
+          // T05072：重取配置走统一保存 store（草稿合并防覆盖，与主配置 applyDrafts 同口径）
+          await loadConfig()
           break
         }
         case 'kbStatus': {
@@ -135,7 +137,7 @@ export default function ChatbotConfigPage() {
         }
       }
     }))
-  }, [settle, mark])
+  }, [settle, mark, loadConfig])
 
   useEffect(() => {
     loadAll()
@@ -160,36 +162,51 @@ export default function ChatbotConfigPage() {
     return () => clearInterval(timer)
   }, [kbStatus?.building, reload])
 
-  // 按 key 防抖的 PUT 定时器（H-6/7/8 修复：Slider/Input 高频 onChange 避免洪水 PUT）
-  const updateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-
+  // T05072：草稿更新——只写本地草稿，不再逐字段自动 PUT。
+  // 保存统一走「预览 dry-run diff → 确认落库」通道（下方 handleSave/handleConfirmSave），
+  // 与 SearchConfig 等五个配置页的统一保存范式一致；失败回滚由保存时的后端校验兜底。
   const updateConfig = (key: string, value: string | number | boolean) => {
-    // 即时更新本地状态，避免 Slider 拖动 / Input 输入时 UI 回弹到旧值
-    setConfig(prev => prev ? setNestedField(prev, key, value) : prev)
-    // 同 key 防抖 500ms：连续拖动 / 按键只发一次 PUT
-    if (updateTimersRef.current[key]) {
-      clearTimeout(updateTimersRef.current[key])
-    }
-    updateTimersRef.current[key] = setTimeout(async () => {
-      try {
-        await chatbotApi.updateConfig(key, String(value))
-        message.success('配置已更新')
-      } catch {
-        message.error('更新失败')
-        // 失败时重新加载以回滚本地状态
-        const cfg = await chatbotApi.getConfig()
-        setConfig(cfg)
-      }
-      delete updateTimersRef.current[key]
-    }, 500)
+    update(key, value)
   }
 
-  // 组件卸载时清理防抖定时器，避免内存泄漏与卸载后状态更新
-  useEffect(() => {
-    return () => {
-      Object.values(updateTimersRef.current).forEach(t => clearTimeout(t))
+  // ============== 统一保存范式（T05072 / FR-E-4，D-7 裁决：纳入） ==============
+  const handleSave = async () => {
+    if (!config) return
+    setSaving(true)
+    try {
+      const changes = await previewSave()
+      if (changes.length === 0) {
+        message.info('配置未变更')
+        return
+      }
+      setDiffChanges(changes)
+      setDiffModalOpen(true)
+    } catch {
+      message.error('预览失败，请重试')
+    } finally {
+      setSaving(false)
     }
-  }, [])
+  }
+
+  const handleConfirmSave = async () => {
+    try {
+      setSaving(true)
+      await confirmSave()
+      setDiffModalOpen(false)
+      message.success('客服配置已保存')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '保存失败，请重试', 5)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const dirtyCount = config ? dirtyPaths().length : 0
+
+  const handleReset = () => {
+    resetDraft()
+    message.info('已放弃未保存的改动')
+  }
 
   const handleRebuild = async (force: boolean) => {
     await chatbotApi.rebuildKB(force)
@@ -272,6 +289,32 @@ export default function ChatbotConfigPage() {
 
   return (
     <Card title="智能客服配置">
+      {/* T05072 统一保存范式：页级保存条（口径同 SearchConfig 等配置页）。
+          保存 = dry-run diff 预览 → 确认落库；重置 = 放弃全部草稿。 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          FAQ、知识库重建/回滚、向量库维护、审计日志为即时操作或只读页，不参与配置草稿
+        </Typography.Text>
+        <TipButton
+          tip="放弃全部未保存的配置改动并回滚"
+          icon={<UndoOutlined />}
+          onClick={handleReset}
+          disabled={dirtyCount === 0}
+        >
+          重置
+        </TipButton>
+        <TipButton tip="预览并保存客服配置" type="primary" icon={<SaveOutlined />} onClick={() => void handleSave()} loading={saving}>
+          保存配置
+        </TipButton>
+      </div>
+      {dirtyCount > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`有 ${dirtyCount} 项配置改动尚未保存：保存前仅在本页生效为草稿，刷新或离开页面将丢失`}
+          style={{ marginBottom: 12 }}
+        />
+      )}
       <Tabs
         // 旧入口 /maintenance/vector 会带 ?tab=vector-admin 跳过来（T02577 D-9）
         defaultActiveKey={new URLSearchParams(globalThis.location?.search ?? '').get('tab') ?? 'basic'}
@@ -294,7 +337,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={20}
                     value={config.max_history_turns}
-                    onChange={(v) => v && updateConfig('max_history_turns', v)}
+                    onChange={(v) => v != null && updateConfig('max_history_turns', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -303,7 +346,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={5} max={1440}
                     value={config.session_timeout_min}
-                    onChange={(v) => v && updateConfig('session_timeout_min', v)}
+                    onChange={(v) => v != null && updateConfig('session_timeout_min', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -347,7 +390,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={20}
                     value={config.rag.top_k}
-                    onChange={(v) => v && updateConfig('rag.top_k', v)}
+                    onChange={(v) => v != null && updateConfig('rag.top_k', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -365,7 +408,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={500} max={32000}
                     value={config.rag.max_context_chars}
-                    onChange={(v) => v && updateConfig('rag.max_context_chars', v)}
+                    onChange={(v) => v != null && updateConfig('rag.max_context_chars', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -400,7 +443,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={4096}
                     value={config.llm.max_tokens}
-                    onChange={(v) => v && updateConfig('llm.max_tokens', v)}
+                    onChange={(v) => v != null && updateConfig('llm.max_tokens', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -409,7 +452,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={5} max={120}
                     value={config.llm.http_timeout_sec}
-                    onChange={(v) => v && updateConfig('llm.http_timeout_sec', v)}
+                    onChange={(v) => v != null && updateConfig('llm.http_timeout_sec', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -418,7 +461,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={3} max={60}
                     value={config.llm.first_token_timeout_sec}
-                    onChange={(v) => v && updateConfig('llm.first_token_timeout_sec', v)}
+                    onChange={(v) => v != null && updateConfig('llm.first_token_timeout_sec', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -452,7 +495,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={10}
                     value={config.agent.max_tool_rounds}
-                    onChange={(v) => v && updateConfig('agent.max_tool_rounds', v)}
+                    onChange={(v) => v != null && updateConfig('agent.max_tool_rounds', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -540,7 +583,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={168}
                     value={config.kb.update_interval_hours}
-                    onChange={(v) => v && updateConfig('kb.update_interval_hours', v)}
+                    onChange={(v) => v != null && updateConfig('kb.update_interval_hours', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -651,7 +694,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={1} max={10}
                     value={config.escalation.feedback_threshold}
-                    onChange={(v) => v && updateConfig('escalation.feedback_threshold', v)}
+                    onChange={(v) => v != null && updateConfig('escalation.feedback_threshold', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -660,7 +703,7 @@ export default function ChatbotConfigPage() {
                   <InputNumber
                     min={5} max={1440}
                     value={config.escalation.feedback_window_min}
-                    onChange={(v) => v && updateConfig('escalation.feedback_window_min', v)}
+                    onChange={(v) => v != null && updateConfig('escalation.feedback_window_min', v)}
                     style={{ marginLeft: 16 }}
                   />
                 </div>
@@ -719,6 +762,17 @@ export default function ChatbotConfigPage() {
             ),
           },
         ]}
+      />
+      {/* 统一保存：dry-run diff 预览弹窗（D-6 解耦复用；客服配置字段不在
+          参数计算器规则表内，showValidation=false 避免无关建议） */}
+      <DiffPreviewModal
+        open={diffModalOpen}
+        diffChanges={diffChanges}
+        config={config}
+        loading={saving}
+        showValidation={false}
+        onCancel={() => setDiffModalOpen(false)}
+        onConfirm={() => void handleConfirmSave()}
       />
     </Card>
   )

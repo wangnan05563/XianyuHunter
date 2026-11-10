@@ -41,6 +41,16 @@ KEY_ESCALATION_FEEDBACK_THRESHOLD = "escalation.feedback_threshold"
 KEY_ESCALATION_FEEDBACK_WINDOW_MIN = "escalation.feedback_window_min"
 KEY_ESCALATION_SANITIZE_PII = "escalation.sanitize_pii"
 KEY_WELCOME_MESSAGE = "welcome_message"
+# T05072（FR-E-4）：llm.* 六键补进白名单。
+# 修复既有缺陷：Config.tsx LLM 模型 Tab 一直在调 updateConfig('llm.model', ...)，
+# 但这些 key 不在白名单里，PUT 会被 pydantic 422 拒绝，前端只在 catch 里回滚 UI，
+# 用户改模型名永远不生效且只有一条「更新失败」toast。
+KEY_LLM_MODEL = "llm.model"
+KEY_LLM_TEMPERATURE = "llm.temperature"
+KEY_LLM_MAX_TOKENS = "llm.max_tokens"
+KEY_LLM_HTTP_TIMEOUT_SEC = "llm.http_timeout_sec"
+KEY_LLM_FIRST_TOKEN_TIMEOUT_SEC = "llm.first_token_timeout_sec"
+KEY_LLM_VISION_MODEL = "llm.vision_model"
 
 
 # 支持热更新的配置 key 白名单
@@ -65,6 +75,12 @@ _UPDATABLE_KEYS: set[str] = {
     KEY_ESCALATION_FEEDBACK_WINDOW_MIN,
     KEY_ESCALATION_SANITIZE_PII,
     KEY_WELCOME_MESSAGE,
+    KEY_LLM_MODEL,
+    KEY_LLM_TEMPERATURE,
+    KEY_LLM_MAX_TOKENS,
+    KEY_LLM_HTTP_TIMEOUT_SEC,
+    KEY_LLM_FIRST_TOKEN_TIMEOUT_SEC,
+    KEY_LLM_VISION_MODEL,
 }
 
 
@@ -124,6 +140,14 @@ _DB_OVERRIDE_RULES: list[tuple[str, str, str]] = [
     (KEY_ESCALATION_FEEDBACK_THRESHOLD, "escalation.feedback_threshold", "int"),
     (KEY_ESCALATION_FEEDBACK_WINDOW_MIN, "escalation.feedback_window_min", "int"),
     (KEY_ESCALATION_SANITIZE_PII, "escalation.sanitize_pii", "bool"),
+    # T05072：llm.* 六键进 DB 覆盖规则，与白名单对齐——GET /config 才能把
+    # 已保存的 LLM 草稿值回读出来，否则写进了 DB 却永远读不回。
+    (KEY_LLM_MODEL, "llm.model", "str"),
+    (KEY_LLM_TEMPERATURE, "llm.temperature", "float"),
+    (KEY_LLM_MAX_TOKENS, "llm.max_tokens", "int"),
+    (KEY_LLM_HTTP_TIMEOUT_SEC, "llm.http_timeout_sec", "int"),
+    (KEY_LLM_FIRST_TOKEN_TIMEOUT_SEC, "llm.first_token_timeout_sec", "int"),
+    (KEY_LLM_VISION_MODEL, "llm.vision_model", "str"),
 ]
 
 
@@ -159,6 +183,15 @@ def get_config() -> dict[str, Any]:
     DB 中存在的热更新 key 覆盖 yaml 默认值，未存在的用 yaml 默认值。
     """
     chatbot = _get_chatbot_or_403()
+    return _merged_config(chatbot)
+
+
+def _merged_config(chatbot: dict[str, Any]) -> dict[str, Any]:
+    """构建合并后的配置视图（yaml 基线 + DB 覆盖）。
+
+    T05072：从 get_config 中抽出，供 GET /config 与 POST /config/batch 共用，
+    保证「展示」与「dry-run diff 基线」永远同一份口径。
+    """
     cfg = chatbot["config"]
     db_overrides = chatbot["repo"].get_all_config()
 
@@ -193,18 +226,28 @@ def update_config(req: ConfigUpdateRequest) -> dict[str, Any]:
     """更新配置（仅热更新字段）
 
     流程：读旧值 → 写 DB → 写审计日志（仅 hash）→ 返回新旧值。
+    T05072：保留为兼容入口；新前端统一走 POST /config/batch（dry-run diff 预览 + 批量原子提交）。
     """
     chatbot = _get_chatbot_or_403()
+    return _apply_single_update(chatbot, req.key, req.value)
+
+
+def _apply_single_update(chatbot: dict[str, Any], key: str, value: str) -> dict[str, Any]:
+    """按既有单 key 语义应用一次配置更新（写 DB + 审计日志，仅 hash）。
+
+    从 update_config 中抽出（T05072）：PUT /config 与 POST /config/batch 共用，
+    保证逐 key 兼容入口与批量入口的落库/审计行为完全一致。
+    """
     repo = chatbot["repo"]
 
-    old_value = repo.get_config(req.key)
+    old_value = repo.get_config(key)
     # 跳过未变更的写入，减少审计日志噪音
-    if old_value == req.value:
+    if old_value == value:
         return {
             "ok": True,
-            "key": req.key,
+            "key": key,
             "old_value": old_value,
-            "new_value": req.value,
+            "new_value": value,
             "changed": False,
         }
 
@@ -212,40 +255,40 @@ def update_config(req: ConfigUpdateRequest) -> dict[str, Any]:
     # 的空记录（空记录会被 get_config 当成有效覆盖值返回，污染前端状态）。
     # 仅对非必填的 string 字段启用此短路；其他类型（bool/int/float）传空串
     # 不会走到这里，因为 pydantic ConfigUpdateRequest 会先校验。
-    if req.value == "":
-        deleted = repo.delete_config(req.key)
+    if value == "":
+        deleted = repo.delete_config(key)
         repo.add_audit_log(
             action="delete_config",
-            target=req.key,
+            target=key,
             old_value_hash=_hash_value(old_value),
             new_value_hash=_hash_value(None),
             source="web",
         )
-        logger.info(f"配置已恢复默认: key={req.key} (deleted={deleted})")
+        logger.info(f"配置已恢复默认: key={key} (deleted={deleted})")
         return {
             "ok": True,
-            "key": req.key,
+            "key": key,
             "old_value": old_value,
             "new_value": None,
             "changed": True,
             "deleted": deleted,
         }
 
-    repo.set_config(req.key, req.value)
+    repo.set_config(key, value)
     repo.add_audit_log(
         action="update_config",
-        target=req.key,
+        target=key,
         old_value_hash=_hash_value(old_value),
-        new_value_hash=_hash_value(req.value),
+        new_value_hash=_hash_value(value),
         source="web",
     )
-    logger.info(f"配置更新: key={req.key} old={old_value} new={req.value}")
+    logger.info(f"配置更新: key={key} old={old_value} new={value}")
 
     return {
         "ok": True,
-        "key": req.key,
+        "key": key,
         "old_value": old_value,
-        "new_value": req.value,
+        "new_value": value,
         "changed": True,
     }
 
@@ -259,6 +302,98 @@ def list_audit_logs(
     chatbot = _get_chatbot_or_403()
     items = chatbot["repo"].list_audit_logs(action=action, limit=limit)
     return {"items": items, "total": len(items)}
+
+
+# ============== 统一保存范式（T05072 / FR-E-4，D-7 裁决：纳入） ==============
+
+# GET /config 响应里的非配置元数据键：不算用户可编辑字段，diff 时必须剔除
+_META_KEYS = frozenset({"updatable_keys"})
+
+
+class ConfigBatchRequest(BaseModel):
+    """整份客服配置批量提交（统一保存范式）
+
+    config 与 GET /config 同形（嵌套结构）；后端展平成白名单点号键后做 diff，
+    只处理白名单内的字段差异——前端多带/少带非白名单字段不会造成误写。
+    """
+    config: dict[str, Any] = Field(..., description="整份客服配置（与 GET /config 同形，可不含 updatable_keys）")
+    dry_run: bool = Field(False, description="true=只返回 diff 不写库（预览）")
+
+
+def _flatten_path(obj: Any, path: str) -> Any:
+    """按点号路径取值；路径中断返回 None（视为「未提供该字段」）"""
+    cur = obj
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _normalize_for_db(value: Any) -> str:
+    """把前端提交的 JSON 值归一化为 DB 字符串形式。
+
+    与既有逐 key PUT 的前端行为（String(value)）对齐：
+    bool → 'true'/'false'（小写，_convert_db_override 按 lower()=='true' 读回）；
+    None → ''（恢复默认语义，_apply_single_update 里删除覆盖行）；
+    其余 str()（int/float/str）。
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _diff_updatable_fields(chatbot: dict[str, Any], submitted: dict[str, Any]) -> list[dict[str, Any]]:
+    """白名单口径的 diff：{path, op, old, new}，仅返回有差异的键。
+
+    - current 取 _merged_config（yaml 基线 + DB 覆盖），submitted 为前端草稿；
+    - 非白名单键（含 updatable_keys 元数据、faq CRUD 等结构差异）一律忽略；
+    - submitted 缺字段视作 None：None 与 current 值不同会记 modify（new=null），
+      与 _normalize_for_db(None)→''（恢复默认）语义一致，由前端保证只提交完整草稿。
+    """
+    current = _merged_config(chatbot)
+    diffs: list[dict[str, Any]] = []
+    for key in sorted(_UPDATABLE_KEYS):
+        if key in _META_KEYS:
+            continue
+        old_raw = _flatten_path(current, key)
+        new_raw = _flatten_path(submitted, key)
+        # 统一按 DB 字符串形式比较，避免 int/float/bool 的 JSON 类型噪音
+        old_str = _normalize_for_db(old_raw)
+        new_str = _normalize_for_db(new_raw)
+        if old_str == new_str:
+            continue
+        if new_str == "":
+            op = "delete"
+            new_display: Any = None
+        else:
+            op = "modify" if old_str else "add"
+            new_display = new_raw
+        diffs.append({"path": key, "op": op, "old": old_raw, "new": new_display})
+    return diffs
+
+
+@router.post("/config/batch")
+def batch_update_config(req: ConfigBatchRequest) -> dict[str, Any]:
+    """客服配置批量保存（统一保存范式）
+
+    dry_run=true：只返回 diffs，不写库、不写审计（与 /api/config/save 的 dry_run 口径一致）。
+    dry_run=false：对 diff 逐项走 _apply_single_update（写 DB + 审计日志），返回应用结果。
+    """
+    chatbot = _get_chatbot_or_403()
+    diffs = _diff_updatable_fields(chatbot, req.config)
+
+    if req.dry_run:
+        return {"ok": True, "dry_run": True, "diffs": diffs}
+
+    applied: list[dict[str, Any]] = []
+    for d in diffs:
+        value_str = _normalize_for_db(_flatten_path(req.config, d["path"]))
+        applied.append(_apply_single_update(chatbot, d["path"], value_str))
+    changed = sum(1 for r in applied if r.get("changed"))
+    return {"ok": True, "dry_run": False, "diffs": diffs, "applied": applied, "changed": changed}
 
 
 # ============== FAQ 管理 ==============

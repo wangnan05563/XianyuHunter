@@ -5,6 +5,7 @@ import { LazyErrorBoundary } from '../../utils/lazyRetry'
 import { findSheetMeta } from './sheetRegistry'
 import type { SheetItem } from '../../stores/sheetStore'
 import { useConfigStore } from '../../stores/configStore'
+import { useChatbotConfigStore } from '../../stores/chatbotConfigStore'
 import {
   collectChangedPaths,
   filterChangedPaths,
@@ -38,11 +39,16 @@ function NotFoundSheet({ path }: { readonly path: string }) {
 function SheetDirtyBanner({ path }: { readonly path: string }) {
   const config = useConfigStore((s) => s.config)
   const original = useConfigStore((s) => s.original)
+  // T05072：客服配置是独立 store（不走 CONFIG_SCOPE_BY_ROUTE），单独计入脏数
+  const isChatbotConfig = path === '/config/chatbot'
+  const chatbotDirty = useChatbotConfigStore((s) =>
+    isChatbotConfig && s.config && s.original ? s.dirtyPaths().length : 0,
+  )
   const count = useMemo(() => {
     const scope = scopeForPath(path)
-    if (!scope || !config || !original) return 0
-    return filterChangedPaths(collectChangedPaths(config, original), scope).length
-  }, [path, config, original])
+    if (!scope || !config || !original) return chatbotDirty
+    return filterChangedPaths(collectChangedPaths(config, original), scope).length + chatbotDirty
+  }, [path, config, original, chatbotDirty])
   if (count === 0) return null
   return (
     <Alert
