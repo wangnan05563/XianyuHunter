@@ -86,13 +86,19 @@ export default function MobileAIConfig() {
   }
 
   const testLLM = async (): Promise<void> => {
+    if (!form) return
     setTestingLLM(true)
     try {
-      const res = await aiApi.testConnection()
+      // FR-E-1：直接传表单草稿 dry-run，不再依赖已保存配置；掩码 key 由后端回退真值
+      const res = await aiApi.testConnection({
+        base_url: form.base_url,
+        api_key: form.api_key,
+        model: form.model,
+      })
       if (res.ok) {
         // 将后缀提取为独立变量，避免嵌套模板字符串降低可读性
         const modelSuffix = res.model ? `（${res.model}）` : ''
-        message.success(`连接成功${modelSuffix}`)
+        message.success(`连接成功${modelSuffix}（草稿未保存）`)
       } else {
         message.error(`连接失败：${res.detail || '未知错误'}`, 4)
       }
@@ -104,13 +110,20 @@ export default function MobileAIConfig() {
   }
 
   const testEmbedding = async (): Promise<void> => {
+    if (!form) return
     setTestingEmb(true)
     try {
-      const res = await aiApi.testEmbedding()
+      // FR-E-1：embedding 同样走草稿 dry-run
+      const res = await aiApi.testEmbedding({
+        base_url: form.embedding_base_url,
+        api_key: form.embedding_api_key,
+        model: form.embedding_model,
+        dimensions: form.embedding_dimensions,
+      })
       if (res.ok) {
         // 将维度后缀提取为独立变量，避免嵌套模板字符串降低可读性
         const dimSuffix = res.dimensions ? `（维度 ${res.dimensions}）` : ''
-        message.success(`Embedding 连接成功${dimSuffix}`)
+        message.success(`Embedding 连接成功${dimSuffix}（草稿未保存）`)
       } else {
         message.error(`Embedding 失败：${res.detail || '未知错误'}`, 4)
       }

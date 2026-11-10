@@ -315,7 +315,8 @@ def test_test_embedding_403_only_for_remote(monkeypatch):
     for base_url, expect_blocked in (("https://api.openai.com/v1", True), ("", False)):
         local_calls.clear()
         monkeypatch.setattr(api_ai, "get_settings", lambda b=base_url: SimpleNamespace(
-            ai_enabled=False, embedding_base_url=b, embedding_model="bge-small-zh-v1.5"
+            ai_enabled=False, embedding_base_url=b, embedding_model="bge-small-zh-v1.5",
+            embedding_dimensions=0,
         ))
         if expect_blocked:
             with pytest.raises(CodedHTTPException) as exc:

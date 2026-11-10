@@ -1363,25 +1363,62 @@ def list_models(body: ModelsRequest) -> dict[str, Any]:
     return {"ok": True, "models": models, "base_url": base_url}
 
 
+class AiTestConnectionBody(BaseModel):
+    """FR-E-1：LLM 连通性测试的草稿配置（dry-run）
+
+    前端表单值直接传入测试，不落盘——原先前端「先保存再测试」的 workaround
+    会把测试失败的错误配置也写进服务端。字段缺省时回退服务端已保存配置。
+    """
+
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+
+
+class AiTestEmbeddingBody(BaseModel):
+    """FR-E-1：Embedding 连通性测试的草稿配置（dry-run），语义同 AiTestConnectionBody"""
+
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    dimensions: int | None = None
+
+
+def _draft_or_saved(raw: str | None, saved: str) -> str:
+    """草稿值可用则用草稿，否则回退服务端已保存值
+
+    为什么要回退：GET /config 对 api_key 做脱敏回显（****开头），
+    前端把表单原样传回时带的是掩码值——拿掩码去请求上游必然 401，
+    造成「key 明明是对的却测试失败」的假故障。
+    """
+    raw = (raw or "").strip()
+    return saved if (not raw or raw.startswith("****")) else raw
+
+
 @router.post("/test-connection")
-def test_ai_connection() -> dict[str, Any]:
+def test_ai_connection(body: AiTestConnectionBody | None = None) -> dict[str, Any]:
     """测试 AI 服务连接
 
     发送一个最小化请求验证 API Key 和端点是否可用。
+    请求体可选：传了则用前端表单草稿测试（dry-run 不落盘），不传用已保存配置。
     """
     _check_ai_enabled()
     settings = get_settings()
-    if not settings.openai_api_key:
+    draft = body or AiTestConnectionBody()
+    base_url = (draft.base_url or "").strip() or settings.openai_base_url
+    api_key = _draft_or_saved(draft.api_key, settings.openai_api_key)
+    model = (draft.model or "").strip() or settings.openai_model
+    if not api_key:
         return {"ok": False, "detail": "未配置 API Key"}
 
-    url = settings.openai_base_url.rstrip("/") + CHAT_COMPLETIONS_PATH
+    url = base_url.rstrip("/") + CHAT_COMPLETIONS_PATH
     payload = {
-        "model": settings.openai_model,
+        "model": model,
         "messages": [{"role": "user", "content": "Hi"}],
         "max_tokens": 5,
     }
     headers = {
-        "Authorization": AUTH_BEARER_PREFIX + settings.openai_api_key,
+        "Authorization": AUTH_BEARER_PREFIX + api_key,
         "Content-Type": CONTENT_TYPE_JSON,
     }
     try:
@@ -1395,13 +1432,13 @@ def test_ai_connection() -> dict[str, Any]:
     if r.status_code == 200:
         try:
             data = r.json()
-            model_used = data.get("model", settings.openai_model)
-            # 记录测试连接的用量
-            record_usage("test_connection", settings.openai_model, data)
+            model_used = data.get("model", model)
+            # 记录测试连接的用量（草稿 model 名也如实记录，便于对账）
+            record_usage("test_connection", model, data)
             return {"ok": True, "model": model_used}
         except Exception:
-            record_usage("test_connection", settings.openai_model)
-            return {"ok": True, "model": settings.openai_model}
+            record_usage("test_connection", model)
+            return {"ok": True, "model": model}
     else:
         snippet = r.text[:200]
         return {"ok": False, "detail": f"API 返回 {r.status_code}: {snippet}"}
@@ -1436,23 +1473,19 @@ def _test_local_embedding(model: str) -> dict[str, Any]:
 
 
 def _test_remote_embedding(
-    settings: Any, base_url: str, model: str
+    base_url: str, model: str, api_key: str, dimensions: int
 ) -> dict[str, Any]:
     """远程模式 embedding 连接测试：OpenAI 兼容 /v1/embeddings 协议
 
-    embedding 端点可能与 LLM 端点完全不同（如本地 Ollama），
-    API Key 缺失时先兜底用 openai_api_key，两者都空才报错。
+    改为显式传参（FR-E-1）：草稿测试时 key/dimensions 来自请求体，
+    不能再从全局 settings 读，否则测的又是服务端配置而非表单草稿。
     dimensions=0 时不传该参数：Ollama 等本地模型不接受 dimensions 字段。
     """
-    api_key = settings.embedding_api_key or settings.openai_api_key
-    if not api_key:
-        return {"ok": False, "detail": "未配置 API Key（embedding 与 LLM 均为空）"}
-
     url = base_url.rstrip("/") + "/embeddings"
     payload: dict[str, Any] = {"model": model, "input": "test"}
     # dimensions=0 表示由模型决定（Ollama 等本地模型不接受该参数）
-    if settings.embedding_dimensions > 0:
-        payload["dimensions"] = settings.embedding_dimensions
+    if dimensions > 0:
+        payload["dimensions"] = dimensions
     headers = {
         "Authorization": AUTH_BEARER_PREFIX + api_key,
         "Content-Type": CONTENT_TYPE_JSON,
@@ -1482,18 +1515,24 @@ def _test_remote_embedding(
 
 
 @router.post("/test-embedding")
-def test_embedding_connection() -> dict[str, Any]:
+def test_embedding_connection(body: AiTestEmbeddingBody | None = None) -> dict[str, Any]:
     """测试 Embedding 服务连接
 
     发送一个最小化 embedding 请求验证端点和模型是否可用。
     与 LLM 测试分离：embedding 端点可能完全不同（如本地 Ollama）。
 
     支持两种 backend：
-    - 本地：EMBEDDING_BASE_URL 为空或 "local"，调用 sentence-transformers
+    - 本地：base_url 为空或 "local"，调用 sentence-transformers
     - 远程：OpenAI 兼容 /v1/embeddings 协议
+
+    请求体可选（FR-E-1）：传了则用前端表单草稿测试（dry-run 不落盘）；
+    base_url 显式传空串表示用户切到本地模式，与「未传=沿用服务端」可区分。
     """
     settings = get_settings()
-    base_url = (settings.embedding_base_url or "").strip()
+    if body is not None and body.base_url is not None:
+        base_url = body.base_url.strip()
+    else:
+        base_url = (settings.embedding_base_url or "").strip()
     # T02891 裁决 A：远程 embedding 纳入总开关，与 test-connection 同一条理由硬 403
     # （测一个已经关掉的端点没有意义，返回「连通」会把关掉伪装成可用）。
     # 本地模式（base_url 为空或 local）不产生 token 费用，仍可测试。
@@ -1503,12 +1542,19 @@ def test_embedding_connection() -> dict[str, Any]:
     # 避免硬编码 "text-embedding-3-small" 导致本地模式加载错误模型
     from xianyu_hunter.infra.yaml_config import get_config
     cfg = get_config()
-    model = settings.embedding_model or cfg.kb.embedding_model
+    draft_model = (body.model or "").strip() if body else ""
+    model = draft_model or settings.embedding_model or cfg.kb.embedding_model
+    dimensions = settings.embedding_dimensions if body is None or body.dimensions is None else body.dimensions
     # 本地模式：直接调用 LocalEmbeddingBackend
     if not base_url or base_url.lower() == "local":
         return _test_local_embedding(model)
     # 远程模式：OpenAI 兼容 /v1/embeddings 协议
-    return _test_remote_embedding(settings, base_url, model)
+    # key 兜底链（原 _test_remote_embedding 内逻辑上移）：草稿掩码回显/空 → embedding 配置 → LLM 配置
+    embedding_key = settings.embedding_api_key or settings.openai_api_key
+    api_key = _draft_or_saved(body.api_key if body else None, embedding_key)
+    if not api_key:
+        return {"ok": False, "detail": "未配置 API Key（embedding 与 LLM 均为空）"}
+    return _test_remote_embedding(base_url, model, api_key, dimensions)
 
 
 # ============== 用量统计 API ==============

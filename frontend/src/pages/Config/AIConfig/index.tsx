@@ -169,16 +169,23 @@ export default function AIConfig() {
     }
   }
 
-  // 测试连接：先保存当前配置，再调用测试接口
+  // 测试连接：直接用表单草稿 dry-run（FR-E-1），不再先保存——
+  // 原先「先保存再测试」会把测试失败的错误配置也写进服务端
   const handleTestConnection = async () => {
     setTesting(true)
     setTestResult(null)
     try {
-      // 先保存当前配置，确保测试使用的是最新参数
-      await aiApi.putConfig(config)
-      const data = await aiApi.testConnection()
+      const data = await aiApi.testConnection({
+        base_url: config.base_url,
+        api_key: config.api_key,
+        model: config.model,
+      })
       if (data.ok) {
-        setTestResult({ success: true, text: `连接成功 (${data.model || ''})` })
+        // 明确提示草稿未落盘，避免用户误以为测试通过=已生效
+        setTestResult({
+          success: true,
+          text: `连接成功 (${data.model || ''})——表单值未保存，生效请点「保存配置」`,
+        })
         // 测试成功后刷新用量数据（失败上账，由用量区的错误条提示）
         loadUsage()
       } else {
@@ -212,22 +219,21 @@ export default function AIConfig() {
   }
 
   // 测试 Embedding 连接：独立于 LLM 测试，验证向量端点可用性
+  // FR-E-1：同 LLM 测试改为草稿 dry-run，不隐式保存
   const handleTestEmbeddingConnection = async () => {
     setEmbTesting(true)
     setEmbTestResult(null)
     try {
-      // 先保存当前 embedding 配置，确保测试使用最新参数
-      await aiApi.putConfig({
-        embedding_base_url: config.embedding_base_url,
-        embedding_api_key: config.embedding_api_key,
-        embedding_model: config.embedding_model,
-        embedding_dimensions: config.embedding_dimensions,
+      const data = await aiApi.testEmbedding({
+        base_url: config.embedding_base_url,
+        api_key: config.embedding_api_key,
+        model: config.embedding_model,
+        dimensions: config.embedding_dimensions,
       })
-      const data = await aiApi.testEmbedding()
       if (data.ok) {
         setEmbTestResult({
           success: true,
-          text: `连接成功 (${data.model || ''}, ${data.dimensions || 0} 维)`,
+          text: `连接成功 (${data.model || ''}, ${data.dimensions || 0} 维)——表单值未保存，生效请点「保存配置」`,
         })
       } else {
         setEmbTestResult({ success: false, text: data.detail || '连接失败' })
