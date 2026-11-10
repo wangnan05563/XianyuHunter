@@ -294,6 +294,49 @@ def start_event_bus_in_background(container: Any) -> None:
     _event_bus_task = asyncio.create_task(_bus_loop())
 
 
+# ============== 闲鱼 IM 长连接（T05073 / O-01，L1 骨架） ==============
+# 默认 enabled=false，start_xianyu_im 内部直接跳过，零副作用；
+# 页面轮询是常备降级底座，IM 停止/降级不影响任何现有业务路径。
+_xianyu_im_service: Any | None = None
+
+
+def start_xianyu_im(container: Any) -> None:
+    """启动闲鱼 IM 长连接服务（幂等）。
+
+    必须在 EventBus 启动之后调用：service 的事件发布走
+    container.event_bus.publish_nowait，无消费者的 publish_nowait 会堆积队列。
+    任何启动异常都不影响主启动链路（IM 是增强路径，不是依赖）。
+    """
+    global _xianyu_im_service
+    from loguru import logger
+
+    if _xianyu_im_service is not None:
+        logger.info("闲鱼 IM 服务已在运行，跳过重复启动")
+        return
+    try:
+        from xianyu_hunter.modules.xianyu_im.service import create_service
+
+        service = create_service(container)
+        _xianyu_im_service = service
+        asyncio.get_running_loop().create_task(service.start())
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"闲鱼 IM 服务启动失败（忽略，页面轮询不受影响）: {e}")
+        _xianyu_im_service = None
+
+
+async def stop_xianyu_im() -> None:
+    """停止 IM 长连接（shutdown 链路调用；必须在 EventBus 停止之前）。"""
+    global _xianyu_im_service
+    if _xianyu_im_service is None:
+        return
+    try:
+        await _xianyu_im_service.stop()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"闲鱼 IM 服务停止异常（忽略）: {e}")
+    finally:
+        _xianyu_im_service = None
+
+
 async def start_scheduler_in_background(container: Any) -> None:
     """在 FastAPI 事件循环中启动调度器后台任务
 
@@ -646,6 +689,8 @@ async def _start_all_schedulers(container: Any) -> None:
         # 无消费者。EventBus 与"是否有 RUNNING 任务"解耦，无条件启动
         # start_event_bus_in_background 已改为同步（无 await 的 async 移除以避免 S7503）
         start_event_bus_in_background(container)
+        # 闲鱼 IM 长连接（T05073，默认关闭）：必须排在 EventBus 之后（事件发布依赖消费者）
+        start_xianyu_im(container)
         await start_scheduler_in_background(container)
 
     # 启动 Cookie 定时同步（如果配置启用）
@@ -899,6 +944,9 @@ def setup_startup_hooks(app: FastAPI) -> None:
             with suppress(asyncio.CancelledError):
                 await _scheduler_task
             _scheduler_task = None
+        # 闲鱼 IM 长连接在调度器之后、EventBus 之前停止（事件发布依赖 EventBus 存活）
+        with suppress(Exception):
+            await stop_xianyu_im()
         # EventBus 在调度器之后停止：调度器 stop_all 时可能还会 publish
         # 事件（如任务停止事件），EventBus 需存活到调度器完全停止后才能关闭
         if _event_bus_task and not _event_bus_task.done():

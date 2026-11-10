@@ -60,6 +60,13 @@ class EventType(str, Enum):
     CHATBOT_KB_UPDATED = "chatbot.kb.updated"
     CHATBOT_KB_FAILED = "chatbot.kb.failed"
     CHATBOT_CONFIG_CHANGED = "chatbot.config.changed"
+    # ============== 闲鱼 IM WebSocket（T05073 / O-01）==============
+    # 命名约定：im.<域>.<动作>。连接状态事件低频且具运维价值，经 NotifierHub
+    # 落 events 表后自动进 SSE 时间线；消息级事件不落库（量大，仅进 EventBus）。
+    IM_CONNECTED = "im.connected"
+    IM_DISCONNECTED = "im.disconnected"
+    IM_MESSAGE_RECEIVED = "im.message.received"
+    IM_DEGRADED = "im.degraded"
 
 
 # P3-F-10：事件严重度
@@ -120,6 +127,13 @@ EVENT_SEVERITY.setdefault(EventType.CHATBOT_MESSAGE_SAVED, "info")    # 消息�
 EVENT_SEVERITY.setdefault(EventType.CHATBOT_FAQ_HIT, "info")          # FAQ 命中
 EVENT_SEVERITY.setdefault(EventType.CHATBOT_INTENT_CLASSIFIED, "info")  # 意图分类
 EVENT_SEVERITY.setdefault(EventType.CHATBOT_TOOL_CALLED, "info")      # 工具调用
+
+# ============== 闲鱼 IM WebSocket（T05073）严重度 ==============
+# 降级 = 抢单响应回到 30s+ 轮询，直接影响核心 SLA，必须让用户立即知道
+EVENT_SEVERITY.setdefault(EventType.IM_DEGRADED, "critical")
+EVENT_SEVERITY.setdefault(EventType.IM_DISCONNECTED, "important")   # 重连中，尚未降级
+EVENT_SEVERITY.setdefault(EventType.IM_CONNECTED, "info")           # 恢复在线，仅参考
+EVENT_SEVERITY.setdefault(EventType.IM_MESSAGE_RECEIVED, "info")    # 消息量大，仅参考
 
 
 @dataclass

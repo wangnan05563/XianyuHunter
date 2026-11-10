@@ -551,6 +551,37 @@ class AIBudgetConfig(BaseModel):
     rate_limit_per_min: int = Field(20, ge=0, le=1000, description="每分钟最大调用次数")
 
 
+class XianyuImConfig(BaseModel):
+    """闲鱼 IM WebSocket 长连接配置（T05073 / O-01，L1 骨架）
+
+    设计约束（docs/requirements/闲鱼IM-WebSocket协议评估-20261110.md §7 降级契约）：
+    - enabled 默认 False：未显式开启时行为与当前版本一致（不建连、不占资源）；
+    - 页面轮询是常备降级底座，IM 只是「快路径」，任何情况下不得依赖 IM 才能工作；
+    - 重连指数退避 + 连续失败超阈值即降级，降级后不自动升回（避免抖动放大）。
+    """
+    enabled: bool = Field(False, description="是否启用闲鱼 IM WebSocket 长连接（默认关闭）")
+    heartbeat_interval_sec: int = Field(
+        25, ge=5, le=300,
+        description="心跳间隔（秒）；真实心跳帧由 L2 协议适配器实现，本值作为适配器参数下发",
+    )
+    reconnect_backoff_initial_sec: float = Field(
+        1.0, ge=0.1, le=60.0,
+        description="断线重连的初始退避秒数（指数退避起点）",
+    )
+    reconnect_backoff_max_sec: float = Field(
+        30.0, ge=1.0, le=600.0,
+        description="断线重连的最大退避秒数（指数退避上限）",
+    )
+    reconnect_max_attempts: int = Field(
+        5, ge=1, le=50,
+        description="连续重连失败达到该次数即判定协议失效并降级到页面轮询",
+    )
+    stale_after_sec: int = Field(
+        180, ge=10, le=3600,
+        description="看门狗：超过该秒数未收到任何下行帧即判定连接假死，主动断开重连",
+    )
+
+
 # ============== Cookie 自愈体系配置 ==============
 # 设计文档：docs/plans/cookie-self-healing-optimization.md
 # 统一管理 Cookie 三层架构、续期、跨进程同步等关键参数，替代散落在
@@ -749,6 +780,8 @@ class AppConfig(BaseModel):
     account_rotator: AccountRotatorConfig = AccountRotatorConfig()
     # AI 用量预算（替代 ai_usage.py 内存态 _budget 单例，支持持久化）
     ai_budget: AIBudgetConfig = AIBudgetConfig()
+    # 闲鱼 IM WebSocket 长连接（T05073，默认关闭；页面轮询是常备降级底座）
+    xianyu_im: XianyuImConfig = XianyuImConfig()
     # Cookie 自愈体系（统一管理 75+ cookie 的保留与恢复）
     cookie_management: CookieManagementConfig = CookieManagementConfig()
     token_renewer: TokenRenewerConfig = TokenRenewerConfig()

@@ -96,6 +96,18 @@ ntfy_server: ''        # ntfy 服务器地址（默认 https://ntfy.sh，可自�
 ntfy_topic: ''          # ntfy topic（必填，建议使用不易被猜到的字符串）
 ntfy_token: ''          # ntfy 鉴权 token（可选，自托管或公共实例私有 topic 需要）
 
+# 闲鱼 IM WebSocket 长连接（T05073 / O-01，默认关闭）
+# 页面轮询是常备降级底座：IM 断开或降级不影响任何现有业务路径。
+# 真实协议适配器属 L2 阶段（需授权账号 + 协议资产），开启后若适配器缺失会
+# 自动降级到页面轮询并记录 im.degraded 事件。
+xianyu_im:
+  enabled: false                    # 是否启用 IM 长连接（默认关闭）
+  heartbeat_interval_sec: 25        # 心跳间隔（秒），L2 协议适配器的握手参数
+  reconnect_backoff_initial_sec: 1.0   # 断线重连初始退避（秒，指数退避起点）
+  reconnect_backoff_max_sec: 30.0   # 断线重连最大退避（秒）
+  reconnect_max_attempts: 5         # 连续失败达到该次数即降级到页面轮询（降级后不自动升回）
+  stale_after_sec: 180              # 看门狗：超过该秒数无下行帧判定连接假死，主动重连
+
 # 搜索参数
 search:
   page_size: 20          # 单次搜索返回条目数
