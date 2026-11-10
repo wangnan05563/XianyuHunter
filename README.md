@@ -2,6 +2,7 @@
 
 ![项目预览](assets/github-social-preview.png)
 
+[![CI](https://img.shields.io/github/actions/workflow/status/wangnan05563/XianyuHunter/ci.yml?branch=main&label=CI&link=https://github.com/wangnan05563/XianyuHunter/actions/workflows/ci.yml)](https://github.com/wangnan05563/XianyuHunter/actions/workflows/ci.yml)
 ![backend tests](https://img.shields.io/badge/backend%20tests-2249%20passed-brightgreen)
 ![frontend tests](https://img.shields.io/badge/frontend%20tests-1183%20passed-brightgreen)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -9,6 +10,15 @@
 ![react](https://img.shields.io/badge/React-18.3-61dafb)
 ![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
+
+[![GitHub stars](https://img.shields.io/github/stars/wangnan05563/XianyuHunter?style=social)](https://github.com/wangnan05563/XianyuHunter/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/wangnan05563/XianyuHunter?style=social)](https://github.com/wangnan05563/XianyuHunter/network/members)
+
+[![GitHub tag](https://img.shields.io/github/v/tag/wangnan05563/XianyuHunter)](https://github.com/wangnan05563/XianyuHunter/releases)
+[![GitHub issues](https://img.shields.io/github/issues/wangnan05563/XianyuHunter)](https://github.com/wangnan05563/XianyuHunter/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/wangnan05563/XianyuHunter)](https://github.com/wangnan05563/XianyuHunter/pulls)
+[![GitHub last commit](https://img.shields.io/github/last-commit/wangnan05563/XianyuHunter)](https://github.com/wangnan05563/XianyuHunter/commits/main)
+[![GitHub repo size](https://img.shields.io/github/repo-size/wangnan05563/XianyuHunter)](https://github.com/wangnan05563/XianyuHunter)
 
 闲鱼（[goofish.com](https://www.goofish.com)）自动捡漏与抢单系统（个人辅助）。
 
@@ -323,7 +333,7 @@ CLI / Web (FastAPI)
 ## 目录结构
 
 ```
-17_xianyu/
+XianyuHunter/
 ├── backend/xianyu_hunter/      # Python 后端源码（主包）
 │   ├── domain/                 # 领域模型（item / order / seller / task / events）
 │   ├── infra/                  # 基础设施（db / browser / logger / secrets / repository）
@@ -439,11 +449,46 @@ scripts\构建打包.bat
 
 ## 贡献
 
-欢迎在 [Issues](https://github.com/wangnan05563/XianyuHunter/issues) 反馈问题、提交 Pull Request。提交前请确保：
+欢迎参与 XianyuHunter 的开发！你可以在 [Issues](https://github.com/wangnan05563/XianyuHunter/issues) 反馈问题、在 [Discussions](https://github.com/wangnan05563/XianyuHunter/discussions) 交流想法，或直接提交 [Pull Request](https://github.com/wangnan05563/XianyuHunter/pulls)。
 
-1. 后端测试通过：`python -m pytest tests/`
-2. 前端测试通过：`cd frontend && npm run test`
-3. 前端类型检查与构建无错误：`cd frontend && npm run build`
+### 反馈问题（Issue）
+
+提交 Issue 时建议包含：
+
+- **环境**：Windows 版本、Python 版本、是否使用打包版
+- **复现步骤**：尽量给出可复现的操作序列
+- **预期 / 实际**：期望的行为与实际表现
+- **日志**：`data/logs/*.log` 中的相关片段（请先脱敏账号 / 订单 / 令牌等敏感信息）
+- **截图**：必要时附控制台截图（同样请打码）
+
+### 提交代码（Pull Request）
+
+PR 合并前请确保本地通过以下检查：
+
+```powershell
+# 后端
+$env:PYTHONPATH = "backend"
+python -m pytest tests/ -v
+
+# 前端
+cd frontend
+npm run test
+npm run build
+```
+
+建议：
+
+- 分支从 `main` 切出，命名如 `fix/xxx`、`feat/xxx`
+- 一个 PR 聚焦一件事，描述清楚动机与改动
+- 涉及配置 / 协议的变更请同步更新 `config/*.example.yaml` 与文档
+
+### 安全漏洞披露
+
+请勿在公开 Issue 中披露安全漏洞。请通过 GitHub 的 **Security → Private vulnerability reporting**（私有漏洞上报）功能提交；若未开启该功能，可在 Issues 中创建 issue 后将其转为私密讨论。我们将尽快响应并协调修复与披露时间。
+
+### 行为准则
+
+参与本社区即视为同意：友好、就事论事、尊重不同经验水平的贡献者；不接受骚扰、歧视或攻击性言论。
 
 如果你也在二手平台蹲过心仪的东西，欢迎 Star 与提 Issue，一起把「捡漏」这件事做得更省心。
 
