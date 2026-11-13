@@ -139,6 +139,31 @@ try {
         Write-Host "[build-publish] -SkipBuild 已指定，跳过构建阶段" -ForegroundColor Yellow
     }
 
+    # ---- 1.5) Full 包 Chromium 完整性门禁（T05717）----
+    # bundle_browser=true 时，build-exe.ps1 5.4 节会写入 .xh-full-bundle 标记并校验完整内核。
+    # 这里发布前再确认一次：防止缓存布局变化 / 构建脚本被绕过时把空壳 Full 包发出去。
+    # 用户实机复现过：playwright_browsers 目录存在但内核是 chrome-win64（旧代码只认
+    # chrome-win）→ 离线登录直接失败。校验口径与 infra/browser_kernel.py 保持一致。
+    if ((-not $SkipBuild) -and ((Resolve-BundleBrowser) -eq "-BundleBrowser")) {
+        $pwDist = Join-Path $RepoRoot "release\xianyu-hunter\playwright_browsers"
+        $markerOk = Test-Path -LiteralPath (Join-Path $pwDist ".xh-full-bundle")
+        $fullDirs = Get-ChildItem -LiteralPath $pwDist -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike 'chromium_headless_shell-*' }
+        $exeOk = $false
+        foreach ($d in $fullDirs) {
+            foreach ($rel in @('chrome-win64\chrome.exe', 'chrome-win\chrome.exe',
+                               'chrome-linux64\chrome', 'chrome-linux\chrome')) {
+                if (Test-Path -LiteralPath (Join-Path $d.FullName $rel)) { $exeOk = $true; break }
+            }
+            if ($exeOk) { break }
+        }
+        if (-not ($markerOk -and $exeOk)) {
+            Write-Error "[build-publish] Full 包 Chromium 完整性校验失败：$pwDist 缺少 .xh-full-bundle 标记或完整内核（chromium-*/chrome-win64/chrome.exe）。已中止发布，避免发出无法离线登录的安装包。"
+            exit 1
+        }
+        Write-Host "[build-publish] Full 包 Chromium 完整性校验通过" -ForegroundColor Green
+    }
+
     # ---- 2) 定位产物（优先安装包，缺失则压缩 dir 构建） ----
     $adir = $rel.asset.dir
     $glob = $rel.asset.glob

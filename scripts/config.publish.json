@@ -12,7 +12,7 @@
   },
   "build_pipeline": {
     "embedding_engine": "onnx",
-    "bundle_browser": false,
+    "bundle_browser": true,
     "steps": [
       {
         "name": "Bump build version (pyproject + __init__)",
