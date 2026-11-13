@@ -488,13 +488,29 @@ if (Test-Path "config\menu_registry.yaml") {
 # 缓存到 .cache/playwright_browsers/，复制到 release/xianyu-hunter/playwright_browsers/
 Write-Host "  [5.4] Playwright Chromium..." -ForegroundColor Yellow
 $pwTarget = "release\xianyu-hunter\playwright_browsers"
-# 只认“完整内核” chromium-<rev>/chrome-win/chrome.exe；
-# chromium_headless_shell-* 不算（那是 Lite/headless-shell 用的，且 Full 包会剔除）。
-# 关键：不能用 `chromium-*` 通配，否则缓存里只剩 headless_shell 时会被误判为“有”，
-# 复制后再剔除 headless_shell → 整个 playwright_browsers 是空壳，发出去的 Full 包无法离线登录（T05717）。
+# 只认“完整内核”，且与 infra/browser_kernel.py 的 chromium_executable() 保持同一套布局口径。
+# Playwright 自 chromium-1223 起 Windows 完整内核目录为 chrome-win64/（旧版 chrome-win/）；
+# chromium_headless_shell-* 不算（那是 headless-shell，Full 包会剔除）。
+# 关键：不能只认 chrome-win，也不能用 `chromium-*` 通配——否则新版内核明明完整却被判为缺失，
+# 或缓存只剩 headless_shell 时误判为“有”、复制后剔除 → 发出空壳 Full 包（T05717 复现根因）。
 function Test-FullChromium($base) {
-    if (-not (Test-Path $base)) { return $false }
-    return (Test-Path "$base\chromium-*\chrome-win\chrome.exe")
+    if (-not (Test-Path -LiteralPath $base)) { return $false }
+    $fullDirs = Get-ChildItem -LiteralPath $base -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike 'chromium_headless_shell-*' }
+    foreach ($d in $fullDirs) {
+        foreach ($rel in @('chrome-win64\chrome.exe', 'chrome-win\chrome.exe',
+                           'chrome-linux64\chrome', 'chrome-linux\chrome')) {
+            if (Test-Path -LiteralPath (Join-Path $d.FullName $rel)) { return $true }
+        }
+        # 兜底：未来 Playwright 再改目录名时，扫一层子目录里的 chrome.exe / chrome
+        $fallback = Get-ChildItem -LiteralPath $d.FullName -Directory -ErrorAction SilentlyContinue |
+            Where-Object {
+                (Test-Path -LiteralPath (Join-Path $_.FullName 'chrome.exe')) -or
+                (Test-Path -LiteralPath (Join-Path $_.FullName 'chrome'))
+            } | Select-Object -First 1
+        if ($fallback) { return $true }
+    }
+    return $false
 }
 if (-not $BundleBrowser) {
     # Lite 形态：不随包 Chromium（-415.85MB）。运行时由 infra/browser_kernel.py 依次
@@ -515,7 +531,7 @@ if (-not $BundleBrowser) {
     & .venv-build\Scripts\playwright install chromium
     Remove-Item Env:\PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
     if (-not (Test-FullChromium $pwCacheDir)) {
-        throw "Playwright Chromium 完整内核下载失败（缺少 chromium-*/chrome-win/chrome.exe）。" +
+        throw "Playwright Chromium 完整内核下载失败（缺少 chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe）。" +
               "请检查网络或 .venv-build 的 playwright 版本，Full 安装包不能发出空壳 Chromium。"
     }
     if (Test-Path $pwTarget) { Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue }
@@ -530,13 +546,21 @@ if ($BundleBrowser) {
         ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
     # 复制并剔除后再次确认完整内核存在，防止发出空壳 Full 包（T05717）
     if (-not (Test-FullChromium $pwTarget)) {
-        throw "打包目录 $pwTarget 缺少完整 Chromium（chromium-*/chrome-win/chrome.exe）。" +
+        throw "打包目录 $pwTarget 缺少完整 Chromium（chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe）。" +
               "Full 安装包不完整，终止构建以免发出无法离线登录的安装程序。"
     }
     $fullList = (Get-ChildItem $pwTarget -Directory |
         Where-Object { $_.Name -like 'chromium-*' -and $_.Name -notlike 'chromium_headless_shell-*' } |
         Select-Object -ExpandProperty Name) -join ', '
-    Write-Host "  [OK] 已确认 $pwTarget 含完整 Chromium（$fullList）" -ForegroundColor Green
+    # 显式标记：运行时 is_bundled_build() 据此判定 Full 构建，不依赖“目录是否存在”
+    # （Lite 包经 Inno Setup 排除 playwright_browsers\* 后可能残留空目录）。
+    # 用 .NET 直接写，绕开沙箱 safe-delete 对文件写入的干扰。
+    [System.IO.File]::WriteAllText(
+        (Join-Path $repoRoot "$pwTarget\.xh-full-bundle"),
+        "XianyuHunter Full bundle marker`nchromium_dirs: $fullList`nbuilt_at: $(Get-Date -Format o)`n",
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    Write-Host "  [OK] 已确认 $pwTarget 含完整 Chromium（$fullList），已写入 Full 标记" -ForegroundColor Green
 }
 
 # 5.5 embedding 工件（按引擎分支）

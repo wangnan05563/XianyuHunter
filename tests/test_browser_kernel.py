@@ -13,11 +13,22 @@ import pytest
 from xianyu_hunter.infra import browser_kernel as bk
 
 
-def _fake_chromium(root: Path, rev: int = 1223) -> Path:
+def _fake_chromium(root: Path, rev: int = 1223, layout: str = "chrome-win64") -> Path:
+    """造一个 chromium-<rev> 目录。默认用新版 Playwright 的 chrome-win64 布局
+    （实测 .cache/playwright_browsers/chromium-1223/chrome-win64/chrome.exe）。
+    layout="chrome-win" 模拟旧版，用于兼容回归。
+    """
     d = root / f"chromium-{rev}"
-    (d / "chrome-win").mkdir(parents=True, exist_ok=True)
-    (d / "chrome-win" / "chrome.exe").write_bytes(b"")
+    (d / layout).mkdir(parents=True, exist_ok=True)
+    (d / layout / "chrome.exe").write_bytes(b"")
     return d
+
+
+def _make_full_build_marker(app_dir: Path) -> None:
+    """模拟 build-exe.ps1 5.4 节写入的 Full 包标记。"""
+    pw = app_dir / "playwright_browsers"
+    pw.mkdir(parents=True, exist_ok=True)
+    (pw / bk._BUNDLE_MARKER).write_text("test marker", encoding="utf-8")
 
 
 @pytest.fixture
@@ -66,7 +77,7 @@ def test_auto_falls_back_to_bundled(system_browsers, monkeypatch, tmp_path):
     k = bk.resolve_kernel("auto", allow_download=False)
     assert k.kind == "bundled"
     # 显式 executable_path：下载兜底目录不一定在 Playwright 默认搜索路径里
-    assert k.launch_kwargs() == {"executable_path": str(d / "chrome-win" / "chrome.exe")}
+    assert k.launch_kwargs() == {"executable_path": str(d / "chrome-win64" / "chrome.exe")}
 
 
 def test_auto_downloads_when_nothing_available(system_browsers, monkeypatch, tmp_path):
@@ -205,18 +216,34 @@ def test_is_bundled_build(monkeypatch, tmp_path):
     monkeypatch.setattr(bk.sys, "frozen", False, raising=False)
     assert bk.is_bundled_build() is False
 
-    app_dir = tmp_path / "app"
-    (app_dir / "playwright_browsers").mkdir(parents=True)
     monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+
+    # Full 构建（新包）：构建期显式标记 → True
+    app_dir = tmp_path / "app"
+    _make_full_build_marker(app_dir)
     monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
-    # Full 构建：安装目录存在 playwright_browsers 目录 → 视为随包
     assert bk.is_bundled_build() is True
 
-    # Lite 构建：安装目录无 playwright_browsers → 视为未随包
+    # Full 构建（旧包，无标记）：存在 chromium-* 完整内核子目录 → True
+    app_old = tmp_path / "app_old"
+    _fake_chromium(app_old / "playwright_browsers")
+    assert bk.is_bundled_build(app_old) is True
+
+    # Lite 包：安装目录无 playwright_browsers → False
     app_dir2 = tmp_path / "app2"
     app_dir2.mkdir()
     monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir2)
     assert bk.is_bundled_build() is False
+
+    # Lite 包残留的空目录不能误判为 Full（否则离线会被拦死在完整性错误）
+    app_dir3 = tmp_path / "app3"
+    (app_dir3 / "playwright_browsers").mkdir(parents=True)
+    assert bk.is_bundled_build(app_dir3) is False
+
+    # 只有 headless_shell 也不算随包完整内核
+    app_dir4 = tmp_path / "app4"
+    (app_dir4 / "playwright_browsers" / "chromium_headless_shell-1223").mkdir(parents=True)
+    assert bk.is_bundled_build(app_dir4) is False
 
     # 显式 root 可测，不依赖全局状态
     assert bk.is_bundled_build(tmp_path / "x") is False
@@ -224,10 +251,10 @@ def test_is_bundled_build(monkeypatch, tmp_path):
 
 
 def test_full_build_missing_chromium_reports_integrity_not_download(system_browsers, monkeypatch, tmp_path):
-    # Full 构建：安装目录 playwright_browsers 存在（随包标记），但内核缺失
+    # Full 构建：有随包标记，但内核缺失（例如被安全软件删掉 / 布局不匹配）
     system_browsers["msedge"] = system_browsers["chrome"] = None
     app_dir = tmp_path / "app"
-    (app_dir / "playwright_browsers").mkdir(parents=True)
+    _make_full_build_marker(app_dir)
     monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
     monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
     monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: None)
@@ -243,13 +270,15 @@ def test_full_build_missing_chromium_reports_integrity_not_download(system_brows
     msg = str(ei.value)
     assert "安装包" in msg and ("完整性" in msg or "不完整" in msg)
     assert str(app_dir / "playwright_browsers") in msg
+    # T05717 回归：报错必须自带目录内容，便于用户不重装即可自查
+    assert "实际目录内容" in msg
 
 
 def test_full_build_missing_bundled_policy_reports_integrity(system_browsers, monkeypatch, tmp_path):
     # 显式 browser.system_browser=bundled 的 Full 构建缺失时同样走完整性错误
     system_browsers["msedge"] = system_browsers["chrome"] = None
     app_dir = tmp_path / "app"
-    (app_dir / "playwright_browsers").mkdir(parents=True)
+    _make_full_build_marker(app_dir)
     monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
     monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
     monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: None)
@@ -301,4 +330,81 @@ def test_full_build_present_chromium_returns_bundled(system_browsers, monkeypatc
 
     k = bk.resolve_kernel("auto", allow_download=True)
     assert k.kind == "bundled"
-    assert k.launch_kwargs()["executable_path"] == str(d / "chrome-win" / "chrome.exe")
+    assert k.launch_kwargs()["executable_path"] == str(d / "chrome-win64" / "chrome.exe")
+
+
+# ---------------------------------------------------------------------------
+# T05717 回归根因：Playwright chromium-1223 起 Windows 完整内核目录为 chrome-win64
+# （旧代码只认 chrome-win，导致「内核明明完整随包」却被判为缺失）
+# ---------------------------------------------------------------------------
+
+def test_real_cache_layout_chrome_win64_is_resolved(system_browsers, monkeypatch, tmp_path):
+    """复现用户场景：按 .cache/playwright_browsers 真实结构造目录，必须解析出随包内核。"""
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    pw = tmp_path / "playwright_browsers"
+    # 完整内核：新版布局
+    full = pw / "chromium-1223"
+    (full / "chrome-win64").mkdir(parents=True)
+    (full / "chrome-win64" / "chrome.exe").write_bytes(b"")
+    (full / "INSTALLATION_COMPLETE").write_bytes(b"")
+    # headless_shell 同目录共存（Full 包构建时会剔除，但即便残留也不能被误认）
+    shell = pw / "chromium_headless_shell-1223"
+    (shell / "chrome-headless-shell-win64").mkdir(parents=True)
+    (shell / "chrome-headless-shell-win64" / "chrome-headless-shell.exe").write_bytes(b"")
+    # 其他随包项
+    (pw / "ffmpeg-1011").mkdir()
+    (pw / "winldd-1007").mkdir()
+    (pw / ".links").mkdir()
+
+    monkeypatch.setattr(bk, "browsers_dir", lambda: pw)
+    assert bk.bundled_chromium_dir().name == "chromium-1223"
+    assert bk.chromium_executable(full) == full / "chrome-win64" / "chrome.exe"
+
+    k = bk.resolve_kernel("auto", allow_download=False)
+    assert k.kind == "bundled"
+    assert k.launch_kwargs()["executable_path"] == str(full / "chrome-win64" / "chrome.exe")
+
+
+def test_chromium_executable_supports_both_layouts(tmp_path):
+    """新旧 Playwright 布局都要能定位可执行文件。"""
+    new = _fake_chromium(tmp_path / "new", layout="chrome-win64")
+    old = _fake_chromium(tmp_path / "old", layout="chrome-win")
+    assert bk.chromium_executable(new) == new / "chrome-win64" / "chrome.exe"
+    assert bk.chromium_executable(old) == old / "chrome-win" / "chrome.exe"
+
+
+def test_chromium_executable_fallback_for_unknown_future_layout(tmp_path):
+    """未来 Playwright 再改目录名时，glob 兜底仍能找到 chrome.exe。"""
+    d = tmp_path / "chromium-9999"
+    (d / "chrome-future-win").mkdir(parents=True)
+    (d / "chrome-future-win" / "chrome.exe").write_bytes(b"")
+    assert bk.chromium_executable(d) == d / "chrome-future-win" / "chrome.exe"
+    assert bk.bundled_chromium_dir(tmp_path) == d
+
+
+def test_bundled_dir_ignores_headless_shell_only(tmp_path):
+    """只有 headless_shell 不算完整内核，不能被误判为随包可用。"""
+    shell = tmp_path / "chromium_headless_shell-1223"
+    (shell / "chrome-headless-shell-win64").mkdir(parents=True)
+    (shell / "chrome-headless-shell-win64" / "chrome-headless-shell.exe").write_bytes(b"")
+    assert bk.bundled_chromium_dir(tmp_path) is None
+    assert bk.chromium_executable(shell) is None
+
+
+def test_bundled_dir_mixed_layouts_picks_highest_revision(tmp_path):
+    """多版本 + 混合布局时按 revision 倒序，且跳过不完整的高版本。"""
+    _fake_chromium(tmp_path, rev=1187, layout="chrome-win")           # 旧布局
+    _fake_chromium(tmp_path, rev=1223, layout="chrome-win64")         # 新布局，应命中
+    (tmp_path / "chromium-1300").mkdir()                              # 更高 rev 但不完整
+    assert bk.bundled_chromium_dir(tmp_path).name == "chromium-1223"
+
+
+def test_describe_kernel_exposes_executable_and_dir_contents(system_browsers, monkeypatch, tmp_path):
+    """诊断接口要能回答「包里到底有什么、可执行文件路径是什么」。"""
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    d = _fake_chromium(tmp_path)
+    monkeypatch.setattr(bk, "browsers_dir", lambda: tmp_path)
+    info = bk.describe_kernel("auto")
+    assert info["active"] == "bundled"
+    assert info["bundled_executable"] == str(d / "chrome-win64" / "chrome.exe")
+    assert "chromium-1223" in info["browsers_dir_contents"]

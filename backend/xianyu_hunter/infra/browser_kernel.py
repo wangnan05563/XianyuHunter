@@ -8,6 +8,10 @@
 解析顺序（auto）：msedge → chrome → 随包 chromium → 下载兜底。
 Lite 安装包不随包 Chromium，前两级命中系统浏览器；都不命中且允许下载时，
 把 Chromium 装到可写的用户目录（PLAYWRIGHT_BROWSERS_PATH）。
+
+内核布局兼容（T05717）：Playwright 自 chromium-1223 起 Windows 完整内核目录为
+chrome-win64/（旧版为 chrome-win/）。所有「判定存在 / 生成启动路径」统一经由
+chromium_executable()，绝不硬编码单一目录名，否则随包内核明明完整却会被判为缺失。
 """
 from __future__ import annotations
 
@@ -144,11 +148,48 @@ def browsers_dir() -> Path:
     return Path.home() / "AppData" / "Local" / "ms-playwright"
 
 
+# Full 包构建期写入的显式标记（build-exe.ps1 5.4 节）。比“目录是否存在”可靠：
+# Lite 包经 Inno Setup 排除 playwright_browsers\* 后可能残留空目录，不能据此误判为 Full。
+_BUNDLE_MARKER = ".xh-full-bundle"
+
+# 完整 Chromium 可执行文件在 chromium-<rev>/ 下的候选布局。
+# Playwright 自 chromium-1223 起在 Windows 上把目录从 chrome-win 改为 chrome-win64
+# （实测 .cache/playwright_browsers/chromium-1223/chrome-win64/chrome.exe）。
+# 只认 chrome-win 会让「内核明明完整随包」被判为缺失——T05717 复现的真正根因。
+# 列表覆盖新旧 Windows 布局与常见跨平台布局，末尾另有 glob 兜底未来再次改名。
+_CHROMIUM_EXE_SUBDIRS = (
+    ("chrome-win64", "chrome.exe"),
+    ("chrome-win", "chrome.exe"),
+    ("chrome-linux64", "chrome"),
+    ("chrome-linux", "chrome"),
+)
+
+
+def chromium_executable(chromium_dir: Path) -> Path | None:
+    """返回 chromium-<rev> 目录下完整内核的可执行文件路径；找不到返回 None。
+
+    单一真相源：bundled_chromium_dir（判定内核是否存在）与 _bundled_kernel
+    （给出 executable_path）都必须经此解析，杜绝「判定有、启动路径却算错」。
+    headless-shell 的可执行文件名是 chrome-headless-shell.exe，不匹配 chrome.exe，
+    因此天然不会被误认作完整内核。
+    """
+    for subdir, exe_name in _CHROMIUM_EXE_SUBDIRS:
+        exe = chromium_dir / subdir / exe_name
+        if exe.is_file():
+            return exe
+    # 兜底：未来 Playwright 再改目录名时，扫描一层子目录内的 chrome.exe / chrome
+    for pattern in ("*/chrome.exe", "*/chrome"):
+        for exe in sorted(chromium_dir.glob(pattern)):
+            if exe.is_file():
+                return exe
+    return None
+
+
 def is_bundled_build(root: Path | None = None) -> bool:
     """判断当前运行的是否为随包 Chromium 的 Full 构建（T05717）。
 
-    Full 构建会把 playwright_browsers/ 打进安装目录；Lite 构建不会。
-    判据：打包模式下安装目录是否存在 playwright_browsers/ 目录。
+    判据优先级：① 构建期写入的显式标记（最可靠）；② 兼容旧包：目录内存在
+    chromium-* 完整内核子目录。纯空目录视为 Lite 包残留，不算 Full。
     dev 模式（非 frozen）永远返回 False，走普通解析链（含下载兜底）。
     """
     if not getattr(sys, "frozen", False):
@@ -157,11 +198,24 @@ def is_bundled_build(root: Path | None = None) -> bool:
         from xianyu_hunter.paths import get_app_dir
 
         root = get_app_dir()
-    return (root / "playwright_browsers").is_dir()
+    pw = root / "playwright_browsers"
+    if not pw.is_dir():
+        return False
+    if (pw / _BUNDLE_MARKER).is_file():
+        return True
+    try:
+        return any(
+            d.is_dir()
+            and d.name.startswith("chromium-")
+            and not d.name.startswith("chromium_headless_shell-")
+            for d in pw.iterdir()
+        )
+    except OSError:
+        return False
 
 
 def bundled_chromium_dir(root: Path | None = None) -> Path | None:
-    """返回可用的 chromium-<rev> 目录；不存在返回 None。"""
+    """返回可用的 chromium-<rev> 目录（含完整内核）；不存在返回 None。"""
     root = root or browsers_dir()
     if not root.is_dir():
         return None
@@ -174,7 +228,10 @@ def bundled_chromium_dir(root: Path | None = None) -> Path | None:
 
     # 按 revision 数值倒序（字符串序会把 chromium-999 排到 chromium-1223 前面）
     for d in sorted(root.glob("chromium-*"), key=lambda p: _rev(p.name), reverse=True):
-        if d.is_dir() and (d / "chrome-win" / "chrome.exe").is_file():
+        # chromium_headless_shell-<rev> 同样匹配 glob，显式排除
+        if not d.is_dir() or d.name.startswith("chromium_headless_shell-"):
+            continue
+        if chromium_executable(d) is not None:
             return d
     return None
 
@@ -195,12 +252,17 @@ def _bundled_kernel(source: str = "bundled") -> BrowserKernel | None:
     d = bundled_chromium_dir()
     if not d:
         return None
+    # 与 bundled_chromium_dir 共用 chromium_executable()：新版 chrome-win64 /
+    # 旧版 chrome-win 都能拿到正确的启动路径，不再硬编码单一布局。
+    exe = chromium_executable(d)
+    if not exe:
+        return None
     # 显式给 executable_path：下载兜底装到的目录未必等于 Playwright 默认搜索路径，
     # 只靠 PLAYWRIGHT_BROWSERS_PATH 环境变量在进程间传递容易漏（脚本/子进程）。
     return BrowserKernel(
         kind="bundled",
         source=source,
-        executable_path=str(d / "chrome-win" / "chrome.exe"),
+        executable_path=str(exe),
     )
 
 
@@ -265,18 +327,34 @@ def _bundled_missing_error() -> BrowserKernelUnavailable:
     )
 
 
+def _describe_browsers_tree(root: Path) -> str:
+    """把浏览器目录的实际内容压成一行诊断文本，便于用户/支持直接贴出来定位。"""
+    if not root.is_dir():
+        return "（目录不存在）"
+    try:
+        names = sorted(p.name for p in root.iterdir())
+    except OSError as e:
+        return f"（目录不可读：{e}）"
+    if not names:
+        return "（目录为空）"
+    return ", ".join(names[:12]) + (" ..." if len(names) > 12 else "")
+
+
 def _bundled_integrity_error() -> BrowserKernelUnavailable:
     """Full 构建随包 Chromium 缺失（T05717）。
 
-    这是安装包损坏或误装 -Lite 版本的表现，离线环境无法自动修复，
+    这是安装包损坏、误装 -Lite 版本或内核布局不匹配的表现，离线环境无法自动修复，
     必须提示用户检查安装包完整性，而不是退化为“联网下载”（下载在离线/
     无权限的 Program Files 目录下本就会失败，只会甩出更难懂的报错）。
     """
     dest = browsers_dir()
     return BrowserKernelUnavailable(
-        "安装包内的 Chromium 不完整或缺失（安装目录 playwright_browsers 存在，但找不到可用的 "
-        "chromium-*/chrome-win/chrome.exe）。这是安装包损坏或误装了 -Lite 版本导致的，"
-        "离线环境无法自动修复。请：① 重新运行官方完整版安装程序（非 -Lite）；"
+        "安装包内的 Chromium 不完整或缺失：在 "
+        f"{dest} 未找到可用的完整内核（期望 chromium-*/chrome-win64/chrome.exe "
+        "或 chromium-*/chrome-win/chrome.exe）。"
+        f"\n实际目录内容：{_describe_browsers_tree(dest)}"
+        "\n这通常是安装包损坏或误装了 -Lite 版本，离线环境无法自动修复。请："
+        "① 重新运行官方完整版安装程序（非 -Lite）；"
         f"② 或手动把完整 Chromium 放到 {dest}；"
         "③ 若本机有网络，可执行 `playwright install chromium` 拉取后重启程序。"
     )
@@ -289,8 +367,8 @@ def _download_and_resolve() -> BrowserKernel:
     if not k:
         raise BrowserKernelUnavailable(
             "已执行 Playwright Chromium 安装，但未在 "
-            f"{dest} 找到 chromium-*。请检查网络后重试，或手动执行："
-            "playwright install chromium"
+            f"{dest} 找到可用的完整内核。实际目录内容：{_describe_browsers_tree(dest)}"
+            "\n请检查网络后重试，或手动执行：playwright install chromium"
         )
     return k
 
@@ -361,6 +439,7 @@ def describe_kernel(policy: str | None = None) -> dict:
         active, source = "download-on-first-use", ""
     else:
         active, source = "unavailable", ""
+    exe = chromium_executable(bundled) if bundled else None
     return {
         "policy": policy,
         "active": active,
@@ -368,5 +447,8 @@ def describe_kernel(policy: str | None = None) -> dict:
         "system_edge": edge or "",
         "system_chrome": chrome or "",
         "bundled_chromium": str(bundled) if bundled else "",
+        "bundled_executable": str(exe) if exe else "",
         "browsers_dir": str(browsers_dir()),
+        # T05717：把实际目录内容带出来，离线登录失败时无需重装即可自查
+        "browsers_dir_contents": _describe_browsers_tree(browsers_dir()),
     }
