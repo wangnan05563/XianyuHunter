@@ -194,3 +194,111 @@ def test_frozen_driver_missing_raises_instead_of_recursing(monkeypatch, tmp_path
     with pytest.raises(bk.BrowserKernelUnavailable) as ei:
         bk._driver_cli()
     assert "Playwright 驱动" in str(ei.value)
+
+
+# ---------------------------------------------------------------------------
+# T05717：Full 构建随包 Chromium 缺失必须报“安装包不完整”，而非退化为联网下载
+# ---------------------------------------------------------------------------
+
+def test_is_bundled_build(monkeypatch, tmp_path):
+    # 非 frozen：永远 False（dev 模式走普通解析链）
+    monkeypatch.setattr(bk.sys, "frozen", False, raising=False)
+    assert bk.is_bundled_build() is False
+
+    app_dir = tmp_path / "app"
+    (app_dir / "playwright_browsers").mkdir(parents=True)
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    # Full 构建：安装目录存在 playwright_browsers 目录 → 视为随包
+    assert bk.is_bundled_build() is True
+
+    # Lite 构建：安装目录无 playwright_browsers → 视为未随包
+    app_dir2 = tmp_path / "app2"
+    app_dir2.mkdir()
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir2)
+    assert bk.is_bundled_build() is False
+
+    # 显式 root 可测，不依赖全局状态
+    assert bk.is_bundled_build(tmp_path / "x") is False
+    assert bk.is_bundled_build(app_dir) is True
+
+
+def test_full_build_missing_chromium_reports_integrity_not_download(system_browsers, monkeypatch, tmp_path):
+    # Full 构建：安装目录 playwright_browsers 存在（随包标记），但内核缺失
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    app_dir = tmp_path / "app"
+    (app_dir / "playwright_browsers").mkdir(parents=True)
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: None)
+    monkeypatch.setattr(bk, "browsers_dir", lambda: app_dir / "playwright_browsers")
+
+    calls = []
+    monkeypatch.setattr(bk, "_install_chromium", lambda dest: calls.append(dest))
+
+    with pytest.raises(bk.BrowserKernelUnavailable) as ei:
+        bk.resolve_kernel("auto", allow_download=True)
+    # 关键：Full 构建缺失 chromium 绝不应触发联网下载
+    assert not calls, "Full 构建缺失 chromium 不应触发下载"
+    msg = str(ei.value)
+    assert "安装包" in msg and ("完整性" in msg or "不完整" in msg)
+    assert str(app_dir / "playwright_browsers") in msg
+
+
+def test_full_build_missing_bundled_policy_reports_integrity(system_browsers, monkeypatch, tmp_path):
+    # 显式 browser.system_browser=bundled 的 Full 构建缺失时同样走完整性错误
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    app_dir = tmp_path / "app"
+    (app_dir / "playwright_browsers").mkdir(parents=True)
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: None)
+    monkeypatch.setattr(bk, "browsers_dir", lambda: app_dir / "playwright_browsers")
+    monkeypatch.setattr(bk, "_install_chromium", lambda dest: None)  # 若被调用会静默无操作
+
+    with pytest.raises(bk.BrowserKernelUnavailable) as ei:
+        bk.resolve_kernel("bundled", allow_download=True)
+    assert "安装包" in str(ei.value)
+
+
+def test_lite_build_missing_chromium_downloads(system_browsers, monkeypatch, tmp_path):
+    # Lite 构建：安装目录无 playwright_browsers → 视为 Lite，缺失时走下载兜底
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    # 下载后用真实扫描逻辑确认浏览器落地（而非永远返回 None，否则会误报“下载后找不到”）
+    monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: bk._real_bundled_dir(root))
+
+    dl_root = tmp_path / "appdata" / "playwright_browsers"
+    dl_root.mkdir(parents=True)
+    monkeypatch.setattr(bk, "browsers_dir", lambda: dl_root)
+
+    calls = []
+    def fake_install(dest: Path) -> None:
+        calls.append(dest)
+        _fake_chromium(dest)
+
+    monkeypatch.setattr(bk, "_install_chromium", fake_install)
+    k = bk.resolve_kernel("auto", allow_download=True)
+    # 下载兜底仍然生效（Lite 包本就不随 Chromium）
+    assert calls == [dl_root]
+    assert k.kind == "bundled"
+    assert k.source == "downloaded"
+
+
+def test_full_build_present_chromium_returns_bundled(system_browsers, monkeypatch, tmp_path):
+    # Full 构建随包内核完整 → 直接返回 bundled，不触发下载
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    app_dir = tmp_path / "app"
+    (app_dir / "playwright_browsers").mkdir(parents=True)
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    d = _fake_chromium(app_dir / "playwright_browsers")
+    monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: d)
+    monkeypatch.setattr(bk, "_install_chromium", lambda dest: None)
+
+    k = bk.resolve_kernel("auto", allow_download=True)
+    assert k.kind == "bundled"
+    assert k.launch_kwargs()["executable_path"] == str(d / "chrome-win" / "chrome.exe")

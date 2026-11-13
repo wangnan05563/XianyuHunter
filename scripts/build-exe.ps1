@@ -488,6 +488,14 @@ if (Test-Path "config\menu_registry.yaml") {
 # 缓存到 .cache/playwright_browsers/，复制到 release/xianyu-hunter/playwright_browsers/
 Write-Host "  [5.4] Playwright Chromium..." -ForegroundColor Yellow
 $pwTarget = "release\xianyu-hunter\playwright_browsers"
+# 只认“完整内核” chromium-<rev>/chrome-win/chrome.exe；
+# chromium_headless_shell-* 不算（那是 Lite/headless-shell 用的，且 Full 包会剔除）。
+# 关键：不能用 `chromium-*` 通配，否则缓存里只剩 headless_shell 时会被误判为“有”，
+# 复制后再剔除 headless_shell → 整个 playwright_browsers 是空壳，发出去的 Full 包无法离线登录（T05717）。
+function Test-FullChromium($base) {
+    if (-not (Test-Path $base)) { return $false }
+    return (Test-Path "$base\chromium-*\chrome-win\chrome.exe")
+}
 if (-not $BundleBrowser) {
     # Lite 形态：不随包 Chromium（-415.85MB）。运行时由 infra/browser_kernel.py 依次
     # 解析系统 Edge → 系统 Chrome → 随包 Chromium → 首启下载。
@@ -496,23 +504,23 @@ if (-not $BundleBrowser) {
         Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue
     }
     Write-Host "  Lite 形态：跳过随包 Chromium（运行时复用系统 Edge/Chrome，缺失则首启下载）" -ForegroundColor Cyan
-} elseif (Test-Path "$pwCacheDir\chromium-*") {
-    Write-Host "  从缓存复制 Chromium...（约 10-30 秒）"
+} elseif (Test-FullChromium $pwCacheDir) {
+    Write-Host "  从缓存复制完整 Chromium...（约 10-30 秒）"
+    if (Test-Path $pwTarget) { Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue }
     Copy-Item -Recurse -Force $pwCacheDir $pwTarget
     Write-Host "  Chromium 已从缓存复制到 $pwTarget"
 } else {
-    Write-Host "  缓存不存在，下载 Chromium...（下载约 150MB）"
+    Write-Host "  缓存无完整 Chromium，下载 Chromium...（下载约 150MB）"
     $env:PLAYWRIGHT_BROWSERS_PATH = $pwCacheDir
     & .venv-build\Scripts\playwright install chromium
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [WARN] Playwright Chromium 安装失败" -ForegroundColor Red
-    } else {
-        Write-Host "  Chromium 已下载到缓存 $pwCacheDir"
-        # 复制到 dist
-        Copy-Item -Recurse -Force $pwCacheDir $pwTarget
-        Write-Host "  Chromium 已复制到 $pwTarget"
-    }
     Remove-Item Env:\PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
+    if (-not (Test-FullChromium $pwCacheDir)) {
+        throw "Playwright Chromium 完整内核下载失败（缺少 chromium-*/chrome-win/chrome.exe）。" +
+              "请检查网络或 .venv-build 的 playwright 版本，Full 安装包不能发出空壳 Chromium。"
+    }
+    if (Test-Path $pwTarget) { Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue }
+    Copy-Item -Recurse -Force $pwCacheDir $pwTarget
+    Write-Host "  Chromium 已复制到 $pwTarget"
 }
 if ($BundleBrowser) {
     # P1 瘦身：只保留完整 Chromium，剔除 chromium_headless_shell-*（约 -267MB）。
@@ -520,6 +528,15 @@ if ($BundleBrowser) {
     # 增量打包时目标目录可能残留旧版本，故复制后统一清理（幂等）。
     Get-ChildItem "$pwTarget" -Directory -Filter "chromium_headless_shell-*" -ErrorAction SilentlyContinue |
         ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
+    # 复制并剔除后再次确认完整内核存在，防止发出空壳 Full 包（T05717）
+    if (-not (Test-FullChromium $pwTarget)) {
+        throw "打包目录 $pwTarget 缺少完整 Chromium（chromium-*/chrome-win/chrome.exe）。" +
+              "Full 安装包不完整，终止构建以免发出无法离线登录的安装程序。"
+    }
+    $fullList = (Get-ChildItem $pwTarget -Directory |
+        Where-Object { $_.Name -like 'chromium-*' -and $_.Name -notlike 'chromium_headless_shell-*' } |
+        Select-Object -ExpandProperty Name) -join ', '
+    Write-Host "  [OK] 已确认 $pwTarget 含完整 Chromium（$fullList）" -ForegroundColor Green
 }
 
 # 5.5 embedding 工件（按引擎分支）

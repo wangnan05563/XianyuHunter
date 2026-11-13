@@ -144,6 +144,22 @@ def browsers_dir() -> Path:
     return Path.home() / "AppData" / "Local" / "ms-playwright"
 
 
+def is_bundled_build(root: Path | None = None) -> bool:
+    """判断当前运行的是否为随包 Chromium 的 Full 构建（T05717）。
+
+    Full 构建会把 playwright_browsers/ 打进安装目录；Lite 构建不会。
+    判据：打包模式下安装目录是否存在 playwright_browsers/ 目录。
+    dev 模式（非 frozen）永远返回 False，走普通解析链（含下载兜底）。
+    """
+    if not getattr(sys, "frozen", False):
+        return False
+    if root is None:
+        from xianyu_hunter.paths import get_app_dir
+
+        root = get_app_dir()
+    return (root / "playwright_browsers").is_dir()
+
+
 def bundled_chromium_dir(root: Path | None = None) -> Path | None:
     """返回可用的 chromium-<rev> 目录；不存在返回 None。"""
     root = root or browsers_dir()
@@ -215,6 +231,10 @@ def resolve_kernel(policy: str | None = None, allow_download: bool | None = None
         k = _bundled_kernel()
         if k:
             return k
+        # Full 构建随包 Chromium 缺失 = 安装包损坏 / 误装 -Lite，离线无法自修，
+        # 不应再尝试联网下载（T05717：移除“缺失即下载”的强依赖，改为提示检查安装包完整性）。
+        if is_bundled_build():
+            raise _bundled_integrity_error()
         if allow_download:
             return _download_and_resolve()
         raise _bundled_missing_error()
@@ -227,6 +247,9 @@ def resolve_kernel(policy: str | None = None, allow_download: bool | None = None
     k = _bundled_kernel()
     if k:
         return k
+    # 同上：Full 构建随包 Chromium 缺失必须明确报“安装包不完整”，而非静默转下载
+    if is_bundled_build():
+        raise _bundled_integrity_error()
     if allow_download:
         return _download_and_resolve()
     raise _bundled_missing_error()
@@ -239,6 +262,23 @@ def _bundled_missing_error() -> BrowserKernelUnavailable:
         "解决①安装 Edge 或 Chrome；②开启 browser.allow_browser_download 后重启，"
         "程序会自动下载 Chromium 到 "
         f"{browsers_dir()}。"
+    )
+
+
+def _bundled_integrity_error() -> BrowserKernelUnavailable:
+    """Full 构建随包 Chromium 缺失（T05717）。
+
+    这是安装包损坏或误装 -Lite 版本的表现，离线环境无法自动修复，
+    必须提示用户检查安装包完整性，而不是退化为“联网下载”（下载在离线/
+    无权限的 Program Files 目录下本就会失败，只会甩出更难懂的报错）。
+    """
+    dest = browsers_dir()
+    return BrowserKernelUnavailable(
+        "安装包内的 Chromium 不完整或缺失（安装目录 playwright_browsers 存在，但找不到可用的 "
+        "chromium-*/chrome-win/chrome.exe）。这是安装包损坏或误装了 -Lite 版本导致的，"
+        "离线环境无法自动修复。请：① 重新运行官方完整版安装程序（非 -Lite）；"
+        f"② 或手动把完整 Chromium 放到 {dest}；"
+        "③ 若本机有网络，可执行 `playwright install chromium` 拉取后重启程序。"
     )
 
 
