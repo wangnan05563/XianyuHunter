@@ -414,7 +414,14 @@ Get-ChildItem -Path "backend" -Recurse -Directory -Filter "__pycache__" -ErrorAc
     Write-Host "  清理过期 pyc: " + $_.FullName -ForegroundColor DarkGray
 }
 Write-Host "  __pycache__ 清理完成" -ForegroundColor DarkGray
-& .venv-build\Scripts\pyinstaller xianyu-hunter.spec --noconfirm --distpath release --workpath $pyiWorkDir
+# 必须用 `$buildPython -m PyInstaller`，不要直接调 `.venv-build\Scripts\pyinstaller.exe`：
+# pyinstaller.exe 是原生 launcher，以它启动 Analysis 时 sys.executable 会指向该 exe 本身，
+# 而 PyInstaller 6.x 的 collect_submodules 用 isolated 子进程（compat.__wrap_python 取
+# sys.executable 启动 _child.py）——用 exe 当解释器，在大 Analysis 下子进程会崩溃，
+# 报 SubprocessDiedError: Child process died calling _collect_submodules() ... exit code 3221356611
+# （实测：exe 启动 4 分钟必崩在收集 're'；python -m 启动 17 分钟 Build complete）。
+# 用 -m 时 sys.executable 是 venv 的 python.exe，isolated child 稳定。
+& $buildPython -m PyInstaller xianyu-hunter.spec --noconfirm --distpath release --workpath $pyiWorkDir
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }
 Write-Host "  PyInstaller 打包完成"
 
