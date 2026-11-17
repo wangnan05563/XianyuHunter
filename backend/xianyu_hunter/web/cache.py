@@ -179,6 +179,51 @@ def configure_cache_max_entries(max_entries: int) -> None:
         _cache_store.maxsize = max_entries
 
 
+def _claim_flight(cache_key: tuple, ttl_seconds: int) -> tuple[str, Any]:
+    """锁内判定本次调用的角色：hit（已有缓存）/ follow（等 lead）/ lead（执行 compute）。
+
+    角色判定必须与「登记 flight」在同一个锁临界区内，否则两个并发 miss 会同时
+    认为自己是 lead，击穿合并就失效了（S3776 拆分时保留这条硬约束）。
+    """
+    with _cache_lock:
+        # 锁内复查：上一个 lead 可能刚好发布完（它先写缓存、再摘掉 flight）
+        hit, value = _try_get_cache(cache_key, ttl_seconds)
+        if hit:
+            return "hit", value
+        flight = _flights.get(cache_key)
+        if flight is not None:
+            return "follow", flight
+        flight = _Flight()
+        _flights[cache_key] = flight
+        return "lead", flight
+
+
+def _wait_flight(flight: _Flight) -> tuple[bool, Any]:
+    """等 lead 发布结果：ok → (True, value)；err → 原样抛给跟随者；gone → (False, None)。"""
+    flight.event.wait()
+    kind, payload = flight.outcome or ("gone", None)
+    if kind == "ok":
+        return True, payload
+    if kind == "err":
+        raise payload
+    return False, None
+
+
+def _lead_flight(cache_key: tuple, flight: _Flight, compute: Callable[[], Any]) -> Any:
+    """lead 执行 compute 并写缓存；中断/异常经 _end_flight 广播后原样重新抛出。"""
+    try:
+        result = compute()
+    except (KeyboardInterrupt, SystemExit):
+        _end_flight(cache_key, flight, ("gone", None))
+        raise
+    except BaseException as exc:
+        _end_flight(cache_key, flight, ("err", exc))
+        raise
+    _set_cache(cache_key, result)
+    _end_flight(cache_key, flight, ("ok", result))
+    return result
+
+
 def _single_flight(cache_key: tuple, compute: Callable[[], Any], ttl_seconds: int) -> Any:
     """同一 key 的并发 miss 只重算一次（缓存击穿合并，线程版）。
 
@@ -187,39 +232,58 @@ def _single_flight(cache_key: tuple, compute: Callable[[], Any], ttl_seconds: in
     compute 抛出的普通异常原样传给所有跟随者——不缓存错误结果，下一个请求仍是全新重算。
     """
     while True:
-        with _cache_lock:
-            # 锁内复查：上一个 lead 可能刚好发布完（它先写缓存、再摘掉 flight）
-            hit, value = _try_get_cache(cache_key, ttl_seconds)
-            if hit:
+        role, payload = _claim_flight(cache_key, ttl_seconds)
+        if role == "hit":
+            return payload
+        if role == "follow":
+            ok, value = _wait_flight(payload)
+            if ok:
                 return value
-            flight = _flights.get(cache_key)
-            if flight is None:
-                flight = _Flight()
-                _flights[cache_key] = flight
-                leading = True
-            else:
-                leading = False
-
-        if not leading:
-            flight.event.wait()
-            kind, payload = flight.outcome or ("gone", None)
-            if kind == "ok":
-                return payload
-            if kind == "err":
-                raise payload
             continue
+        return _lead_flight(cache_key, payload, compute)
 
-        try:
-            result = compute()
-        except (KeyboardInterrupt, SystemExit):
-            _end_flight(cache_key, flight, ("gone", None))
-            raise
-        except BaseException as exc:
-            _end_flight(cache_key, flight, ("err", exc))
-            raise
-        _set_cache(cache_key, result)
-        _end_flight(cache_key, flight, ("ok", result))
-        return result
+
+def _claim_async_flight(
+    cache_key: tuple, ttl_seconds: int, loop: "asyncio.AbstractEventLoop",
+) -> tuple[str, Any]:
+    """异步版角色判定。跨事件循环的在途 flight 不复用，各自重算（Future 不能跨循环等）。"""
+    with _cache_lock:
+        hit, value = _try_get_cache(cache_key, ttl_seconds)
+        if hit:
+            return "hit", value
+        flight = _flights_async.get(cache_key)
+        if flight is not None and flight[0] is loop:
+            return "follow", flight
+        flight = (loop, loop.create_future())
+        _flights_async[cache_key] = flight
+        return "lead", flight
+
+
+async def _wait_async_flight(flight: _AFlight) -> tuple[bool, Any]:
+    """等 lead 发布结果：ok → (True, value)；err → 原样抛给跟随者；gone → (False, None)。"""
+    kind, payload = await flight[1]
+    if kind == "ok":
+        return True, payload
+    if kind == "err":
+        raise payload
+    return False, None
+
+
+async def _lead_async_flight(
+    cache_key: tuple, flight: _AFlight, coro_factory: Callable[[], Any],
+) -> Any:
+    """异步 lead 执行 coro_factory 并写缓存；取消/中断/异常经广播后原样重新抛出。"""
+    try:
+        result = await coro_factory()
+    except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        _end_async_flight(cache_key, flight, ("gone", None))
+        raise
+    except BaseException as exc:
+        _end_async_flight(cache_key, flight, ("err", exc))
+        raise
+    _set_cache(cache_key, result)
+    _end_async_flight(cache_key, flight, ("ok", result))
+    return result
 
 
 async def _single_flight_async(
@@ -233,37 +297,15 @@ async def _single_flight_async(
     """
     loop = asyncio.get_running_loop()
     while True:
-        with _cache_lock:
-            hit, value = _try_get_cache(cache_key, ttl_seconds)
-            if hit:
+        role, payload = _claim_async_flight(cache_key, ttl_seconds, loop)
+        if role == "hit":
+            return payload
+        if role == "follow":
+            ok, value = await _wait_async_flight(payload)
+            if ok:
                 return value
-            flight = _flights_async.get(cache_key)
-            if flight is not None and flight[0] is loop:
-                leading = False
-            else:
-                flight = (loop, loop.create_future())
-                _flights_async[cache_key] = flight
-                leading = True
-
-        if not leading:
-            kind, payload = await flight[1]
-            if kind == "ok":
-                return payload
-            if kind == "err":
-                raise payload
             continue
-
-        try:
-            result = await coro_factory()
-        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
-            _end_async_flight(cache_key, flight, ("gone", None))
-            raise
-        except BaseException as exc:
-            _end_async_flight(cache_key, flight, ("err", exc))
-            raise
-        _set_cache(cache_key, result)
-        _end_async_flight(cache_key, flight, ("ok", result))
-        return result
+        return await _lead_async_flight(cache_key, payload, coro_factory)
 
 
 def _end_flight(cache_key: tuple, flight: _Flight, outcome: tuple[str, Any]) -> None:

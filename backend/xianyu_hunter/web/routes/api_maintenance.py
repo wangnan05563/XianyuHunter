@@ -235,69 +235,105 @@ def _remove_tree(path: Path) -> list[str]:
     return failures
 
 
-# ============== 清理前状态查询 ==============
-@router.get("/status")
-# TTL 300（原 60）：本接口的固定成本是「数 6 张表 + 日志目录 + __pycache__ 全树遍历」，
-# 其中 `__pycache__` 那段在本机实测 0.4 s（未排除 `.venv-build` 时 1.9~3.8 s），而清理动作
-# 的三个入口都会 `invalidate_stats_cache()`、增量扫描 `/cache-scan` 到 done 时也会失效一次，
-# 因此拉长 TTL 不会让用户看到自己刚清理完的旧数字。并发下的 60 s 超时长尾正是「TTL 短 +
-# 每请求都在线程池里走一遍全树」的叠加，B1 单飞只能合并同一瞬间的 miss。
-@cached_ttl(300, key_fn=lambda container: "maintenance_status", stale_while_revalidate=True)
-def maintenance_status(
-    container: Container = Depends(get_container),
-) -> dict[str, Any]:
-    """获取系统当前存储状态，供清理前评估"""
-    # 数据库表统计
+def _db_stats(container: Container) -> dict[str, Any]:
+    """数据库表行数 + 库文件大小。单表失败只丢它自己，整体失败保留已取到的部分。"""
     from sqlalchemy import text
-    db_stats = {}
+
+    db_stats: dict[str, Any] = {}
     try:
         with container.repo.engine.connect() as conn:
             for table in ("tasks", "items", "task_links", "events", "orders", "notifications"):
                 try:
-                    count = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
-                    db_stats[table] = count
+                    db_stats[table] = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
                 except Exception:
                     db_stats[table] = 0
             # 数据库文件大小
             db_path = _data_dir() / "xianyu.db"
-            db_stats["db_size_mb"] = round(db_path.stat().st_size / 1024 / 1024, 2) if db_path.exists() else 0
+            db_stats["db_size_mb"] = (
+                round(db_path.stat().st_size / 1024 / 1024, 2) if db_path.exists() else 0
+            )
     except Exception as e:
         logger.warning("获取数据库状态失败: %s", e)
+    return db_stats
 
-    # 日志文件统计
-    log_stats = {"file_count": 0, "total_size_mb": 0, "oldest": None}
+
+def _scan_log_files(log_files: list[Path]) -> tuple[int, float | None]:
+    """累计日志总字节数与最早 mtime；读不到的文件跳过而不是让整段统计失败。"""
+    total_size = 0
+    oldest: float | None = None
+    for f in log_files:
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        total_size += st.st_size
+        oldest = st.st_mtime if oldest is None else min(oldest, st.st_mtime)
+    return total_size, oldest
+
+
+def _log_stats() -> dict[str, Any]:
+    """日志文件数 / 总大小 / 最早日期；统计失败退化为全 0（不阻断概览）。"""
+    log_stats: dict[str, Any] = {"file_count": 0, "total_size_mb": 0, "oldest": None}
     try:
         log_dir = _log_dir()
-        if log_dir.exists():
-            log_files = list(log_dir.glob("*.log*"))
-            log_stats["file_count"] = len(log_files)
-            # 一次 stat 同时喂「总大小」与「最早时间」：原先 is_file()+stat() 两次、
-            # 取 oldest 又 stat() 一次，每个文件 3 次系统调用（本机单次 ≈1.6 ms，
-            # 8 个日志文件实测 5.7 → 1.6 ms）。stat 本身就能分辨文件与目录，
-            # 不需要 is_file()；读不到的文件跳过而不是让整段统计失败。
-            total_size = 0
-            oldest = None
-            for f in log_files:
-                try:
-                    st = f.stat()
-                except OSError:
-                    continue
-                total_size += st.st_size
-                oldest = st.st_mtime if oldest is None else min(oldest, st.st_mtime)
-            log_stats["total_size_mb"] = round(total_size / 1024 / 1024, 2)
-            if oldest is not None:
-                log_stats["oldest"] = datetime.fromtimestamp(oldest).strftime("%Y-%m-%d")
+        if not log_dir.exists():
+            return log_stats
+        log_files = list(log_dir.glob("*.log*"))
+        log_stats["file_count"] = len(log_files)
+        # 一次 stat 同时喂「总大小」与「最早时间」：原先 is_file()+stat() 两次、
+        # 取 oldest 又 stat() 一次，每个文件 3 次系统调用（本机单次 ≈1.6 ms，
+        # 8 个日志文件实测 5.7 → 1.6 ms）。stat 本身就能分辨文件与目录，
+        # 不需要 is_file()。
+        total_size, oldest = _scan_log_files(log_files)
+        log_stats["total_size_mb"] = round(total_size / 1024 / 1024, 2)
+        if oldest is not None:
+            log_stats["oldest"] = datetime.fromtimestamp(oldest).strftime("%Y-%m-%d")
     except Exception:
         pass
+    return log_stats
 
-    # 缓存统计（浏览器用户数据目录 + Python 字节码缓存）
-    # 统计范围需与 cleanup_cache 实际清理范围保持一致，避免"显示0MB但清理271项"的不一致
-    # FR-A-5（T02575）：browser_data 改统真实目录（原 webview_data_* 全仓无写入方，
-    # 恒为 0）；temp_files 原取 /tmp/xianyu_*，Windows 上路径不存在、恒为 0，且没有
-    # 任何清理分支会删它——"看起来可清理却永远清不掉"，一并移除
-    # pycache_applicable（T02739）：打包版是 PyInstaller 单文件布局，磁盘上没有源码树，
-    # get_project_root() 只能落在 _MEIPASS 解压目录或 exe 同级目录，扫描恒为 0。
-    # 回带「不适用」而不是让界面展示一个永远清不掉的按钮。
+
+def _fill_browser_data_stats(cache_stats: dict[str, Any]) -> None:
+    """浏览器数据目录（登录态所在，路径回带给前端如实展示）+ 一片增量扫描进度。"""
+    bd = _browser_data_dir()
+    if bd is None:
+        return
+    cache_stats["browser_data_path"] = str(bd)
+    cache_stats["browser_data_exists"] = bd.exists() and any(bd.iterdir())
+    # 只按预算推进一片；未扫完时 status 仍然秒回，剩余进度由前端轮询补齐
+    scan = _cache_scan.snapshot(bd, budget=STATUS_SCAN_BUDGET_SEC)
+    cache_stats["browser_data_scan"] = scan
+    cache_stats["browser_data_mb"] = scan["mb"]
+    cache_stats["browser_data_files"] = scan["files"]
+
+
+def _fill_pycache_stats(cache_stats: dict[str, Any]) -> None:
+    """Python __pycache__ 目录体量。
+
+    口径：pycache_count 是「缓存目录数」——前端概览与确认框都按「__pycache__ 目录 N 个」
+    措辞，清理动作也是整目录删除，因此按目录计数才对得上（T02575）
+    """
+    pycache_total = 0
+    pycache_count = 0
+    for p in _iter_pycache_dirs():
+        size, _files = _walk_dir(p)
+        pycache_count += 1
+        pycache_total += size
+    cache_stats["pycache_mb"] = round(pycache_total / 1024 / 1024, 2)
+    cache_stats["pycache_count"] = pycache_count
+
+
+def _cache_stats() -> dict[str, Any]:
+    """缓存统计（浏览器用户数据目录 + Python 字节码缓存）。
+
+    统计范围需与 cleanup_cache 实际清理范围保持一致，避免"显示0MB但清理271项"的不一致
+    FR-A-5（T02575）：browser_data 改统真实目录（原 webview_data_* 全仓无写入方，
+    恒为 0）；temp_files 原取 /tmp/xianyu_*，Windows 上路径不存在、恒为 0，且没有
+    任何清理分支会删它——"看起来可清理却永远清不掉"，一并移除
+    pycache_applicable（T02739）：打包版是 PyInstaller 单文件布局，磁盘上没有源码树，
+    get_project_root() 只能落在 _MEIPASS 解压目录或 exe 同级目录，扫描恒为 0。
+    回带「不适用」而不是让界面展示一个永远清不掉的按钮。
+    """
     cache_stats: dict[str, Any] = {
         "browser_data_mb": 0,
         "browser_data_files": 0,
@@ -311,32 +347,27 @@ def maintenance_status(
         "pycache_applicable": not is_frozen(),
     }
     try:
-        # 浏览器数据目录（登录态所在，路径回带给前端如实展示）
-        bd = _browser_data_dir()
-        if bd is not None:
-            cache_stats["browser_data_path"] = str(bd)
-            cache_stats["browser_data_exists"] = bd.exists() and any(bd.iterdir())
-            # 只按预算推进一片；未扫完时 status 仍然秒回，剩余进度由前端轮询补齐
-            scan = _cache_scan.snapshot(bd, budget=STATUS_SCAN_BUDGET_SEC)
-            cache_stats["browser_data_scan"] = scan
-            cache_stats["browser_data_mb"] = scan["mb"]
-            cache_stats["browser_data_files"] = scan["files"]
-        # Python __pycache__ 目录（与 cleanup_cache 的清理范围同一函数、同一根目录）
-        # 口径：pycache_count 是「缓存目录数」——前端概览与确认框都按「__pycache__ 目录 N 个」
-        # 措辞，清理动作也是整目录删除，因此按目录计数才对得上（T02575）
+        _fill_browser_data_stats(cache_stats)
         if cache_stats["pycache_applicable"]:
-            pycache_total = 0
-            pycache_count = 0
-            for p in _iter_pycache_dirs():
-                size, _files = _walk_dir(p)
-                pycache_count += 1
-                pycache_total += size
-            cache_stats["pycache_mb"] = round(pycache_total / 1024 / 1024, 2)
-            cache_stats["pycache_count"] = pycache_count
+            _fill_pycache_stats(cache_stats)
     except Exception:
         pass
+    return cache_stats
 
-    return {"db": db_stats, "logs": log_stats, "cache": cache_stats}
+
+# ============== 清理前状态查询 ==============
+@router.get("/status")
+# TTL 300（原 60）：本接口的固定成本是「数 6 张表 + 日志目录 + __pycache__ 全树遍历」，
+# 其中 `__pycache__` 那段在本机实测 0.4 s（未排除 `.venv-build` 时 1.9~3.8 s），而清理动作
+# 的三个入口都会 `invalidate_stats_cache()`、增量扫描 `/cache-scan` 到 done 时也会失效一次，
+# 因此拉长 TTL 不会让用户看到自己刚清理完的旧数字。并发下的 60 s 超时长尾正是「TTL 短 +
+# 每请求都在线程池里走一遍全树」的叠加，B1 单飞只能合并同一瞬间的 miss。
+@cached_ttl(300, key_fn=lambda container: "maintenance_status", stale_while_revalidate=True)
+def maintenance_status(
+    container: Container = Depends(get_container),
+) -> dict[str, Any]:
+    """获取系统当前存储状态，供清理前评估"""
+    return {"db": _db_stats(container), "logs": _log_stats(), "cache": _cache_stats()}
 
 
 @router.get("/cache-scan")

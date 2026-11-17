@@ -69,8 +69,12 @@ class XianyuImService:
             logger.debug("[xianyu-im] 收到 IM 消息（L3 阶段接入业务分发）")
             self._publish(Event(type=EventType.IM_MESSAGE_RECEIVED, payload={"preview": notice.detail}))
 
-    async def start(self) -> None:
-        """按配置启动长连接；任何一步不可用都走降级留痕，绝不抛出到启动链路。"""
+    def start(self) -> None:
+        """按配置启动长连接；任何一步不可用都走降级留痕，绝不抛出到启动链路。
+
+        同步函数（S7503）：这里只组装会话并 create_task，本身不产生任何挂起点，
+        保持 async 会让调用方误以为「await 它 = 连接已就绪」。
+        """
         if not self._config.enabled:
             logger.info("[xianyu-im] xianyu_im.enabled=false，IM 长连接未启用（页面轮询照常）")
             return

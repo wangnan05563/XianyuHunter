@@ -1,0 +1,2802 @@
+{
+ "issues": [
+  {
+   "key": "f2e3f1c4-0d7b-46f3-800a-cf6f7d0f11b2",
+   "rule": "python:S1192",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+   "project": "xianyu_hunter",
+   "line": 39,
+   "hash": "a1f7a850449fd49bb15858dd7d7e06a5",
+   "textRange": {
+    "startLine": 39,
+    "endLine": 39,
+    "startOffset": 51,
+    "endOffset": 63
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 161,
+        "endLine": 161,
+        "startOffset": 21,
+        "endOffset": 33
+       },
+       "msg": "Duplication",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 162,
+        "endLine": 162,
+        "startOffset": 19,
+        "endOffset": 31
+       },
+       "msg": "Duplication",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Define a constant instead of duplicating this literal \"chrome.exe\" 3 times.",
+   "effort": "6min",
+   "debt": "6min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "design"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-13T18:00:12+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "DISTINCT",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "3312644a-c4d5-40dd-af2f-7c6a30287b6b",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+   "project": "xianyu_hunter",
+   "line": 420,
+   "hash": "2b698d9cf497234e6824bedc0316cd55",
+   "textRange": {
+    "startLine": 420,
+    "endLine": 420,
+    "startOffset": 4,
+    "endOffset": 19
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 422,
+        "endLine": 422,
+        "startOffset": 37,
+        "endOffset": 39
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 426,
+        "endLine": 426,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 427,
+        "endLine": 427,
+        "startOffset": 35,
+        "endOffset": 37
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 427,
+        "endLine": 427,
+        "startOffset": 79,
+        "endOffset": 81
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 428,
+        "endLine": 428,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 429,
+        "endLine": 429,
+        "startOffset": 35,
+        "endOffset": 37
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 429,
+        "endLine": 429,
+        "startOffset": 83,
+        "endOffset": 85
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 430,
+        "endLine": 430,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 431,
+        "endLine": 431,
+        "startOffset": 36,
+        "endOffset": 38
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 431,
+        "endLine": 431,
+        "startOffset": 79,
+        "endOffset": 81
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 432,
+        "endLine": 432,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 434,
+        "endLine": 434,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 436,
+        "endLine": 436,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 438,
+        "endLine": 438,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 440,
+        "endLine": 440,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 442,
+        "endLine": 442,
+        "startOffset": 39,
+        "endOffset": 41
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 447,
+        "endLine": 447,
+        "startOffset": 28,
+        "endOffset": 30
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 448,
+        "endLine": 448,
+        "startOffset": 32,
+        "endOffset": 34
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 449,
+        "endLine": 449,
+        "startOffset": 41,
+        "endOffset": 43
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 450,
+        "endLine": 450,
+        "startOffset": 39,
+        "endOffset": 41
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 26 to the 15 allowed.",
+   "effort": "16min",
+   "debt": "16min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-13T18:00:12+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "c9928edf-fc61-4a4c-ad41-fa4467ab3f8d",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+   "project": "xianyu_hunter",
+   "line": 269,
+   "hash": "76db42db7a42d84cab6f8b55bf68b6a8",
+   "textRange": {
+    "startLine": 269,
+    "endLine": 269,
+    "startOffset": 4,
+    "endOffset": 18
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 271,
+        "endLine": 271,
+        "startOffset": 37,
+        "endOffset": 39
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 272,
+        "endLine": 272,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 275,
+        "endLine": 275,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 277,
+        "endLine": 277,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 284,
+        "endLine": 284,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 286,
+        "endLine": 286,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 292,
+        "endLine": 292,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 294,
+        "endLine": 294,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 298,
+        "endLine": 298,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 300,
+        "endLine": 300,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 305,
+        "endLine": 305,
+        "startOffset": 4,
+        "endOffset": 7
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 307,
+        "endLine": 307,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 310,
+        "endLine": 310,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 313,
+        "endLine": 313,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/infra/browser_kernel.py",
+       "textRange": {
+        "startLine": 315,
+        "endLine": 315,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 21 to the 15 allowed.",
+   "effort": "11min",
+   "debt": "11min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-13T15:06:34+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "95fd9729-9b9e-4841-b800-2461f8443584",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+   "project": "xianyu_hunter",
+   "line": 108,
+   "hash": "be2d00d930bf5f32a9f5af24789ec9ba",
+   "textRange": {
+    "startLine": 108,
+    "endLine": 108,
+    "startOffset": 14,
+    "endOffset": 17
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 117,
+        "endLine": 117,
+        "startOffset": 8,
+        "endOffset": 13
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 122,
+        "endLine": 122,
+        "startOffset": 12,
+        "endOffset": 18
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 125,
+        "endLine": 125,
+        "startOffset": 16,
+        "endOffset": 18
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 139,
+        "endLine": 139,
+        "startOffset": 12,
+        "endOffset": 17
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 144,
+        "endLine": 144,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 151,
+        "endLine": 151,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 155,
+        "endLine": 155,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 159,
+        "endLine": 159,
+        "startOffset": 20,
+        "endOffset": 22
+       },
+       "msg": "+4 (incl 3 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 165,
+        "endLine": 165,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 23 to the 15 allowed.",
+   "effort": "13min",
+   "debt": "13min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-10T22:10:21+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "31b2e1e4-48d4-41c5-aaec-f034f1e43f2b",
+   "rule": "python:S7497",
+   "severity": "MAJOR",
+   "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+   "project": "xianyu_hunter",
+   "line": 151,
+   "hash": "31a2a68cbd755754be0e72cd2b717a58",
+   "textRange": {
+    "startLine": 151,
+    "endLine": 151,
+    "startOffset": 23,
+    "endOffset": 45
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/client.py",
+       "textRange": {
+        "startLine": 108,
+        "endLine": 108,
+        "startOffset": 4,
+        "endOffset": 9
+       },
+       "msg": "This function is async.",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Ensure that the asyncio.CancelledError exception is re-raised after your cleanup code.",
+   "effort": "5min",
+   "debt": "5min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "async",
+    "trio",
+    "asyncio",
+    "anyio"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-10T22:10:21+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "BUG",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "LOGICAL",
+   "cleanCodeAttributeCategory": "INTENTIONAL",
+   "impacts": [
+    {
+     "softwareQuality": "RELIABILITY",
+     "severity": "HIGH"
+    },
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "MEDIUM"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "15811f11-e54b-43a5-acac-a5b24e084ef3",
+   "rule": "python:S7503",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/service.py",
+   "project": "xianyu_hunter",
+   "line": 72,
+   "hash": "8eec4dab44c49fffa16b39eaf5616848",
+   "textRange": {
+    "startLine": 72,
+    "endLine": 72,
+    "startOffset": 14,
+    "endOffset": 19
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/modules/xianyu_im/service.py",
+       "textRange": {
+        "startLine": 72,
+        "endLine": 72,
+        "startOffset": 4,
+        "endOffset": 9
+       },
+       "msg": "This function is async.",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Use asynchronous features in this function or remove the `async` keyword.",
+   "effort": "5min",
+   "debt": "5min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "async"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-10T22:10:21+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CONVENTIONAL",
+   "cleanCodeAttributeCategory": "CONSISTENT",
+   "impacts": [
+    {
+     "softwareQuality": "RELIABILITY",
+     "severity": "LOW"
+    },
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "MEDIUM"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "f7ec16a8-e8a6-4883-b3de-b20c09fa003b",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+   "project": "xianyu_hunter",
+   "line": 1518,
+   "hash": "1ed60f7d6ef6f14aafcdc00316334ab7",
+   "textRange": {
+    "startLine": 1518,
+    "endLine": 1518,
+    "startOffset": 4,
+    "endOffset": 29
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1532,
+        "endLine": 1532,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1532,
+        "endLine": 1532,
+        "startOffset": 24,
+        "endOffset": 27
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1534,
+        "endLine": 1534,
+        "startOffset": 4,
+        "endOffset": 8
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1535,
+        "endLine": 1535,
+        "startOffset": 48,
+        "endOffset": 50
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1539,
+        "endLine": 1539,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1539,
+        "endLine": 1539,
+        "startOffset": 31,
+        "endOffset": 34
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1545,
+        "endLine": 1545,
+        "startOffset": 45,
+        "endOffset": 47
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1545,
+        "endLine": 1545,
+        "startOffset": 30,
+        "endOffset": 32
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1546,
+        "endLine": 1546,
+        "startOffset": 52,
+        "endOffset": 54
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1547,
+        "endLine": 1547,
+        "startOffset": 47,
+        "endOffset": 49
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1547,
+        "endLine": 1547,
+        "startOffset": 63,
+        "endOffset": 65
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1549,
+        "endLine": 1549,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1549,
+        "endLine": 1549,
+        "startOffset": 20,
+        "endOffset": 22
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1553,
+        "endLine": 1553,
+        "startOffset": 47,
+        "endOffset": 49
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1554,
+        "endLine": 1554,
+        "startOffset": 43,
+        "endOffset": 45
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_ai.py",
+       "textRange": {
+        "startLine": 1555,
+        "endLine": 1555,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed.",
+   "effort": "6min",
+   "debt": "6min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-10T19:13:23+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "8b0a4e80-15f2-4e67-b139-d06d1c2b9c32",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+   "project": "xianyu_hunter",
+   "line": 46,
+   "hash": "63e766b01ed122347e85844485280753",
+   "textRange": {
+    "startLine": 46,
+    "endLine": 46,
+    "startOffset": 4,
+    "endOffset": 35
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 58,
+        "endLine": 58,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 61,
+        "endLine": 61,
+        "startOffset": 8,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 63,
+        "endLine": 63,
+        "startOffset": 12,
+        "endOffset": 15
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 66,
+        "endLine": 66,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+4 (incl 3 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 68,
+        "endLine": 68,
+        "startOffset": 4,
+        "endOffset": 7
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 69,
+        "endLine": 69,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/evaluations_list.py",
+       "textRange": {
+        "startLine": 72,
+        "endLine": 72,
+        "startOffset": 12,
+        "endOffset": 18
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed.",
+   "effort": "6min",
+   "debt": "6min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-06T05:30:17+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "b46b83fe-7215-48ac-b52f-12e113e4a149",
+   "rule": "python:S1871",
+   "severity": "MAJOR",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/services/cache_scan.py",
+   "project": "xianyu_hunter",
+   "line": 101,
+   "hash": "fade86448f7b719dbc88cc89bda13360",
+   "textRange": {
+    "startLine": 101,
+    "endLine": 102,
+    "startOffset": 12,
+    "endOffset": 35
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/services/cache_scan.py",
+       "textRange": {
+        "startLine": 97,
+        "endLine": 98,
+        "startOffset": 12,
+        "endOffset": 35
+       },
+       "msg": "Original",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Either merge this branch with the identical one on line \"97\" or change one of the implementations.",
+   "effort": "10min",
+   "debt": "10min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "design",
+    "suspicious"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-05T14:27:58+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "DISTINCT",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "MEDIUM"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "fb0325ac-54c3-448f-9163-1b5af119e5da",
+   "rule": "python:S3358",
+   "severity": "MAJOR",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_vector_admin.py",
+   "project": "xianyu_hunter",
+   "line": 237,
+   "hash": "74d2eb03464b7924be2c514059ab3b77",
+   "textRange": {
+    "startLine": 237,
+    "endLine": 237,
+    "startOffset": 33,
+    "endOffset": 73
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_vector_admin.py",
+       "textRange": {
+        "startLine": 237,
+        "endLine": 237,
+        "startOffset": 19,
+        "endOffset": 21
+       },
+       "msg": "Parent conditional expression.",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Extract this nested conditional expression into an independent statement.",
+   "effort": "5min",
+   "debt": "5min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "confusing"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T23:14:09+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CLEAR",
+   "cleanCodeAttributeCategory": "INTENTIONAL",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "MEDIUM"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "8a371ebb-79c4-4d5b-b8ca-571176c089ef",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+   "project": "xianyu_hunter",
+   "line": 215,
+   "hash": "4976a6c5a3c47a36848c7a475cc3b0f4",
+   "textRange": {
+    "startLine": 215,
+    "endLine": 215,
+    "startOffset": 4,
+    "endOffset": 19
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 219,
+        "endLine": 219,
+        "startOffset": 4,
+        "endOffset": 6
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 224,
+        "endLine": 224,
+        "startOffset": 4,
+        "endOffset": 7
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 226,
+        "endLine": 226,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 226,
+        "endLine": 226,
+        "startOffset": 53,
+        "endOffset": 56
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 228,
+        "endLine": 228,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 231,
+        "endLine": 231,
+        "startOffset": 16,
+        "endOffset": 18
+       },
+       "msg": "+4 (incl 3 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 238,
+        "endLine": 238,
+        "startOffset": 4,
+        "endOffset": 7
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 239,
+        "endLine": 239,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/config.py",
+       "textRange": {
+        "startLine": 244,
+        "endLine": 244,
+        "startOffset": 4,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed.",
+   "effort": "6min",
+   "debt": "6min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T23:03:35+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "8a98be38-afd1-400e-898c-f7ea119fb70e",
+   "rule": "typescript:S7764",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:frontend/src/components/TidalForagers/index.tsx",
+   "project": "xianyu_hunter",
+   "line": 18,
+   "hash": "83e91b1e29d19aea1cf97367537d90a8",
+   "textRange": {
+    "startLine": 18,
+    "endLine": 18,
+    "startOffset": 6,
+    "endOffset": 12
+   },
+   "flows": [],
+   "status": "OPEN",
+   "message": "Prefer `globalThis` over `window`.",
+   "effort": "2min",
+   "debt": "2min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "portability",
+    "es2020"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T20:00:18+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": true,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CONVENTIONAL",
+   "cleanCodeAttributeCategory": "CONSISTENT",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "LOW"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "5e655f8b-32d2-40f3-a3f7-37c34da50b31",
+   "rule": "typescript:S1874",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:frontend/src/pages/Chatbot/components/markdownHighlight.ts",
+   "project": "xianyu_hunter",
+   "line": 29,
+   "hash": "7969ec8334a51ce93408f8a901b85f05",
+   "textRange": {
+    "startLine": 29,
+    "endLine": 29,
+    "startOffset": 14,
+    "endOffset": 21
+   },
+   "flows": [],
+   "status": "OPEN",
+   "message": "'Content' is deprecated.",
+   "effort": "15min",
+   "debt": "15min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "cwe",
+    "type-dependent",
+    "obsolete"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T20:00:18+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CONVENTIONAL",
+   "cleanCodeAttributeCategory": "CONSISTENT",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "LOW"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "08d4d7de-5a43-42a9-9aaa-233bfb1d0554",
+   "rule": "typescript:S1874",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:frontend/src/pages/Chatbot/components/markdownHighlight.ts",
+   "project": "xianyu_hunter",
+   "line": 47,
+   "hash": "18dd7801357da0e50dc0016d90b642a2",
+   "textRange": {
+    "startLine": 47,
+    "endLine": 47,
+    "startOffset": 27,
+    "endOffset": 34
+   },
+   "flows": [],
+   "status": "OPEN",
+   "message": "'Content' is deprecated.",
+   "effort": "15min",
+   "debt": "15min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "cwe",
+    "type-dependent",
+    "obsolete"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T20:00:18+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CONVENTIONAL",
+   "cleanCodeAttributeCategory": "CONSISTENT",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "LOW"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "dfcb2f99-e5b3-4b39-b829-455c627ab86d",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+   "project": "xianyu_hunter",
+   "line": 246,
+   "hash": "300110efe6298bf14292abe8a88ac810",
+   "textRange": {
+    "startLine": 246,
+    "endLine": 246,
+    "startOffset": 4,
+    "endOffset": 22
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 255,
+        "endLine": 255,
+        "startOffset": 12,
+        "endOffset": 15
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 259,
+        "endLine": 259,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 263,
+        "endLine": 263,
+        "startOffset": 84,
+        "endOffset": 86
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 264,
+        "endLine": 264,
+        "startOffset": 4,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 271,
+        "endLine": 271,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 280,
+        "endLine": 280,
+        "startOffset": 12,
+        "endOffset": 15
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 283,
+        "endLine": 283,
+        "startOffset": 16,
+        "endOffset": 22
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 286,
+        "endLine": 286,
+        "startOffset": 37,
+        "endOffset": 39
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 288,
+        "endLine": 288,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 290,
+        "endLine": 290,
+        "startOffset": 4,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 316,
+        "endLine": 316,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 318,
+        "endLine": 318,
+        "startOffset": 61,
+        "endOffset": 64
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 327,
+        "endLine": 327,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 330,
+        "endLine": 330,
+        "startOffset": 12,
+        "endOffset": 15
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/routes/api_maintenance.py",
+       "textRange": {
+        "startLine": 336,
+        "endLine": 336,
+        "startOffset": 4,
+        "endOffset": 10
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 23 to the 15 allowed.",
+   "effort": "13min",
+   "debt": "13min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-11-03T15:51:33+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "85f4c985-277a-4cd8-a331-458acd095836",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+   "project": "xianyu_hunter",
+   "line": 182,
+   "hash": "275ab98263ba04616c910228eac5eabb",
+   "textRange": {
+    "startLine": 182,
+    "endLine": 182,
+    "startOffset": 4,
+    "endOffset": 18
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 189,
+        "endLine": 189,
+        "startOffset": 4,
+        "endOffset": 9
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 193,
+        "endLine": 193,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 196,
+        "endLine": 196,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 200,
+        "endLine": 200,
+        "startOffset": 12,
+        "endOffset": 16
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 203,
+        "endLine": 203,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 205,
+        "endLine": 205,
+        "startOffset": 43,
+        "endOffset": 45
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 206,
+        "endLine": 206,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 208,
+        "endLine": 208,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 214,
+        "endLine": 214,
+        "startOffset": 8,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 217,
+        "endLine": 217,
+        "startOffset": 8,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 19 to the 15 allowed.",
+   "effort": "9min",
+   "debt": "9min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-10-31T04:54:35+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "20b9c6c5-516a-45d6-9953-0d630e9defe8",
+   "rule": "python:S3776",
+   "severity": "CRITICAL",
+   "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+   "project": "xianyu_hunter",
+   "line": 225,
+   "hash": "538a3b35a9d75b47a0dfeeb68a42587a",
+   "textRange": {
+    "startLine": 225,
+    "endLine": 225,
+    "startOffset": 10,
+    "endOffset": 30
+   },
+   "flows": [
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 235,
+        "endLine": 235,
+        "startOffset": 4,
+        "endOffset": 9
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 238,
+        "endLine": 238,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 241,
+        "endLine": 241,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 241,
+        "endLine": 241,
+        "startOffset": 34,
+        "endOffset": 37
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 243,
+        "endLine": 243,
+        "startOffset": 12,
+        "endOffset": 16
+       },
+       "msg": "+1",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 248,
+        "endLine": 248,
+        "startOffset": 8,
+        "endOffset": 10
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 250,
+        "endLine": 250,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 252,
+        "endLine": 252,
+        "startOffset": 12,
+        "endOffset": 14
+       },
+       "msg": "+3 (incl 2 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 258,
+        "endLine": 258,
+        "startOffset": 8,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    },
+    {
+     "locations": [
+      {
+       "component": "xianyu_hunter:backend/xianyu_hunter/web/cache.py",
+       "textRange": {
+        "startLine": 261,
+        "endLine": 261,
+        "startOffset": 8,
+        "endOffset": 14
+       },
+       "msg": "+2 (incl 1 for nesting)",
+       "msgFormattings": []
+      }
+     ]
+    }
+   ],
+   "status": "OPEN",
+   "message": "Refactor this function to reduce its Cognitive Complexity from 19 to the 15 allowed.",
+   "effort": "9min",
+   "debt": "9min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "brain-overload"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-10-31T04:54:35+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": false,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "FOCUSED",
+   "cleanCodeAttributeCategory": "ADAPTABLE",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "HIGH"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "fb09fc48-180e-4133-9224-1bd6d4eeca8a",
+   "rule": "typescript:S1128",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:frontend/src/components/DiffPreviewModal.tsx",
+   "project": "xianyu_hunter",
+   "line": 5,
+   "hash": "e8596de6841bc2340a141659090774cf",
+   "textRange": {
+    "startLine": 5,
+    "endLine": 5,
+    "startOffset": 14,
+    "endOffset": 23
+   },
+   "flows": [],
+   "status": "OPEN",
+   "message": "Remove this unused import of 'AppConfig'.",
+   "effort": "1min",
+   "debt": "1min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "es2015",
+    "type-dependent",
+    "unused"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-10-28T09:36:00+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": true,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CLEAR",
+   "cleanCodeAttributeCategory": "INTENTIONAL",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "LOW"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  },
+  {
+   "key": "b2dea03f-b1ef-4f1f-89a3-29b927f60764",
+   "rule": "typescript:S1128",
+   "severity": "MINOR",
+   "component": "xianyu_hunter:frontend/src/pages/Chatbot/Config.tsx",
+   "project": "xianyu_hunter",
+   "line": 18,
+   "hash": "e46fc9a3b0873b05403aedac0938cc3c",
+   "textRange": {
+    "startLine": 18,
+    "endLine": 18,
+    "startOffset": 14,
+    "endOffset": 27
+   },
+   "flows": [],
+   "status": "OPEN",
+   "message": "Remove this unused import of 'ChatbotConfig'.",
+   "effort": "1min",
+   "debt": "1min",
+   "author": "wangnan@hundsun.com",
+   "tags": [
+    "es2015",
+    "type-dependent",
+    "unused"
+   ],
+   "transitions": [
+    "confirm"
+   ],
+   "actions": [
+    "set_tags",
+    "comment",
+    "assign"
+   ],
+   "comments": [],
+   "creationDate": "2026-06-30T15:29:21+0800",
+   "updateDate": "2026-11-14T17:13:22+0800",
+   "type": "CODE_SMELL",
+   "scope": "MAIN",
+   "quickFixAvailable": true,
+   "messageFormattings": [],
+   "codeVariants": [],
+   "cleanCodeAttribute": "CLEAR",
+   "cleanCodeAttributeCategory": "INTENTIONAL",
+   "impacts": [
+    {
+     "softwareQuality": "MAINTAINABILITY",
+     "severity": "LOW"
+    }
+   ],
+   "issueStatus": "OPEN",
+   "prioritizedRule": false,
+   "fromSonarQubeUpdate": false,
+   "internalTags": [],
+   "linkedTicketStatus": "NOT_LINKED"
+  }
+ ],
+ "hotspots": []
+}

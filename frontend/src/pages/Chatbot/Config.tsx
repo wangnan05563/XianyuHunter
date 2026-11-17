@@ -15,7 +15,7 @@ import FetchFailedHint from '@/components/FetchFailedHint'
 import DataBlock from '@/components/DataBlock'
 import { useFailedSources } from '@/hooks/useFailedSources'
 import { formatDateTime } from '@/utils/timeFormat'
-import type { ChatbotConfig, KBStatus, KBVersion, FAQ, AuditLog } from './types'
+import type { KBStatus, KBVersion, FAQ, AuditLog } from './types'
 
 // 本页各路数据源（T02700 假回执清零）：原先统一 catch 成 null/[]，
 // 后端故障会被说成「暂无重建记录 / 暂无 FAQ / 加载中...」。

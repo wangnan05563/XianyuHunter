@@ -202,7 +202,7 @@ class TestService:
     async def test_disabled_is_noop(self):
         """enabled=False：不建连、不发事件（默认配置即此形态）。"""
         service, published = self._service(XianyuImConfig())
-        await service.start()
+        service.start()
         assert service.state == "idle"
         assert published == []
         await service.stop()
@@ -210,7 +210,7 @@ class TestService:
     async def test_no_adapter_degrades_with_event(self):
         """enabled=True 但无协议适配器（L1 现状）：诚实降级 + im.degraded 事件。"""
         service, published = self._service(XianyuImConfig(enabled=True), factory=None)
-        await service.start()
+        service.start()
         assert [e.type for e in published] == [EventType.IM_DEGRADED]
         assert published[0].payload["fallback"] == "page_polling"
         assert service.state == "idle"
@@ -220,7 +220,7 @@ class TestService:
         """有适配器且连接成功：发 im.connected；消息通知进 EventBus。"""
         transport = FakeTransport(receive_script=[None], hang=True)
         service, published = self._service(XianyuImConfig(enabled=True), factory=lambda: transport)
-        await service.start()
+        service.start()
         try:
             await asyncio.sleep(0.1)
             kinds = [e.type for e in published]

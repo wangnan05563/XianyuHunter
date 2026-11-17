@@ -136,35 +136,12 @@ class ImSession:
             self._emit("connected")
 
             # 在线循环：收帧 + 看门狗（stale 超时主动断开重连）
-            while not self._stop_requested:
-                try:
-                    message = await asyncio.wait_for(
-                        transport.receive(), timeout=self.config.stale_after_sec,
-                    )
-                except asyncio.TimeoutError:
-                    await self._close_transport()
-                    self._emit(
-                        "watchdog",
-                        detail=f"超过 {self.config.stale_after_sec:.0f}s 未收到下行帧，判定连接假死",
-                    )
-                    break
-                except asyncio.CancelledError:
-                    await self._close_transport()
-                    self._set_state(SessionState.STOPPED)
-                    return self.state
-                except Exception as e:  # noqa: BLE001
-                    await self._close_transport()
-                    failures += 1
-                    self._emit("disconnected", detail=f"接收中断：{e}")
-                    if failures >= self.config.reconnect_max_attempts:
-                        return self._degrade(f"连续 {failures} 次接收失败：{e}")
-                    break
-
-                self._emit("message", message=message)
-
-            if self._stop_requested:
+            action, detail = await self._receive_loop(transport)
+            if action == "stop":
                 self._set_state(SessionState.STOPPED)
                 return self.state
+            if action == "degrade":
+                return self._degrade(detail)
 
             # 假死/接收中断 → 指数退避后重连
             self._set_state(SessionState.RECONNECTING)
@@ -174,6 +151,40 @@ class ImSession:
         await self._close_transport()
         self._set_state(SessionState.STOPPED)
         return self.state
+
+    async def _receive_loop(self, transport: ImTransport) -> tuple[str, str]:
+        """在线收帧循环：返回 (下一步动作, 原因)，动作 ∈ {stop, degrade, reconnect}。
+
+        CancelledError 必须在清理后重新抛出（S7497）：吞掉取消会让调用方的
+        task.cancel() 表现成「正常返回」，取消信号就此丢失。
+        """
+        failures = 0
+        while not self._stop_requested:
+            try:
+                message = await asyncio.wait_for(
+                    transport.receive(), timeout=self.config.stale_after_sec,
+                )
+            except asyncio.TimeoutError:
+                await self._close_transport()
+                self._emit(
+                    "watchdog",
+                    detail=f"超过 {self.config.stale_after_sec:.0f}s 未收到下行帧，判定连接假死",
+                )
+                return "reconnect", "watchdog"
+            except asyncio.CancelledError:
+                await self._close_transport()
+                self._set_state(SessionState.STOPPED)
+                raise
+            except Exception as e:  # noqa: BLE001
+                await self._close_transport()
+                failures += 1
+                self._emit("disconnected", detail=f"接收中断：{e}")
+                if failures >= self.config.reconnect_max_attempts:
+                    return "degrade", f"连续 {failures} 次接收失败：{e}"
+                return "reconnect", "receive-error"
+
+            self._emit("message", message=message)
+        return "stop", "stop-requested"
 
     def _degrade(self, reason: str) -> SessionState:
         """连续失败超阈值：降级并停止重连（硬约束：不自动升回）。"""

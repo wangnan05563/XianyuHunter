@@ -318,7 +318,7 @@ def start_xianyu_im(container: Any) -> None:
 
         service = create_service(container)
         _xianyu_im_service = service
-        asyncio.get_running_loop().create_task(service.start())
+        service.start()
     except Exception as e:  # noqa: BLE001
         logger.warning(f"闲鱼 IM 服务启动失败（忽略，页面轮询不受影响）: {e}")
         _xianyu_im_service = None

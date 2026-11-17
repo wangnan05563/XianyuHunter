@@ -212,33 +212,52 @@ def update_ai_config(
         _persist_to_env(env_updates)
 
 
-def _persist_to_env(updates: dict[str, str]) -> None:
-    """将配置变更持久化到 .env 文件（upsert 语义）"""
-    env_path = get_env_file()
-    lines: list[str] = []
+def _read_env_lines(env_path: Path) -> list[str]:
+    """读 .env 现有行；文件不存在时按空列表处理（upsert 语义要求可写新文件）。"""
     if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        return env_path.read_text(encoding="utf-8").splitlines()
+    return []
 
+
+def _is_env_assignment(line: str) -> bool:
+    """该行是否是 `KEY=VALUE` 形式的赋值（注释行与空行不算）。"""
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#") and "=" in stripped
+
+
+def _env_key_of(line: str) -> str:
+    """取 `KEY=VALUE` 行的 KEY（值里可能含 `=`，只按首个 `=` 切一刀）。"""
+    return line.strip().split("=", 1)[0].strip()
+
+
+def _upsert_env_lines(lines: list[str], updates: dict[str, str]) -> list[str]:
+    """按 upsert 语义改写 .env 行：同名 key 只保留首行新值，其余重复行丢弃，末尾补齐新增键。
+
+    同名 key 可能已有多行（历史追加造成，见 T04183）：逐行改写会留下 N 行同值，
+    文件永远收敛不下来，因此这里只认首次出现处。
+    """
     updated_keys: set[str] = set()
     new_lines: list[str] = []
     for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key = stripped.split("=", 1)[0].strip()
-            if key in updates:
-                # 同名 key 可能已有多行（历史追加造成，见 T04183）：只在首次出现处落新值，
-                # 其余重复行丢弃。逐行改写的话一次 upsert 会留下 N 行同值，文件永远收敛不下来。
-                if key not in updated_keys:
-                    new_lines.append(f"{key}={updates[key]}")
-                    updated_keys.add(key)
-                continue
+        if _is_env_assignment(line) and _env_key_of(line) in updates:
+            key = _env_key_of(line)
+            if key not in updated_keys:
+                new_lines.append(f"{key}={updates[key]}")
+                updated_keys.add(key)
+            continue
         new_lines.append(line)
 
     # 追加新增的键
     for key, value in updates.items():
         if key not in updated_keys:
             new_lines.append(f"{key}={value}")
+    return new_lines
 
+
+def _persist_to_env(updates: dict[str, str]) -> None:
+    """将配置变更持久化到 .env 文件（upsert 语义）"""
+    env_path = get_env_file()
+    new_lines = _upsert_env_lines(_read_env_lines(env_path), updates)
     try:
         env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     except OSError as e:

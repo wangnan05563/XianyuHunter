@@ -28,15 +28,17 @@ logger = get_logger()
 
 POLICIES = ("auto", "msedge", "chrome", "bundled")
 
+_EDGE_EXE_NAME = "msedge.exe"
+_CHROME_EXE_NAME = "chrome.exe"
 _EDGE_PATHS = [
-    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    rf"C:\Program Files (x86)\Microsoft\Edge\Application\{_EDGE_EXE_NAME}",
+    rf"C:\Program Files\Microsoft\Edge\Application\{_EDGE_EXE_NAME}",
 ]
 _CHROME_PATHS = [
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    rf"C:\Program Files\Google\Chrome\Application\{_CHROME_EXE_NAME}",
+    rf"C:\Program Files (x86)\Google\Chrome\Application\{_CHROME_EXE_NAME}",
 ]
-_APP_PATH_EXE = {"msedge": "msedge.exe", "chrome": "chrome.exe"}
+_APP_PATH_EXE = {"msedge": _EDGE_EXE_NAME, "chrome": _CHROME_EXE_NAME}
 
 
 class BrowserKernelUnavailable(RuntimeError):
@@ -158,8 +160,8 @@ _BUNDLE_MARKER = ".xh-full-bundle"
 # 只认 chrome-win 会让「内核明明完整随包」被判为缺失——T05717 复现的真正根因。
 # 列表覆盖新旧 Windows 布局与常见跨平台布局，末尾另有 glob 兜底未来再次改名。
 _CHROMIUM_EXE_SUBDIRS = (
-    ("chrome-win64", "chrome.exe"),
-    ("chrome-win", "chrome.exe"),
+    ("chrome-win64", _CHROME_EXE_NAME),
+    ("chrome-win", _CHROME_EXE_NAME),
     ("chrome-linux64", "chrome"),
     ("chrome-linux", "chrome"),
 )
@@ -272,6 +274,17 @@ def resolve_kernel(policy: str | None = None, allow_download: bool | None = None
     if allow_download is None:
         allow_download = allow_download_from_config()
 
+    if policy == "auto":
+        return _resolve_auto(allow_download)
+    return _resolve_explicit_policy(policy, allow_download)
+
+
+def _resolve_explicit_policy(policy: str, allow_download: bool) -> BrowserKernel:
+    """按显式策略（msedge / chrome / bundled）解析；解析不出时抛出可诊断错误。
+
+    独立成函数是为了让每条策略分支的复杂度各自计算（S3776）：resolve_kernel
+    只负责归一化入参并分派，分支细节留在这里。
+    """
     if policy == "msedge":
         k = _resolve_system("msedge")
         if k:
@@ -289,19 +302,20 @@ def resolve_kernel(policy: str | None = None, allow_download: bool | None = None
             "配置 browser.system_browser=chrome，但本机未找到 Google Chrome。"
             "可安装 Chrome 后重试，或把该项改为 auto/msedge。"
         )
-    if policy == "bundled":
-        k = _bundled_kernel()
-        if k:
-            return k
-        # Full 构建随包 Chromium 缺失 = 安装包损坏 / 误装 -Lite，离线无法自修，
-        # 不应再尝试联网下载（T05717：移除“缺失即下载”的强依赖，改为提示检查安装包完整性）。
-        if is_bundled_build():
-            raise _bundled_integrity_error()
-        if allow_download:
-            return _download_and_resolve()
-        raise _bundled_missing_error()
+    k = _bundled_kernel()
+    if k:
+        return k
+    # Full 构建随包 Chromium 缺失 = 安装包损坏 / 误装 -Lite，离线无法自修，
+    # 不应再尝试联网下载（T05717：移除“缺失即下载”的强依赖，改为提示检查安装包完整性）。
+    if is_bundled_build():
+        raise _bundled_integrity_error()
+    if allow_download:
+        return _download_and_resolve()
+    raise _bundled_missing_error()
 
-    # auto：Edge → Chrome → 随包 → 下载
+
+def _resolve_auto(allow_download: bool) -> BrowserKernel:
+    """auto：Edge → Chrome → 随包 → 下载；全都不命中时抛出可诊断错误。"""
     for kind in ("msedge", "chrome"):
         k = _resolve_system(kind)
         if k:
@@ -417,28 +431,45 @@ def _install_chromium(dest: Path) -> None:
         )
 
 
+def _available_status(kind: str, present: object, source: str) -> tuple[str, str]:
+    """内核存在时回带 (kind, source)，不存在统一报 unavailable（不编造来源）。"""
+    if present:
+        return kind, source
+    return "unavailable", ""
+
+
+def _kernel_status(
+    policy: str, edge: str | None, chrome: str | None, bundled: Path | None,
+) -> tuple[str, str]:
+    """把「策略 + 各级内核探测结果」收敛成 (active, source)。
+
+    显式策略只看自己那一级；auto 依次回落到 Edge → Chrome → 随包 → 首启下载。
+    独立成函数是让 describe_kernel 保持只读诊断的单一职责（S3776）。
+    """
+    if policy == "msedge":
+        return _available_status("msedge", edge, "system-edge")
+    if policy == "chrome":
+        return _available_status("chrome", chrome, "system-chrome")
+    if policy == "bundled":
+        return _available_status("bundled", bundled, "bundled")
+    if edge:
+        return "msedge", "system-edge"
+    if chrome:
+        return "chrome", "system-chrome"
+    if bundled:
+        return "bundled", "bundled"
+    if allow_download_from_config():
+        return "download-on-first-use", ""
+    return "unavailable", ""
+
+
 def describe_kernel(policy: str | None = None) -> dict:
     """给 /api/about 用的只读诊断信息（不触发下载、不改状态）。"""
     policy = normalize_policy(policy if policy is not None else policy_from_config())
     edge = find_system_browser("msedge")
     chrome = find_system_browser("chrome")
     bundled = bundled_chromium_dir()
-    if policy == "msedge":
-        active, source = ("msedge" if edge else "unavailable"), ("system-edge" if edge else "")
-    elif policy == "chrome":
-        active, source = ("chrome" if chrome else "unavailable"), ("system-chrome" if chrome else "")
-    elif policy == "bundled":
-        active, source = ("bundled" if bundled else "unavailable"), ("bundled" if bundled else "")
-    elif edge:
-        active, source = "msedge", "system-edge"
-    elif chrome:
-        active, source = "chrome", "system-chrome"
-    elif bundled:
-        active, source = "bundled", "bundled"
-    elif allow_download_from_config():
-        active, source = "download-on-first-use", ""
-    else:
-        active, source = "unavailable", ""
+    active, source = _kernel_status(policy, edge, chrome, bundled)
     exe = chromium_executable(bundled) if bundled else None
     return {
         "policy": policy,

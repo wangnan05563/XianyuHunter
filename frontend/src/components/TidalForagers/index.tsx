@@ -15,7 +15,7 @@ export default function TidalForagers() {
   useEffect(() => {
     const prefersReducedMotion =
       globalThis.window === undefined ||
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+      globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
     if (prefersReducedMotion) return
 
     let mounted = true

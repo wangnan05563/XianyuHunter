@@ -359,3 +359,8 @@ backend/xianyu_hunter/resources/embedding/meta.json
 /cleanup-logs/
 /.cleanup-quarantine/
 
+# ---------- 可重复构建产物（2026-11-16 统一收口）----------
+# build-exe.ps1 / PyInstaller 的中间目录（build）与成品输出目录（dist），可完整重建
+build/
+dist/
+.workbuddy-ai/

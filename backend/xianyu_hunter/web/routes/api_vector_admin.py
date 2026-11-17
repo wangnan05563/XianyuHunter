@@ -181,6 +181,19 @@ async def get_status() -> dict[str, Any]:
 
 # ============== 只读检索探针 ==============
 
+def _probe_outcome(hits: list[dict], raw: list[dict]) -> str:
+    """把探针的三种「命中情况」映射成可读结论，不塌成一个空结果。
+
+    OK = 有命中；BELOW_THRESHOLD = 召回了但全部低于阈值；NO_MATCH = 一条都没召回。
+    三种情况的排障方向完全不同，用 if 链而非嵌套三元（S3358）。
+    """
+    if hits:
+        return "OK"
+    if raw:
+        return "BELOW_THRESHOLD"
+    return "NO_MATCH"
+
+
 @router.get("/search-probe")
 async def search_probe(
     q: str = Query(..., min_length=1, max_length=500, description="检索文本"),
@@ -234,7 +247,7 @@ async def search_probe(
     hits = [c for c in raw if c.get("similarity", 0.0) >= rag_cfg.similarity_threshold]
     # 三种「没结果」的排障方向完全不同，不塌成一个：
     # NO_MATCH = 集合有内容但 chroma 一条都没召回；BELOW_THRESHOLD = 召回了但全部低于阈值。
-    outcome = "OK" if hits else ("BELOW_THRESHOLD" if raw else "NO_MATCH")
+    outcome = _probe_outcome(hits, raw)
     return {
         **payload,
         "raw_hits": [

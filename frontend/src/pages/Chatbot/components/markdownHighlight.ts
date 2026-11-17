@@ -26,7 +26,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
-import type { Content, Element, ElementContent, Root } from 'hast'
+import type { Element, ElementContent, Root, RootContent } from 'hast'
 
 // 语言别名（py/ts/js/sh/html/yml/toml 等）由 highlight.js 随语言定义自动注册
 const lowlight = createLowlight({
@@ -44,7 +44,7 @@ const lowlight = createLowlight({
   yaml,
 })
 
-function collectText(node: Content): string {
+function collectText(node: RootContent): string {
   switch (node.type) {
     case 'text':
     case 'raw':

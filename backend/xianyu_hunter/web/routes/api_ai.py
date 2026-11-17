@@ -1514,6 +1514,26 @@ def _test_remote_embedding(
         return {"ok": False, "detail": f"API 返回 {r.status_code}: {snippet}"}
 
 
+def _resolve_embedding_base_url(body: "AiTestEmbeddingBody | None", settings: Any) -> str:
+    """base_url 优先级：请求体显式值（含空串 = 用户切到本地模式）> 服务端配置。"""
+    if body is not None and body.base_url is not None:
+        return body.base_url.strip()
+    return (settings.embedding_base_url or "").strip()
+
+
+def _resolve_embedding_model(body: "AiTestEmbeddingBody | None", settings: Any, cfg: Any) -> str:
+    """model 优先级：请求体草稿 > 服务端 settings > yaml kb（与 container.py 的 fallback 一致）。"""
+    draft_model = (body.model or "").strip() if body else ""
+    return draft_model or settings.embedding_model or cfg.kb.embedding_model
+
+
+def _resolve_embedding_dimensions(body: "AiTestEmbeddingBody | None", settings: Any) -> int:
+    """dimensions 优先级：请求体草稿 > 服务端 settings。"""
+    if body is None or body.dimensions is None:
+        return settings.embedding_dimensions
+    return body.dimensions
+
+
 @router.post("/test-embedding")
 def test_embedding_connection(body: AiTestEmbeddingBody | None = None) -> dict[str, Any]:
     """测试 Embedding 服务连接
@@ -1529,10 +1549,7 @@ def test_embedding_connection(body: AiTestEmbeddingBody | None = None) -> dict[s
     base_url 显式传空串表示用户切到本地模式，与「未传=沿用服务端」可区分。
     """
     settings = get_settings()
-    if body is not None and body.base_url is not None:
-        base_url = body.base_url.strip()
-    else:
-        base_url = (settings.embedding_base_url or "").strip()
+    base_url = _resolve_embedding_base_url(body, settings)
     # T02891 裁决 A：远程 embedding 纳入总开关，与 test-connection 同一条理由硬 403
     # （测一个已经关掉的端点没有意义，返回「连通」会把关掉伪装成可用）。
     # 本地模式（base_url 为空或 local）不产生 token 费用，仍可测试。
@@ -1542,9 +1559,8 @@ def test_embedding_connection(body: AiTestEmbeddingBody | None = None) -> dict[s
     # 避免硬编码 "text-embedding-3-small" 导致本地模式加载错误模型
     from xianyu_hunter.infra.yaml_config import get_config
     cfg = get_config()
-    draft_model = (body.model or "").strip() if body else ""
-    model = draft_model or settings.embedding_model or cfg.kb.embedding_model
-    dimensions = settings.embedding_dimensions if body is None or body.dimensions is None else body.dimensions
+    model = _resolve_embedding_model(body, settings, cfg)
+    dimensions = _resolve_embedding_dimensions(body, settings)
     # 本地模式：直接调用 LocalEmbeddingBackend
     if not base_url or base_url.lower() == "local":
         return _test_local_embedding(model)

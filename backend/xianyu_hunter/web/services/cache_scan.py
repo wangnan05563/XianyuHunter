@@ -93,14 +93,15 @@ class CacheScanService:
     def _entry(self, key: str) -> _Scan:
         """取（或按需重建）该路径的进度；须在持锁时调用"""
         scan = self._scans.get(key)
-        if scan is None:
-            scan = _Scan(stack=[key])
-            self._scans[key] = scan
-        elif scan.done and time.time() - (scan.finished_at or 0) > self._ttl:
+        if scan is None or self._is_expired(scan):
             # 过期重扫：重建只换掉表里的引用，在飞的那一次结束时自会按表里的新条目回读
             scan = _Scan(stack=[key])
             self._scans[key] = scan
         return scan
+
+    def _is_expired(self, scan: "_Scan") -> bool:
+        """已扫完且超过 TTL 的进度需要重扫，避免把旧数字一直挂在概览上"""
+        return scan.done and time.time() - (scan.finished_at or 0) > self._ttl
 
     def _advance(self, scan: _Scan, budget: float) -> None:
         deadline = time.monotonic() + max(budget, 0.0)

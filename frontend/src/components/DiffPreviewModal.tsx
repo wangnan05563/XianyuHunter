@@ -2,7 +2,6 @@ import { type CSSProperties } from 'react'
 import { Modal, Table, Tag } from 'antd'
 import { TipButton } from '@/components/TipButton'
 import type { DiffChange } from '../stores/configStore'
-import type { AppConfig } from '../api'
 import { ParamCalculatorPanel } from './ParamCalculator'
 
 // 单元格样式：长 JSON 字符串可换行（wordBreak 防单 token 撑爆列宽）

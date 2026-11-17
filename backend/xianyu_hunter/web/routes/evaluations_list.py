@@ -43,6 +43,37 @@ _MARKET_STATS_CACHE: dict[tuple[str | None, int], tuple[dict[str, float | None],
 _MARKET_STATS_CACHE_TTL = 300.0  # 秒
 
 
+def _fill_batch_stats(conn, real_ids: list[str], stats_map: dict, range_days: int) -> None:
+    """批量路径取统计；整批失败时退回逐任务，单个任务失败只丢它自己。"""
+    if not real_ids:
+        return
+    try:
+        stats_map.update(_compute_sold_range_batch(conn, real_ids, range_days))
+    except Exception as e:
+        logger.warning("批量查询市场价格统计失败，退回逐任务: {}", e)
+        for tid in real_ids:
+            _fill_one_task_stats(conn, tid, stats_map, range_days)
+
+
+def _fill_one_task_stats(conn, tid: str | None, stats_map: dict, range_days: int) -> None:
+    """单个任务（tid=None 表示全局口径）统计失败只记日志、不写入，调用方回退空值。"""
+    try:
+        stats_map[tid] = _compute_sold_range(conn, tid, range_days)
+    except Exception as e:
+        logger.warning("查询任务 {} 的市场价格统计失败: {}", tid, e)
+
+
+def _fill_global_stats(conn, task_ids: list[str | None], stats_map: dict, range_days: int) -> None:
+    """全局口径（未指定任务）必须单独算：它要按每个任务自己的区间过滤后合并。"""
+    for tid in task_ids:
+        if tid is not None:
+            continue
+        try:
+            stats_map[tid] = _compute_sold_range(conn, None, range_days)
+        except Exception as e:
+            logger.warning("查询全局市场价格统计失败: {}", e)
+
+
 def _compute_market_stats_for_tasks(
     conn, task_ids: list[str | None], range_days: int,
 ) -> dict[str | None, dict]:
@@ -54,23 +85,8 @@ def _compute_market_stats_for_tasks(
     `task_id=None`（全局统计）保持单条语义：它要按每个任务自己的区间过滤后合并。
     """
     stats_map: dict[str | None, dict] = {}
-    real_ids = [tid for tid in task_ids if tid]
-    if real_ids:
-        try:
-            stats_map.update(_compute_sold_range_batch(conn, real_ids, range_days))
-        except Exception as e:
-            logger.warning("批量查询市场价格统计失败，退回逐任务: {}", e)
-            for tid in real_ids:
-                try:
-                    stats_map[tid] = _compute_sold_range(conn, tid, range_days)
-                except Exception as e2:
-                    logger.warning("查询任务 {} 的市场价格统计失败: {}", tid, e2)
-    for tid in task_ids:
-        if tid is None:
-            try:
-                stats_map[tid] = _compute_sold_range(conn, None, range_days)
-            except Exception as e:
-                logger.warning("查询全局市场价格统计失败: {}", e)
+    _fill_batch_stats(conn, [tid for tid in task_ids if tid], stats_map, range_days)
+    _fill_global_stats(conn, task_ids, stats_map, range_days)
     return stats_map
 
 
