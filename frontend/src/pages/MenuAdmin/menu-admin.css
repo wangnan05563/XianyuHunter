@@ -83,6 +83,38 @@
   color: var(--xh-text-quaternary);
 }
 
+/* 浅色主题对比度：axe 4.10 检出次要文本 3.36:1、代码 3.29:1、类别标签 3.39:1，
+   均低于 WCAG AA 的 4.5:1。统一改用 AntD 色板第 8 档前景色，暗色主题不受影响。 */
+[data-theme="light"] .xh-menu-admin-page .ant-typography-secondary,
+[data-theme="light"] .xh-menu-admin-page .xh-menu-admin-hint {
+  color: #595959;
+}
+
+[data-theme="light"] .xh-menu-admin-page code {
+  color: #434343;
+  background: #f0f0f0;
+}
+
+[data-theme="light"] .xh-menu-admin-page .ant-tag-blue {
+  color: #003eb3;
+  background: #e6f4ff;
+}
+
+[data-theme="light"] .xh-menu-admin-page .ant-tag-cyan {
+  color: #006d75;
+  background: #e6fffb;
+}
+
+[data-theme="light"] .xh-menu-admin-page .ant-tag-purple {
+  color: #391085;
+  background: #f9f0ff;
+}
+
+[data-theme="light"] .xh-menu-admin-page .ant-tag-orange {
+  color: #873800;
+  background: #fff7e6;
+}
+
 @media (max-width: 900px) {
   .xh-menu-admin-header {
     padding: 8px 12px !important;
