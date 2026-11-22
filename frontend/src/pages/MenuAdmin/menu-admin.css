@@ -1,0 +1,137 @@
+.xh-menu-admin-page {
+  padding: 0 !important;
+  margin: 0;
+  max-width: none;
+  height: 100%;
+}
+
+.xh-menu-admin-page .ant-layout {
+  background: transparent;
+}
+
+.xh-menu-admin-header {
+  height: auto !important;
+  min-height: 56px;
+  padding: 8px 16px !important;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.xh-menu-admin-header-left,
+.xh-menu-admin-header-actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.xh-menu-admin-title {
+  margin: 0 !important;
+  font-size: 22px !important;
+  line-height: 1.35 !important;
+  white-space: nowrap;
+}
+
+.xh-menu-admin-content {
+  overflow: auto;
+  padding: 16px;
+}
+
+.xh-menu-admin-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.xh-menu-admin-hint {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.xh-menu-admin-count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.xh-menu-dirty-banner {
+  margin-bottom: 12px;
+}
+
+.xh-menu-admin-loading {
+  padding: 48px 0;
+  text-align: center;
+}
+
+.xh-menu-admin-error {
+  margin-bottom: 12px;
+}
+
+.xh-menu-admin-table-scroll {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.xh-menu-admin-table-scroll:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+.xh-menu-admin-empty {
+  padding: 40px 16px;
+  color: var(--xh-text-quaternary);
+}
+
+@media (max-width: 900px) {
+  .xh-menu-admin-header {
+    padding: 8px 12px !important;
+  }
+
+  .xh-menu-admin-header-actions.ant-space {
+    flex-wrap: wrap;
+  }
+
+  .xh-menu-admin-title {
+    font-size: 19px !important;
+  }
+
+  .xh-menu-admin-content {
+    padding: 12px;
+  }
+
+  .xh-menu-admin-table-scroll .ant-table {
+    min-width: 820px;
+  }
+
+  .xh-menu-admin-table-scroll .ant-table-tbody > tr > td,
+  .xh-menu-admin-table-scroll .ant-table-thead > tr > th {
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+  }
+
+  /* 横向滚动时固定菜单名列，避免滚到「可见/排序」后失去行上下文 */
+  .xh-menu-admin-table-scroll .ant-table-thead > tr > th:first-child,
+  .xh-menu-admin-table-scroll .ant-table-tbody > tr > td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--xh-bg-container);
+    box-shadow: 1px 0 0 var(--xh-border);
+  }
+
+  .xh-menu-admin-table-scroll .ant-table-thead > tr > th:first-child {
+    z-index: 3;
+  }
+}
+
+@media (max-width: 600px) {
+  .xh-menu-admin-header-left {
+    flex: 1 1 auto;
+  }
+
+  .xh-menu-admin-header-actions {
+    flex: 0 0 auto;
+  }
+}
+

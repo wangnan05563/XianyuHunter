@@ -9,10 +9,12 @@ import {
   InputNumber,
   Card,
   Spin,
-  message,
+  App as AntdApp,
   Popconfirm,
   Tag,
   Tooltip,
+  Alert,
+  Button,
   theme,
 } from 'antd'
 import {
@@ -27,6 +29,7 @@ import { menuApi } from '../../api'
 import type { MenuItem, MenuItemUpdate } from '../../api/menu'
 import { MENU_GROUP_LABELS } from '../../api/menu'
 import { extractApiError } from '../../utils/apiError'
+import './menu-admin.css'
 
 const { Header, Content } = Layout
 const { Title, Text } = Typography
@@ -55,10 +58,13 @@ const CATEGORY_TAG_COLOR: Record<string, string> = {
 export default function MenuAdmin() {
   const navigate = useNavigate()
   const { token } = theme.useToken()
+  // 通过 App 上下文取 message/modal，避免静态方法拿不到 ConfigProvider 主题与上下文
+  const { message, modal } = AntdApp.useApp()
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // 编辑中数据
   const [rows, setRows] = useState<MenuRow[]>([])
 
@@ -75,8 +81,10 @@ export default function MenuAdmin() {
           dirty: false,
         })),
       )
+      setError(null)
     } catch (err) {
-      message.error(extractApiError(err, '加载菜单配置失败'))
+      // 持久错误态：刷新失败时保留错误说明，用户可在页面上重试，而不是只闪一次 toast
+      setError(extractApiError(err, '加载菜单配置失败'))
     } finally {
       setLoading(false)
     }
@@ -91,7 +99,7 @@ export default function MenuAdmin() {
     setRows((prev) =>
       prev.map((r) =>
         r.key === key
-          ? { ...r, editVisible: checked, dirty: r.editVisible !== r.visible || r.editSortOrder !== r.sort_order }
+          ? { ...r, editVisible: checked, dirty: checked !== r.visible || r.editSortOrder !== r.sort_order }
           : r,
       ),
     )
@@ -110,7 +118,56 @@ export default function MenuAdmin() {
   }, [])
 
   // 是否有未保存修改
-  const hasDirty = useMemo(() => rows.some((r) => r.dirty), [rows])
+  const dirtyCount = useMemo(() => rows.filter((r) => r.dirty).length, [rows])
+  const hasDirty = dirtyCount > 0
+
+  // 离开页面前提示：浏览器刷新/关闭兜底（SPA 内刷新与返回由下面的 modal 处理）
+  useEffect(() => {
+    if (!hasDirty) return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasDirty])
+
+  // 丢弃修改确认：刷新与返回共用
+  const confirmDiscard = useCallback(
+    (action: () => void) => {
+      modal.confirm({
+        title: '放弃未保存的修改？',
+        content: `当前有 ${dirtyCount} 项菜单配置修改尚未保存，继续操作将丢弃这些修改。`,
+        okText: '放弃修改',
+        cancelText: '继续编辑',
+        okButtonProps: { danger: true },
+        onOk: action,
+      })
+    },
+    [dirtyCount, modal],
+  )
+
+  const handleBack = useCallback(() => {
+    if (hasDirty) confirmDiscard(() => navigate(-1))
+    else navigate(-1)
+  }, [confirmDiscard, hasDirty, navigate])
+
+  const handleReload = useCallback(() => {
+    if (hasDirty) confirmDiscard(() => void loadMenus())
+    else void loadMenus()
+  }, [confirmDiscard, hasDirty, loadMenus])
+
+  // 撤销全部未保存修改
+  const handleUndoAll = useCallback(() => {
+    setRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        editVisible: r.visible,
+        editSortOrder: r.sort_order,
+        dirty: false,
+      })),
+    )
+  }, [])
 
   // 保存配置
   const handleSave = useCallback(async (): Promise<void> => {
@@ -142,7 +199,7 @@ export default function MenuAdmin() {
     } finally {
       setSaving(false)
     }
-  }, [rows, loadMenus])
+  }, [loadMenus, message, rows])
 
   // 重置为默认配置
   const handleReset = useCallback(async (): Promise<void> => {
@@ -159,7 +216,7 @@ export default function MenuAdmin() {
     } finally {
       setResetting(false)
     }
-  }, [loadMenus])
+  }, [loadMenus, message])
 
   // 表格列定义
   const columns = useMemo(
@@ -202,17 +259,23 @@ export default function MenuAdmin() {
         dataIndex: 'editVisible',
         key: 'visible',
         width: 80,
-        render: (visible: boolean, record: MenuRow) => (
-          <Tooltip
-            title={record.locked ? '菜单管理是唯一的菜单恢复入口，不可隐藏' : undefined}
-          >
-            <Switch
-              checked={visible}
-              onChange={(checked) => handleVisibleChange(record.key, checked)}
-              disabled={saving || resetting || record.locked}
-            />
-          </Tooltip>
-        ),
+        render: (visible: boolean, record: MenuRow) => {
+          const switchLabel = record.locked
+            ? `${record.label} 是否可见（不可隐藏）`
+            : `${record.label} 是否可见`
+          return (
+            <Tooltip
+              title={record.locked ? '菜单管理是唯一的菜单恢复入口，不可隐藏' : undefined}
+            >
+              <Switch
+                checked={visible}
+                onChange={(checked) => handleVisibleChange(record.key, checked)}
+                disabled={saving || resetting || record.locked}
+                aria-label={switchLabel}
+              />
+            </Tooltip>
+          )
+        },
       },
       {
         title: '排序',
@@ -227,12 +290,13 @@ export default function MenuAdmin() {
             step={10}
             onChange={(v) => handleSortOrderChange(record.key, v)}
             disabled={saving || resetting}
+            aria-label={`${record.label} 排序值`}
             style={{ width: '100%' }}
           />
         ),
       },
     ],
-    [handleVisibleChange, handleSortOrderChange, saving, resetting],
+    [handleSortOrderChange, handleVisibleChange, resetting, saving],
   )
 
   // 按 sort_order 排序展示
@@ -242,45 +306,53 @@ export default function MenuAdmin() {
   )
 
   return (
-    <Layout style={{ height: '100%' }}>
+    <Layout className="page-container xh-menu-admin-page" data-testid="menu-admin-page" style={{ height: '100%' }}>
       <Header
+        className="xh-menu-admin-header"
         style={{
           background: token.colorBgContainer,
-          padding: '0 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
           flex: '0 0 auto',
-          height: 56,
         }}
       >
-        <Space>
+        <Space className="xh-menu-admin-header-left">
           <TipButton
             tip="返回上一页"
+            aria-label="返回上一页"
             type="text"
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
           />
           <SettingOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
-          <Title level={4} style={{ margin: 0 }}>菜单管理</Title>
+          <Title level={1} className="xh-menu-admin-title">菜单管理</Title>
         </Space>
-        <Space>
+        <Space className="xh-menu-admin-header-actions">
           <TipButton
             tip="重新加载菜单配置"
+            aria-label="刷新"
             icon={<ReloadOutlined />}
-            onClick={() => void loadMenus()}
+            onClick={handleReload}
             disabled={loading || saving || resetting}
           >
             刷新
           </TipButton>
           <Popconfirm
             title="重置为默认配置"
-            description="将清除所有自定义菜单配置，是否继续？"
+            description={hasDirty
+              ? '将清除所有自定义菜单配置，并丢弃当前未保存的修改，是否继续？'
+              : '将清除所有自定义菜单配置，是否继续？'}
             onConfirm={() => void handleReset()}
             disabled={loading || saving || resetting}
           >
-            <TipButton tip="重置为默认菜单配置" icon={<UndoOutlined />} disabled={loading || saving || resetting}>
+            <TipButton
+              tip="重置为默认菜单配置"
+              aria-label="重置为默认"
+              icon={<UndoOutlined />}
+              disabled={loading || saving || resetting}
+            >
               重置为默认
             </TipButton>
           </Popconfirm>
@@ -292,31 +364,68 @@ export default function MenuAdmin() {
             disabled={!hasDirty || loading || saving || resetting}
             loading={saving}
           >
-            保存{hasDirty ? ` (${rows.filter((r) => r.dirty).length})` : ''}
+            保存{hasDirty ? ` (${dirtyCount})` : ''}
           </TipButton>
         </Space>
       </Header>
-      <Content style={{ overflow: 'auto', padding: 16, background: token.colorBgLayout }}>
+      <Content className="xh-menu-admin-content" style={{ background: token.colorBgLayout }}>
         <Card>
-          <div style={{ marginBottom: 12 }}>
-            <Text type="secondary">
+          <div className="xh-menu-admin-toolbar">
+            <Text type="secondary" className="xh-menu-admin-hint">
               调整菜单项的可见性与排序值（保存后立即生效，影响所有页面的侧边栏展示）。
             </Text>
+            {!loading && !error && <Text strong className="xh-menu-admin-count">共 {rows.length} 项</Text>}
           </div>
+
+          {hasDirty && (
+            <Alert
+              className="xh-menu-dirty-banner"
+              type="warning"
+              showIcon
+              message={`有 ${dirtyCount} 项修改尚未保存`}
+              description="保存后立即生效；刷新或返回上一页时会提示放弃修改。"
+              action={
+                <Button size="small" onClick={handleUndoAll}>
+                  撤销全部
+                </Button>
+              }
+            />
+          )}
+
+          {error && (
+            <Alert
+              className="xh-menu-admin-error"
+              type="error"
+              showIcon
+              message="菜单配置加载失败"
+              description={error}
+              action={
+                <Button size="small" onClick={() => void loadMenus()}>
+                  重新加载
+                </Button>
+              }
+            />
+          )}
+
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+            <div className="xh-menu-admin-loading" role="status" aria-live="polite">
               <Spin size="large" />
               <div style={{ marginTop: 12, color: token.colorTextSecondary }}>加载菜单配置…</div>
             </div>
           ) : (
-            <Table<MenuRow>
-              rowKey="key"
-              columns={columns}
-              dataSource={sortedRows}
-              pagination={false}
-              size="middle"
-              bordered
-            />
+            (rows.length > 0 || !error) && (
+              <div className="xh-menu-admin-table-scroll" role="region" aria-label="菜单配置表" tabIndex={0}>
+                <Table<MenuRow>
+                  rowKey="key"
+                  columns={columns}
+                  dataSource={sortedRows}
+                  pagination={false}
+                  size="middle"
+                  bordered
+                  locale={{ emptyText: <div className="xh-menu-admin-empty">暂无菜单配置</div> }}
+                />
+              </div>
+            )
           )}
         </Card>
       </Content>
