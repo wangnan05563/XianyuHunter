@@ -615,8 +615,11 @@ function LayoutContent({
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
-          openKeys={openKeys}
           onOpenChange={setOpenKeys}
+          // 折叠态不能把深链自动展开的分组继续当作 openKeys：
+          // inlineCollapsed 下它会以常驻 Popover 浮层盖住内容（768/375 尤其明显）。
+          // 展开态才受控，折叠态交回 antd 自己管理 hover/click 的临时浮层。
+          openKeys={collapsed ? undefined : openKeys}
           items={menuItems}
           onClick={({ key }) => {
             // SubMenu 父项的 key 是 'sub-data'/'sub-config'/'sub-maintenance'，
