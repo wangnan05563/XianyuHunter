@@ -2,8 +2,8 @@
 // 菜单管理页回归：未保存状态、保存载荷、加载失败重试。
 // 这里锁住本轮真实修复的根因：可见性切换必须按“新值 vs 服务端值”计算 dirty。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { App as AntdApp } from 'antd'
 
 const { menuApiMock } = vi.hoisted(() => ({
@@ -17,6 +17,7 @@ const { menuApiMock } = vi.hoisted(() => ({
 vi.mock('../../../api', () => ({ menuApi: menuApiMock }))
 
 import MenuAdmin from '../index'
+import { requestNavigation } from '../../../utils/navigationGuard'
 
 type FixtureMenu = {
   key: string
@@ -42,13 +43,19 @@ function resetServerMenus() {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AntdApp>
-        <MenuAdmin />
-      </AntdApp>
-    </MemoryRouter>,
+  const router = createMemoryRouter(
+    [
+      { path: '/menu-admin', element: <MenuAdmin /> },
+      { path: '/other', element: <div>其他页面</div> },
+    ],
+    { initialEntries: ['/menu-admin'] },
   )
+  render(
+    <AntdApp>
+      <RouterProvider router={router} />
+    </AntdApp>,
+  )
+  return router
 }
 
 beforeEach(() => {
@@ -111,5 +118,51 @@ describe('菜单管理页回归', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
     await waitFor(() => expect(screen.getByText('任务管理')).toBeInTheDocument())
     expect(screen.queryByText('菜单配置加载失败')).not.toBeInTheDocument()
+  })
+
+  it('有未保存修改时拦截 SPA 内部跳转，取消保留当前页，确认后离开', async () => {
+    const router = renderPage()
+    await waitFor(() => expect(screen.getByRole('heading', { name: '菜单管理' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('switch', { name: '任务管理 是否可见' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /保存/ })).toBeEnabled())
+
+    let navPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      navPromise = requestNavigation('/other', '/menu-admin', () => {
+        void router.navigate('/other').catch(() => {})
+      })
+      // 只等守卫把确认框打开，不等用户点击；否则会卡在 act 里
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(within(screen.getByRole('dialog')).getAllByText('放弃未保存的修改？').length).toBeGreaterThan(0)
+    expect(screen.getByText(/当前有 1 项菜单配置修改尚未保存/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '继续编辑' }))
+    await act(async () => {
+      await navPromise
+    })
+    await waitFor(() => {
+      const dialog = screen.queryByRole('dialog')
+      // jsdom 不会派发 rc-motion 的 transitionend，关闭中的弹窗可能留在 DOM；
+      // 只要进入 leave 或已移除，就说明 onCancel -> setOpen(false) 已生效。
+      expect(dialog === null || dialog.classList.contains('ant-zoom-leave')).toBe(true)
+    })
+    expect(router.state.location.pathname).toBe('/menu-admin')
+    expect(screen.getByRole('button', { name: /保存/ })).toBeEnabled()
+
+    await act(async () => {
+      navPromise = requestNavigation('/other', '/menu-admin', () => {
+        void router.navigate('/other').catch(() => {})
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(screen.getByRole('dialog')).not.toHaveClass('ant-zoom-leave'))
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
+    await act(async () => {
+      await navPromise
+    })
+    await waitFor(() => expect(router.state.location.pathname).toBe('/other'))
   })
 })

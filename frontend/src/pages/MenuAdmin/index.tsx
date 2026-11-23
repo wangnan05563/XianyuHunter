@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { TipButton } from '@/components/TipButton'
 import {
   Layout,
@@ -15,6 +16,7 @@ import {
   Tooltip,
   Alert,
   Button,
+  Modal,
   theme,
 } from 'antd'
 import {
@@ -24,11 +26,11 @@ import {
   UndoOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import { menuApi } from '../../api'
 import type { MenuItem, MenuItemUpdate } from '../../api/menu'
 import { MENU_GROUP_LABELS } from '../../api/menu'
 import { extractApiError } from '../../utils/apiError'
+import { registerNavigationGuard } from '../../utils/navigationGuard'
 import './menu-admin.css'
 
 const { Header, Content } = Layout
@@ -121,7 +123,40 @@ export default function MenuAdmin() {
   const dirtyCount = useMemo(() => rows.filter((r) => r.dirty).length, [rows])
   const hasDirty = dirtyCount > 0
 
-  // 离开页面前提示：浏览器刷新/关闭兜底（SPA 内刷新与返回由下面的 modal 处理）
+  // SPA 内部跳转守卫：菜单页的页面内容由 SheetWorkspace 按 activeSheet 渲染，
+  // 侧栏点击会先激活目标 sheet 再 navigate，页面级 useBlocker 会随原页面卸载而失效。
+  // 因此改为在导航动作执行前询问本页（见 utils/navigationGuard），确认后才切换。
+  // 浏览器刷新/关闭仍由 beforeunload 兜底；页内刷新由 confirmDiscard 处理。
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false)
+  const leaveResolveRef = useRef<((ok: boolean) => void) | null>(null)
+
+  const confirmLeave = useCallback((): Promise<boolean> => {
+    if (!hasDirty) return Promise.resolve(true)
+    // 已有确认框时不再叠加：第二次点击按取消处理，避免 promise 悬挂
+    if (leaveResolveRef.current) return Promise.resolve(false)
+    setLeaveModalOpen(true)
+    return new Promise<boolean>((resolve) => {
+      leaveResolveRef.current = resolve
+    })
+  }, [hasDirty])
+
+  const settleLeave = useCallback((ok: boolean) => {
+    setLeaveModalOpen(false)
+    const resolve = leaveResolveRef.current
+    leaveResolveRef.current = null
+    resolve?.(ok)
+  }, [])
+
+  useEffect(() => registerNavigationGuard(confirmLeave), [confirmLeave])
+
+  // 卸载时若确认框仍开着，按取消收尾，避免外部调用方等不到结果
+  useEffect(() => () => {
+    const resolve = leaveResolveRef.current
+    leaveResolveRef.current = null
+    resolve?.(false)
+  }, [])
+
+  // 离开页面前提示：浏览器刷新/关闭兜底；SPA 内部跳转由 navigationGuard 拦截，页内刷新由 confirmDiscard 处理
   useEffect(() => {
     if (!hasDirty) return
     const handler = (event: BeforeUnloadEvent) => {
@@ -148,9 +183,11 @@ export default function MenuAdmin() {
   )
 
   const handleBack = useCallback(() => {
-    if (hasDirty) confirmDiscard(() => navigate(-1))
-    else navigate(-1)
-  }, [confirmDiscard, hasDirty, navigate])
+    // 返回是浏览器历史导航，不经过侧栏的 openSheet 前守卫；这里主动复用同一确认框
+    void confirmLeave().then((ok) => {
+      if (ok) navigate(-1)
+    })
+  }, [confirmLeave, navigate])
 
   const handleReload = useCallback(() => {
     if (hasDirty) confirmDiscard(() => void loadMenus())
@@ -383,7 +420,7 @@ export default function MenuAdmin() {
               type="warning"
               showIcon
               message={`有 ${dirtyCount} 项修改尚未保存`}
-              description="保存后立即生效；刷新或返回上一页时会提示放弃修改。"
+              description="保存后立即生效；刷新、返回或切换页面时会提示放弃修改。"
               action={
                 <Button size="small" onClick={handleUndoAll}>
                   撤销全部
@@ -429,6 +466,18 @@ export default function MenuAdmin() {
           )}
         </Card>
       </Content>
+      <Modal
+        open={leaveModalOpen}
+        title="放弃未保存的修改？"
+        okText="放弃修改"
+        cancelText="继续编辑"
+        okButtonProps={{ danger: true }}
+        maskClosable={false}
+        onOk={() => settleLeave(true)}
+        onCancel={() => settleLeave(false)}
+      >
+        当前有 {dirtyCount} 项菜单配置修改尚未保存，离开后将丢弃这些修改。
+      </Modal>
     </Layout>
   )
 }
