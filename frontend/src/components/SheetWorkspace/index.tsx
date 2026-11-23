@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { SheetTabs } from './SheetTabs'
 import { SheetContent } from './SheetContent'
 import { SheetPreferences } from './SheetPreferences'
@@ -8,6 +8,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useSheetStore } from '../../stores/sheetStore'
 import { useConfigStore } from '../../stores/configStore'
 import { useChatbotConfigStore } from '../../stores/chatbotConfigStore'
+import { requestNavigation } from '../../utils/navigationGuard'
 import {
   collectChangedPaths,
   filterChangedPaths,
@@ -28,6 +29,7 @@ import './sheet.css'
  */
 export function SheetWorkspace() {
   const navigate = useNavigate()
+  const location = useLocation()
   const isMobile = useIsMobile()
   const sheets = useSheetStore((s) => s.sheets)
   const activeId = useSheetStore((s) => s.activeId)
@@ -81,8 +83,17 @@ export function SheetWorkspace() {
         closeSheet(id)
       }
     }
+    // 关闭的是当前页：先过页面注册的未保存守卫（如菜单管理页）。
+    // 用 #close 伪路径强制触发确认，因为目标 path 与当前 URL 相同。
+    const runGuarded = () => {
+      if (!target || id !== activeId) {
+        apply()
+        return
+      }
+      void requestNavigation(`${target.path}#close`, location.pathname, apply)
+    }
     if (!target || dirty.length === 0) {
-      apply()
+      runGuarded()
       return
     }
     const keepDraft = preferences.minimizeInsteadOfClose
@@ -97,8 +108,31 @@ export function SheetWorkspace() {
         ? '改动未保存到服务端，浏览器刷新或退出后丢失'
         : '关闭后草稿不可恢复，需重新编辑并保存',
     }).then((ok) => {
-      if (ok) apply()
+      if (ok) runGuarded()
     })
+  }
+
+  // 激活/最小化当前页会卸载页面组件，必须先过页面守卫，避免菜单页草稿被静默丢弃。
+  const handleActivate = (id: string) => {
+    const target = sheets.find((s) => s.id === id)
+    if (!target) {
+      activateSheet(id)
+      return
+    }
+    void requestNavigation(target.path, location.pathname, () => activateSheet(id))
+  }
+
+  const handleMinimize = (id: string) => {
+    if (id !== activeId) {
+      minimizeSheet(id)
+      return
+    }
+    const target = sheets.find((s) => s.id === id)
+    if (!target) {
+      minimizeSheet(id)
+      return
+    }
+    void requestNavigation(`${target.path}#minimize`, location.pathname, () => minimizeSheet(id))
   }
 
   return (
@@ -109,9 +143,9 @@ export function SheetWorkspace() {
           sheets={sheets}
           activeId={activeId}
           preferences={preferences}
-          onActivate={activateSheet}
+          onActivate={handleActivate}
           onClose={handleClose}
-          onMinimize={minimizeSheet}
+          onMinimize={handleMinimize}
           onOpenPreferences={() => setPrefOpen(true)}
         />
       )}

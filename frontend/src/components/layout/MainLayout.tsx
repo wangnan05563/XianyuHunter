@@ -27,6 +27,7 @@ import DryRunBanner from './DryRunBanner'
 import { SheetWorkspace } from '../SheetWorkspace'
 import { useSheetStore } from '../../stores/sheetStore'
 import { openSheetWithNotification } from '../SheetWorkspace/sheetNotifications'
+import { requestNavigation } from '../../utils/navigationGuard'
 import { formatDateTime, formatDuration } from '../../utils/timeFormat'
 import { eventTypeLabel } from '../../constants/eventTypes'
 import { useMenuConfig, buildCommandItems } from '../../hooks/useMenuConfig'
@@ -326,7 +327,6 @@ export default function MainLayout() {
       collapsed={collapsed}
       setCollapsed={setCollapsed}
       location={location}
-      navigate={navigate}
       schedulerRunning={schedulerRunning}
       notif={notif}
       cmdOpen={cmdOpen}
@@ -358,7 +358,6 @@ interface LayoutContentProps {
   readonly collapsed: boolean
   readonly setCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   readonly location: ReturnType<typeof useLocation>
-  readonly navigate: ReturnType<typeof useNavigate>
   readonly schedulerRunning: boolean | null
   // 通知与告警的统一模型（T02561）：抽屉、铃铛 badge 都从这一份读，不再各自计数
   readonly notif: NotificationModel
@@ -537,7 +536,7 @@ function NotificationDrawerBody({ notif, themeToken, onJump, onRetry, onClose }:
 }
 
 function LayoutContent({
-  isDark, onToggleTheme, collapsed, setCollapsed, location, navigate,
+  isDark, onToggleTheme, collapsed, setCollapsed, location,
   schedulerRunning, notif,
   cmdOpen, setCmdOpen, cmdSearch, setCmdSearch, cmdActive, setCmdActive,
   breadcrumbItems, selectedKey, openKeys, setOpenKeys, menuItems, commandItems,
@@ -624,11 +623,10 @@ function LayoutContent({
           onClick={({ key }) => {
             // SubMenu 父项的 key 是 'sub-data'/'sub-config'/'sub-maintenance'，
             // 不以 / 开头，antd 在某些版本仍会触发 onClick。
-            // 这里只对路径型 key 调 navigate，避免点击 SubMenu 标题时跳到非法 URL。
+            // 这里只处理路径型 key，避免点击 SubMenu 标题时跳到非法 URL。
             if (typeof key === 'string' && key.startsWith('/')) {
-              // 走 openSheet：sheet 栈管理 + URL 同步（store 内部 navigate）
-              // 用带通知的包装函数：循环替换触发时发 Toast + 撤销按钮
-              openSheetWithNotification(key)
+              // 先过页面注册的未保存守卫：确认后才 openSheet/navigate，取消时不改 sheet 栈
+              void requestNavigation(key, location.pathname, () => openSheetWithNotification(key))
             }
           }}
           inlineCollapsed={collapsed}
