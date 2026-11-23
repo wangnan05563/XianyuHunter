@@ -195,7 +195,7 @@ describe('分组形状与可见项数解耦（T02607）', () => {
         category: block.match(/\n\s+category:\s*(\S+)/)?.[1] || '',
       })
     }
-    const groups: MenuGroup[] = [...REGISTRY_SOURCE.matchAll(/^  - key: (\S+)\n\s+label: (.+)$/gm)].map(
+    const groups: MenuGroup[] = [...REGISTRY_SOURCE.matchAll(/^ {2}- key: (\S+)\n\s+label: (.+)$/gm)].map(
       (m) => ({ key: m[1], label: m[2].trim(), icon: '' }),
     )
     expect(parsed.length).toBeGreaterThan(10)

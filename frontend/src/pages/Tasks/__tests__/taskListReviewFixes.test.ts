@@ -31,13 +31,13 @@ describe('任务管理：关联删除闭包与确认模式（评审 2.2-1/2.2-3�
     // 卡片视图：停止 + 删除仍是 Popconfirm（那里空间充裕，行内弹层没有抖动问题）
     expect(list.match(/<Popconfirm/g) ?? []).toHaveLength(2)
     // 表格视图收纳后：危险项挂在「更多」菜单上，确认走本文件统一的 Modal.confirm
-    const rowMore = list.match(/const buildRowMoreItems[\s\S]*?\n  \}/)?.[0] ?? ''
+    const rowMore = list.match(/const buildRowMoreItems[\s\S]*?\n {2}\}/)?.[0] ?? ''
     expect(rowMore).toContain('confirmRowDanger')
     expect(rowMore).toContain('danger: true')
     expect(rowMore).not.toContain('Popconfirm')
     expect(list).toMatch(/const confirmRowDanger[\s\S]*?Modal\.confirm\(\{/)
     // 表格列定义里不得再出现行内 Popconfirm，否则操作列回到 6 元素拥挤
-    const actionCols = list.match(/const columns = \[[\s\S]*?\n  \]/)?.[0] ?? ''
+    const actionCols = list.match(/const columns = \[[\s\S]*?\n {2}\]/)?.[0] ?? ''
     expect(actionCols).not.toContain('<Popconfirm')
   })
 })

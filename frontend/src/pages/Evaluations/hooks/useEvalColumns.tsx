@@ -108,7 +108,7 @@ function openTakeoverConfirm(
           {evalTitle}
         </div>
         <div>
-          价格：{price == null ? '未知' : `¥${price}`}　评分：{score.toFixed(0)}（自动抢单阈值 {autoBuyScore}）
+          价格：{price == null ? '未知' : `¥${price}`} 评分：{score.toFixed(0)}（自动抢单阈值 {autoBuyScore}）
         </div>
         <div style={{ color: 'var(--xh-text-secondary)' }}>
           确认后由浏览器自动化直接提交真实订单（不走通知里的确认环节），请核对价格后再点。

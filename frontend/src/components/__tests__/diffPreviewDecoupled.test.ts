@@ -24,7 +24,7 @@ describe('DiffPreviewModal 与 configStore 解耦（D-6）', () => {
     // （ChatbotConfig）等非 AppConfig 体系页面也复用本弹窗（D-7 裁决），
     // 解耦意图不变：config 仍由调用方 props 注入，组件不读 store。
     expect(modal).toMatch(/readonly config: object \| null/)
-    expect(modal).toMatch(/\r?\n  config,\r?\n/)
+    expect(modal).toMatch(/\r?\n {2}config,\r?\n/)
   })
 
   it.each(callers)('%s 在 DiffPreviewModal 上注入 config', (rel) => {
