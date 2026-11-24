@@ -67,6 +67,11 @@ export default function MenuAdmin() {
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 仅窄屏启用横向滚动，避免 1024 等宽度被无谓地撑出滚动条
+  const [isNarrowTable, setIsNarrowTable] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
+  )
+  const tableScrollRef = useRef<HTMLDivElement>(null)
   // 编辑中数据
   const [rows, setRows] = useState<MenuRow[]>([])
 
@@ -95,6 +100,49 @@ export default function MenuAdmin() {
   useEffect(() => {
     void loadMenus()
   }, [loadMenus])
+
+  // 与 CSS 的 900px 断点保持一致：仅在窄屏让 AntD body 横向滚动
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 900px)')
+    const onChange = (e: MediaQueryListEvent): void => setIsNarrowTable(e.matches)
+    setIsNarrowTable(mql.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+
+  // 窄屏 AntD sticky 会把表头/表体拆成两张 table，读屏会丢失列头关联。
+  // 对可见表头隐藏 aria，并给表体补一个视觉隐藏的 thead，保留单表列头语义。
+  useEffect(() => {
+    const wrap = tableScrollRef.current
+    if (!wrap || !isNarrowTable || loading || rows.length === 0) return
+    const sync = (): void => {
+      const header = wrap.querySelector<HTMLElement>('.ant-table-header')
+      const bodyTable = wrap.querySelector<HTMLTableElement>('.ant-table-body > table')
+      if (!header || !bodyTable) return
+      header.setAttribute('aria-hidden', 'true')
+      if (bodyTable.querySelector('thead.xh-menu-a11y-head')) return
+      const titles = [...header.querySelectorAll<HTMLTableCellElement>('th')]
+        .map((th) => (th.textContent || '').trim())
+        .filter(Boolean)
+      if (titles.length === 0) return
+      const thead = document.createElement('thead')
+      thead.className = 'xh-menu-a11y-head'
+      const tr = document.createElement('tr')
+      for (const title of titles) {
+        const th = document.createElement('th')
+        th.scope = 'col'
+        th.textContent = title
+        tr.appendChild(th)
+      }
+      thead.appendChild(tr)
+      const tbody = bodyTable.querySelector('tbody')
+      if (tbody) bodyTable.insertBefore(thead, tbody)
+    }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(wrap, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [isNarrowTable, loading, rows.length])
 
   // 切换可见性
   const handleVisibleChange = useCallback((key: string, checked: boolean) => {
@@ -272,6 +320,20 @@ export default function MenuAdmin() {
       setResetting(false)
     }
   }, [loadMenus, message])
+
+  // 横向滚动交给 AntD 的 table body，外层 region 保留焦点与键盘控制；
+  // 这样表头可以独立于横向滚动容器做 sticky，首列固定仍由 CSS 负责。
+  const handleTableScrollKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    // 输入框内方向键用于移动光标/调整数值，不能连带滚动表格
+    if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
+    const body = e.currentTarget.querySelector<HTMLElement>('.ant-table-body')
+    if (!body || body.scrollWidth <= body.clientWidth) return
+    e.preventDefault()
+    const step = Math.max(40, Math.min(120, Math.round(body.clientWidth * 0.1)))
+    const maxScroll = body.scrollWidth - body.clientWidth
+    body.scrollLeft = Math.max(0, Math.min(maxScroll, body.scrollLeft + (e.key === 'ArrowRight' ? step : -step)))
+  }, [])
 
   // 表格列定义
   const columns = useMemo(
@@ -486,7 +548,14 @@ export default function MenuAdmin() {
             </div>
           ) : (
             (rows.length > 0 || !error) && (
-              <div className="xh-menu-admin-table-scroll" role="region" aria-label="菜单配置表" tabIndex={0}>
+              <div
+                ref={tableScrollRef}
+                className="xh-menu-admin-table-scroll"
+                role="region"
+                aria-label="菜单配置表"
+                tabIndex={0}
+                onKeyDown={handleTableScrollKeyDown}
+              >
                 <Table<MenuRow>
                   rowKey="key"
                   columns={columns}
@@ -494,6 +563,8 @@ export default function MenuAdmin() {
                   pagination={false}
                   size="middle"
                   bordered
+                  sticky={isNarrowTable}
+                  scroll={isNarrowTable ? { x: 820 } : undefined}
                   locale={{ emptyText: <div className="xh-menu-admin-empty">暂无菜单配置</div> }}
                 />
               </div>

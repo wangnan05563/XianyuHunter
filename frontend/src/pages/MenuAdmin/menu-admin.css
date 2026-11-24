@@ -31,8 +31,15 @@
 }
 
 .xh-menu-admin-content {
-  overflow: auto;
-  padding: 16px;
+  /* 横向滚动只交给窄屏 AntD table body，内容区不做横向滚动容器 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 顶部留白交给 Card，避免 scroll 容器 padding 在 sticky 表头上方露出半行 */
+  padding: 0 16px 16px;
+}
+
+.xh-menu-admin-content > .ant-card:first-child {
+  margin-top: 16px;
 }
 
 .xh-menu-admin-toolbar {
@@ -69,7 +76,9 @@
 }
 
 .xh-menu-admin-table-scroll {
-  overflow-x: auto;
+  /* 横向滚动交给 AntD table body（scroll.x）；外层保持 visible，
+     否则会形成滚动祖先，表头 sticky 只能相对无纵向滚动的外层失效。 */
+  overflow: visible;
   border-radius: 8px;
 }
 
@@ -78,9 +87,31 @@
   outline-offset: 2px;
 }
 
+/* 宽屏保持单张 table（读屏列头不拆分），用 th sticky 吸顶 */
+@media (min-width: 901px) {
+  .xh-menu-admin-table-scroll .ant-table-thead > tr > th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+}
+
 .xh-menu-admin-empty {
   padding: 40px 16px;
   color: var(--xh-text-quaternary);
+}
+
+/* 窄屏 sticky 拆分 table 后补的读屏列头，仅保留可访问性，不参与视觉布局 */
+.xh-menu-a11y-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* 浅色主题对比度：axe 4.10 检出次要文本 3.36:1、代码 3.29:1、类别标签 3.39:1，
@@ -129,13 +160,14 @@
   }
 
   .xh-menu-admin-content {
-    padding: 12px;
+    padding: 0 12px 12px;
   }
 
-  .xh-menu-admin-table-scroll .ant-table {
-    min-width: 820px;
+  .xh-menu-admin-content > .ant-card:first-child {
+    margin-top: 12px;
   }
 
+  /* 表格宽度由 AntD scroll.x 约束在 body 内滚动，外层不再撑宽页面 */
   .xh-menu-admin-table-scroll .ant-table-tbody > tr > td,
   .xh-menu-admin-table-scroll .ant-table-thead > tr > th {
     padding-top: 7px !important;
