@@ -123,6 +123,20 @@ export default function MenuAdmin() {
   const dirtyCount = useMemo(() => rows.filter((r) => r.dirty).length, [rows])
   const hasDirty = dirtyCount > 0
 
+  // 可见菜单的排序值重复：后端虽会用 key 稳定排序兜底，但用户无法从界面
+  // 预知同值时谁先谁后；保存前直接拦下，避免制造新的歧义数据。
+  const duplicateSortValues = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const r of rows) {
+      if (!r.editVisible) continue
+      counts.set(r.editSortOrder, (counts.get(r.editSortOrder) ?? 0) + 1)
+    }
+    return new Set(
+      [...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value),
+    )
+  }, [rows])
+  const hasDuplicateSort = duplicateSortValues.size > 0
+
   // SPA 内部跳转守卫：菜单页的页面内容由 SheetWorkspace 按 activeSheet 渲染，
   // 侧栏点击会先激活目标 sheet 再 navigate，页面级 useBlocker 会随原页面卸载而失效。
   // 因此改为在导航动作执行前询问本页（见 utils/navigationGuard），确认后才切换。
@@ -208,6 +222,10 @@ export default function MenuAdmin() {
 
   // 保存配置
   const handleSave = useCallback(async (): Promise<void> => {
+    if (hasDuplicateSort) {
+      message.error('可见菜单的排序值不能重复，请先调整')
+      return
+    }
     // 仅提交被修改的项
     const updates: MenuItemUpdate[] = rows
       .filter((r) => r.dirty)
@@ -236,7 +254,7 @@ export default function MenuAdmin() {
     } finally {
       setSaving(false)
     }
-  }, [loadMenus, message, rows])
+  }, [hasDuplicateSort, loadMenus, message, rows])
 
   // 重置为默认配置
   const handleReset = useCallback(async (): Promise<void> => {
@@ -319,21 +337,26 @@ export default function MenuAdmin() {
         dataIndex: 'editSortOrder',
         key: 'sort_order',
         width: 120,
-        render: (order: number, record: MenuRow) => (
-          <InputNumber
-            value={order}
-            min={0}
-            max={9999}
-            step={10}
-            onChange={(v) => handleSortOrderChange(record.key, v)}
-            disabled={saving || resetting}
-            aria-label={`${record.label} 排序值`}
-            style={{ width: '100%' }}
-          />
-        ),
+        render: (order: number, record: MenuRow) => {
+          const duplicate = duplicateSortValues.has(order)
+          return (
+            <InputNumber
+              value={order}
+              min={0}
+              max={9999}
+              step={10}
+              onChange={(v) => handleSortOrderChange(record.key, v)}
+              disabled={saving || resetting}
+              aria-label={`${record.label} 排序值`}
+              aria-describedby={duplicate ? 'menu-sort-duplicate-hint' : undefined}
+              status={duplicate ? 'error' : undefined}
+              style={{ width: '100%' }}
+            />
+          )
+        },
       },
     ],
-    [handleSortOrderChange, handleVisibleChange, resetting, saving],
+    [duplicateSortValues, handleSortOrderChange, handleVisibleChange, resetting, saving],
   )
 
   // 按 sort_order 排序展示
@@ -398,7 +421,7 @@ export default function MenuAdmin() {
             type="primary"
             icon={<SaveOutlined />}
             onClick={() => void handleSave()}
-            disabled={!hasDirty || loading || saving || resetting}
+            disabled={!hasDirty || loading || saving || resetting || hasDuplicateSort}
             loading={saving}
           >
             保存{hasDirty ? ` (${dirtyCount})` : ''}
@@ -413,6 +436,17 @@ export default function MenuAdmin() {
             </Text>
             {!loading && !error && <Text strong className="xh-menu-admin-count">共 {rows.length} 项</Text>}
           </div>
+
+          {hasDuplicateSort && (
+            <Alert
+              id="menu-sort-duplicate-hint"
+              className="xh-menu-sort-duplicate"
+              type="error"
+              showIcon
+              message="可见菜单的排序值重复"
+              description={`排序值 ${[...duplicateSortValues].join('、')} 被多个可见菜单使用；请改成唯一值后再保存。`}
+            />
+          )}
 
           {hasDirty && (
             <Alert

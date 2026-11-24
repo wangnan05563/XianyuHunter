@@ -107,6 +107,29 @@ describe('菜单管理页回归', () => {
     await waitFor(() => expect(menuApiMock.update).toHaveBeenCalledWith([{ key: 'tasks', visible: true, sort_order: 5 }]))
   })
 
+  it('可见菜单排序值重复时阻止保存，改为唯一值后恢复', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('heading', { name: '菜单管理' })).toBeInTheDocument())
+
+    const input = screen.getByRole('spinbutton', { name: '任务管理 排序值' })
+    fireEvent.change(input, { target: { value: '999' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(screen.getByText('可见菜单的排序值重复')).toBeInTheDocument())
+    expect(screen.getByText(/排序值 999 被多个可见菜单使用/)).toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-describedby', 'menu-sort-duplicate-hint')
+    expect(screen.getByRole('button', { name: /保存/ })).toBeDisabled()
+    expect(menuApiMock.update).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: '500' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(screen.queryByText('可见菜单的排序值重复')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /保存/ })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /保存/ }))
+    await waitFor(() => expect(menuApiMock.update).toHaveBeenCalledWith([{ key: 'tasks', visible: true, sort_order: 500 }]))
+  })
+
   it('加载失败展示持久错误态，点击重新加载后恢复表格', async () => {
     menuApiMock.get.mockRejectedValueOnce(new Error('mock load failed'))
     renderPage()
