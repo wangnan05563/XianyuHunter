@@ -1,0 +1,129 @@
+/* 仪表盘页头与键盘焦点：窄屏不压缩标题，操作区可换行 */
+.xh-dashboard-page {
+  container-type: inline-size;
+  /* 壳层右侧固定了导览悬浮按钮（right:24，宽 44）：预留安全区，
+     否则「查看商品」等页内按钮和系统状态会被盖住。 */
+  padding-right: 88px;
+}
+
+.dashboard-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.dashboard-page-title {
+  margin: 0;
+  color: var(--xh-text-primary);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+}
+
+.dashboard-page-subtitle {
+  margin: 6px 0 0;
+  color: var(--xh-text-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dashboard-page-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.stat-card:focus-visible,
+.quick-entry-card:focus-visible {
+  outline: 2px solid var(--xh-link-color, #1677ff);
+  outline-offset: 2px;
+}
+
+.eval-funnel-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.eval-funnel-legend-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--xh-border);
+  border-radius: 8px;
+  background: var(--xh-bg-spotlight);
+}
+
+.eval-funnel-dot {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.eval-funnel-label {
+  color: var(--xh-text-secondary);
+  font-size: 12px;
+}
+
+.eval-funnel-count {
+  color: var(--xh-text-primary);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-funnel-pct {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--xh-text-tertiary);
+  font-size: 11px;
+}
+
+@container (min-width: 900px) {
+  .eval-funnel-legend {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 860px) {
+  .price-histogram-card .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .price-histogram-card .ant-card-head-title {
+    flex: 1 0 100%;
+    padding-bottom: 4px;
+  }
+
+  .price-histogram-card .ant-card-extra {
+    width: 100%;
+    margin-inline-start: 0;
+    padding-top: 8px;
+  }
+}
+
+@container (max-width: 640px) {
+  .dashboard-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-page-actions {
+    justify-content: flex-start;
+  }
+
+  .dashboard-page-title {
+    font-size: 22px;
+  }
+}

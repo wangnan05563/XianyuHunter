@@ -100,8 +100,21 @@ export default function StatCardsSection({ overview, sparklines, failed, onNavig
       {cards.map(c => {
         const sparkFailed = !!failed?.[`spark:${c.metric}`]
         return (
-          <Col xs={12} sm={12} md={6} key={c.key}>
-            <Card className="stat-card" hoverable onClick={() => onNavigate(c.path)}>
+          <Col xs={12} sm={12} md={12} lg={6} key={c.key}>
+            <Card
+              className="stat-card"
+              hoverable
+              role="button"
+              tabIndex={0}
+              aria-label={`${c.title}：${c.value}${c.suffix ? ` ${c.suffix}` : ''}，打开${c.path === '/tasks' ? '任务管理' : '抢单记录'}`}
+              onClick={() => onNavigate(c.path)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onNavigate(c.path)
+                }
+              }}
+            >
               {c.icon}
               <Statistic
                 title={overviewFailed ? `${c.title}（统计接口失败）` : c.title}
@@ -116,7 +129,7 @@ export default function StatCardsSection({ overview, sparklines, failed, onNavig
                 ) : (
                   // Tooltip 包住整条曲线：口径只有 hover 才可见，避免卡片文字堆叠
                   <Tooltip title={c.tip}>
-                    <div style={{ height: 40 }}>
+                    <div style={{ height: 40 }} aria-hidden="true">
                       <ReactECharts option={sparklineOption(c.series, c.color)} style={{ height: 40 }} />
                     </div>
                   </Tooltip>

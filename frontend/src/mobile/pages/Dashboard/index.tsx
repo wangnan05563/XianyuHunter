@@ -1,4 +1,4 @@
-import { Card, Spin, Tag } from 'antd'
+import { Card, Spin, Tag, theme } from 'antd'
 import {
   FileSearchOutlined, DownloadOutlined, RobotOutlined, WarningOutlined,
   NotificationOutlined, DollarOutlined, DeleteOutlined, LineChartOutlined,
@@ -57,11 +57,25 @@ function notifyStar(v: number | undefined): number {
   return v === 0 ? 5 : 1
 }
 
+function MobileDashboardHeader({ color, secondary }: { readonly color: string; readonly secondary: string }) {
+  return (
+    <header style={{ padding: '4px 4px 12px' }}>
+      <h1 style={{ margin: 0, color, fontSize: 22, lineHeight: 1.3, fontWeight: 600 }}>
+        仪表盘
+      </h1>
+      <p style={{ margin: '4px 0 0', color: secondary, fontSize: 12, lineHeight: 1.6 }}>
+        系统总览 · 关键指标、今日告警与快捷入口
+      </p>
+    </header>
+  )
+}
+
 // 移动端仪表盘：KPI 星级卡片 + 今日告警摘要 + 工具/配置入口
 // KPI 口径（FR-G-1）：一律取 /api/stats 的真实字段，不再用 tasks.total 冒充商品数、
 // 用 evaluation_count 冒充「评估通过」、用 orders.failed 冒充「通知失败」
 export default function MobileDashboard() {
   const navigate = useNavigate()
+  const { token } = theme.useToken()
   const [loading, setLoading] = useState(true)
   const [overview, setOverview] = useState<StatsOverview | null>(null)
   const [todayAlert, setTodayAlert] = useState<TodayAlert | null>(null)
@@ -97,7 +111,15 @@ export default function MobileDashboard() {
   }, [fetchData])
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
+    return (
+      <div>
+        <MobileDashboardHeader color={token.colorText} secondary={token.colorTextSecondary} />
+        <div style={{ textAlign: 'center', padding: 48 }} role="status" aria-live="polite">
+          <Spin />
+          <div style={{ marginTop: 8, color: token.colorTextSecondary, fontSize: 13 }}>正在加载仪表盘数据…</div>
+        </div>
+      </div>
+    )
   }
 
   const m = overview?.metrics
@@ -138,6 +160,7 @@ export default function MobileDashboard() {
 
   return (
     <PullToRefresh onRefresh={fetchData}>
+      <MobileDashboardHeader color={token.colorText} secondary={token.colorTextSecondary} />
       {/* KPI 星级卡片（单列） */}
       {ovFailed && (
         <FetchFailedHint source="统计接口（/api/stats）" onRetry={() => void fetchData()} />
@@ -146,7 +169,7 @@ export default function MobileDashboard() {
         <Card key={kpi.label} className="m-kpi-card" size="small">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: 13, color: '#999' }}>
+              <div style={{ fontSize: 13, color: token.colorTextSecondary }}>
                 {kpi.label}
                 {kpi.value == null && ovFailed ? '（统计接口失败）' : ''}
               </div>
@@ -155,18 +178,24 @@ export default function MobileDashboard() {
                   fontSize: 28,
                   fontFamily: "'Cormorant Garamond', Georgia, serif",
                   fontWeight: 600,
-                  color: '#E20613',
+                  color: token.colorError,
                   letterSpacing: '-0.5px',
                 }}
               >
                 {kpi.value ?? '—'}
               </div>
-              {kpi.sub && <div style={{ fontSize: 11, color: '#bbb' }}>{kpi.sub}</div>}
+              {kpi.sub && <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{kpi.sub}</div>}
             </div>
             {/* 星级评定：金色 ★ 表示达成等级；数据不可用时不给星（不给「正常」的错觉） */}
-            <div style={{ color: '#C9A961', fontSize: 16 }}>
-              {'★'.repeat(kpi.star)}
-              <span style={{ color: '#d9d9d9' }}>{'★'.repeat(5 - kpi.star)}</span>
+            <div
+              role="img"
+              aria-label={`${kpi.label}评级：${kpi.star} / 5 星`}
+              style={{ color: token.colorWarning, fontSize: 16 }}
+            >
+              <span aria-hidden="true">
+                {'★'.repeat(kpi.star)}
+                <span style={{ color: token.colorBorder }}>{'★'.repeat(5 - kpi.star)}</span>
+              </span>
             </div>
           </div>
         </Card>
@@ -214,7 +243,7 @@ export default function MobileDashboard() {
                 font: 'inherit',
               }}
             >
-              <span style={{ fontSize: 22, color: '#E20613' }}>{entry.icon}</span>
+              <span style={{ fontSize: 22, color: token.colorPrimary }}>{entry.icon}</span>
               <span style={{ fontSize: 11 }}>{entry.label}</span>
             </button>
           ))}
@@ -248,7 +277,7 @@ export default function MobileDashboard() {
                 font: 'inherit',
               }}
             >
-              <span style={{ fontSize: 22, color: '#E20613' }}>{entry.icon}</span>
+              <span style={{ fontSize: 22, color: token.colorPrimary }}>{entry.icon}</span>
               <span style={{ fontSize: 11 }}>{entry.label}</span>
             </button>
           ))}

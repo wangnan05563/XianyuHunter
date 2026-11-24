@@ -34,7 +34,7 @@ export default function PriceHistogramCard({
     const bins = histogram.bins
     const compare = histogram.summary.compare
     // 标线标签交替使用 start/end 位置，避免数值接近时重叠
-    const markLines: Array<{ xAxis?: number; name?: string; label: { formatter: string; color: string; position: string; distance: number; fontSize: number }; lineStyle: { color: string; type: string } }> = []
+    const markLines: Array<{ xAxis?: number; name?: string; label: { show?: boolean; formatter: string; color: string; position: string; distance: number; fontSize: number }; lineStyle: { color: string; type: string } }> = []
     // P25 标线（底部）— 使用 token 的 warning 色（深色主题下会自动变亮）
     if (histogram.summary.p25) markLines.push({ xAxis: histogram.summary.p25, name: 'P25', label: { formatter: 'P25 ¥{c}', color: token.colorWarning, position: 'start', distance: 6, fontSize: 10 }, lineStyle: { color: token.colorWarning, type: 'dashed' } })
     // P50 标线（顶部）— 使用 token 的 info 色
@@ -53,6 +53,12 @@ export default function PriceHistogramCard({
     const tpr = histogram.summary.task_price_range
     if (tpr?.min_price != null) markLines.push({ xAxis: tpr.min_price, name: '定价下限', label: { formatter: '定价下限 ¥{c}', color: token.colorSuccess, position: 'start', distance: 62, fontSize: 10 }, lineStyle: { color: token.colorSuccess, type: 'solid' } })
     if (tpr?.max_price != null) markLines.push({ xAxis: tpr.max_price, name: '定价上限', label: { formatter: '定价上限 ¥{c}', color: token.colorSuccess, position: 'end', distance: 48, fontSize: 10 }, lineStyle: { color: token.colorSuccess, type: 'solid' } })
+
+    // 底部标线（P25/P75/今日均价/定价下限）与 X 轴刻度在同一水平带：窄图表上
+    // “P25 ¥310”会和“400”粘成“P25 ¥310400”。下方统计条已列出这些值，图表只留彩色线。
+    for (const line of markLines) {
+      if (line.label.position === 'start') line.label.show = false
+    }
 
     return {
       tooltip: {
@@ -139,12 +145,13 @@ export default function PriceHistogramCard({
   }, [histogram, token])
 
   return (
-    <Card style={{ marginTop: 16 }}
+    <Card className="price-histogram-card" style={{ marginTop: 16 }}
       title="价格分布直方图"
       extra={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Select
             size="small" value={histoTaskId} style={{ width: 200 }}
+            aria-label="价格分布任务筛选"
             onChange={onHistoTaskChange}
             options={[{ value: 'all', label: '全部任务' }, ...histoTasks.map(t => ({ value: t.id, label: `${t.name || t.keyword || t.id}`.slice(0, 30) }))]}
           />
@@ -169,7 +176,12 @@ export default function PriceHistogramCard({
       )}
       {error && <FetchFailedHint source="价格分布" onRetry={onRetry} />}
       {histogramOption && (
-        <ReactECharts option={histogramOption} style={{ height: 340 }} notMerge={true} lazyUpdate={true} />
+        <div
+          role="img"
+          aria-label={`价格分布直方图：共 ${histogram?.summary.count ?? 0} 件，均价 ${histogram?.summary.mean ?? 0} 元，中位 ${histogram?.summary.median ?? 0} 元，P25 ${histogram?.summary.p25 ?? 0} 元，P75 ${histogram?.summary.p75 ?? 0} 元`}
+        >
+          <ReactECharts option={histogramOption} style={{ height: 340 }} notMerge={true} lazyUpdate={true} />
+        </div>
       )}
       {!histogramOption && !error && (
         <Empty description="暂无价格数据" />

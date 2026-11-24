@@ -77,7 +77,7 @@ export default function KpiSection({ kpiCards, error, onRetry }: KpiSectionProps
           const starColor = token.colorWarning
           const { trendPrefix, deltaTagColor, hasDelta } = computeKpiTrend(k, token)
           return (
-            <Col xs={12} md={6} key={k.id}>
+            <Col xs={12} md={12} lg={6} key={k.id}>
               <div style={{ borderLeft: stars === 5 ? `3px solid ${starColor}` : '3px solid transparent', paddingLeft: 8 }}>
                 <Statistic
                   title={k.title}

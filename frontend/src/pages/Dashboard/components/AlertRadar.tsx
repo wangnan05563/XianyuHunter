@@ -1,4 +1,4 @@
-import { Card, Col, Row, List, Spin, Badge, Collapse, theme } from 'antd'
+import { Card, Col, Row, List, Spin, Badge, theme } from 'antd'
 import { WarningOutlined, ReloadOutlined } from '@ant-design/icons'
 import { TipButton } from '@/components/TipButton'
 import { openSheetWithNotification } from '@/components/SheetWorkspace/sheetNotifications'
@@ -68,7 +68,7 @@ export default function AlertRadar({ alertData, alertOpen, onToggle, onReload, l
     : <Spin />
 
   return (
-    <Card style={{ marginTop: 16 }}
+    <Card style={{ marginTop: 16 }} styles={{ body: { display: alertOpen ? 'block' : 'none' } }}
       title={
         // S6848/S1082：可点击区域用原生 button 替代 span+onClick，自带键盘可达性
         <button
@@ -93,11 +93,9 @@ export default function AlertRadar({ alertData, alertOpen, onToggle, onReload, l
           <TipButton type="text" size="small" icon={<ReloadOutlined />} onClick={onReload} style={{ marginLeft: 4 }} tip="重新拉取最新预警数据" />
         </span>
       }>
-      <Collapse activeKey={alertOpen ? ['alert'] : []} onChange={onToggle} bordered={false}
-        items={[{
-          key: 'alert', showArrow: false, style: { border: 'none' },
-          label: null as unknown as string,
-          children: alertData ? (
+      {alertOpen && (
+        <div style={{ paddingTop: 4 }}>
+          {alertData ? (
             <Row gutter={[16, 16]}>
               {/* 失败订单 */}
               <Col xs={24} md={8}>
@@ -159,8 +157,9 @@ export default function AlertRadar({ alertData, alertOpen, onToggle, onReload, l
                 </Card>
               </Col>
             </Row>
-          ) : noDataBody,
-        }]} />
+          ) : noDataBody}
+        </div>
+      )}
     </Card>
   )
 }

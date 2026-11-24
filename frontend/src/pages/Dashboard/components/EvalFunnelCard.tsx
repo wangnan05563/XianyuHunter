@@ -39,18 +39,21 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
         // 颜色梯度：从采集到成功，色相由冷到暖，暗示转化进度
         color: [token.colorPrimary, token.colorInfo, token.colorSuccess, token.colorWarning, token.colorError],
         label: {
-          show: true,
-          position: 'inside',
-          formatter: '{b}: {c}',
-          color: '#fff',
-          fontWeight: 600,
+          // 窄段内的文字会被下一层漏斗覆盖成“划线”效果，阶段数值改由下方
+          // 原生阶段条带承载，图表只保留色块轮廓，避免文字互相遮挡。
+          show: false,
         },
-        data: data.stages.map(s => ({
+        data: data.stages.map((s, index) => ({
           name: s.label,
           value: s.count,
           // 自定义字段供 tooltip 使用
           pctOfFirst: s.pct_of_first,
           pctOfPrev: s.pct_of_prev,
+          // 前三个阶段够宽，保留内嵌数值；最后两个窄段的内嵌文字会被
+          // 下一层覆盖，统一交给下方阶段条带展示。
+          label: index < 3
+            ? { show: true, position: 'inside', formatter: '{b}: {c}', color: '#fff', fontWeight: 600 }
+            : { show: false },
         })),
       }],
     }
@@ -80,13 +83,31 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
         {data && data.stages.length > 0 && (
           <>
             {/* 漏斗图：占满宽度，高度固定避免阶段少时压扁 */}
-            <div style={{ height: 320 }}>
+            <div
+              role="img"
+              aria-label={`评估漏斗图：${data.stages.map(s => `${s.label} ${s.count}`).join('，')}`}
+              style={{ height: 320 }}
+            >
               {funnelOption && <ReactECharts option={funnelOption} style={{ height: '100%', width: '100%' }} />}
+            </div>
+
+            <div className="eval-funnel-legend" aria-label="评估漏斗阶段明细">
+              {data.stages.map((stage, index) => {
+                const colors = [token.colorPrimary, token.colorInfo, token.colorSuccess, token.colorWarning, token.colorError]
+                return (
+                  <div className="eval-funnel-legend-item" key={stage.key}>
+                    <span className="eval-funnel-dot" style={{ background: colors[index % colors.length] }} aria-hidden="true" />
+                    <span className="eval-funnel-label">{stage.label}</span>
+                    <strong className="eval-funnel-count">{stage.count}</strong>
+                    <span className="eval-funnel-pct">{index === 0 ? '占采集 100%' : `占上一阶段 ${stage.pct_of_prev}%`}</span>
+                  </div>
+                )
+              })}
             </div>
 
             {/* 4 个关键指标 */}
             <Row gutter={16} style={{ marginTop: 16 }}>
-              <Col span={6}>
+              <Col xs={12} sm={12} md={6}>
                 <Tooltip title="评估通过数 / 已评估数。反映评估策略宽松度，过低可能漏掉好货，过高可能放过差货。">
                   <Statistic
                     title={<span><AimOutlined /> 命中率</span>}
@@ -97,7 +118,7 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
                   />
                 </Tooltip>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={12} md={6}>
                 <Tooltip title="抢单失败数 / 抢单触发数。反映评估+抢单策略的准确性，越低越好。">
                   <Statistic
                     title={<span><FallOutlined /> 误报率</span>}
@@ -108,7 +129,7 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
                   />
                 </Tooltip>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={12} md={6}>
                 <Tooltip title="抢单成功数 / 抢单触发数。反映抢单执行能力，受库存、网络、风控影响。">
                   <Statistic
                     title={<span><ThunderboltOutlined /> 抢单成功率</span>}
@@ -119,7 +140,7 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
                   />
                 </Tooltip>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={12} md={6}>
                 <Tooltip title="抢单成功数 / 采集商品数。端到端转化能力，受采集质量、评估策略、抢单执行综合影响。">
                   <Statistic
                     title={<span><CheckCircleOutlined /> 端到端率</span>}

@@ -152,9 +152,14 @@ export default function TrendModal({
         ))}
       </div>
       {error && <FetchFailedHint source="趋势数据" onRetry={onRetry} />}
-      {trendOption && (
+      {trendOption && trendData?.summary && (
         <>
-          <ReactECharts option={trendOption} style={{ height: 320 }} />
+          <div
+            role="img"
+            aria-label={`${trendMetricLabel(trendMetric)}趋势图：${trendRange / 24} 天，最低 ${trendData.summary.min}，最高 ${trendData.summary.max}，均值 ${trendData.summary.avg}，当前 ${trendData.summary.current}`}
+          >
+            <ReactECharts option={trendOption} style={{ height: 320 }} />
+          </div>
           {trendData?.summary && (
             <div style={{ display: 'flex', gap: 24, marginTop: 8, fontSize: 12, color: 'var(--xh-text-tertiary)' }}>
               <span>最低 <b style={{ color: 'var(--xh-text-primary)' }}>{trendMetric === 'success_rate' ? trendData.summary.min.toFixed(1) + '%' : Math.round(trendData.summary.min)}</b></span>

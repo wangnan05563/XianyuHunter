@@ -20,6 +20,7 @@ import { API_BASE } from '../../utils/apiBase'
 import { TipButton } from '@/components/TipButton'
 import { useFailedSources } from '../../hooks/useFailedSources'
 import { TASK_STATUS } from '../../constants/taskStatus'
+import './dashboard.css'
 
 // SSE lastEventId 持久化 key：提取到模块级，供 handleSseAppEvent 与 connect 共享（S2004 提取避免嵌套过深）
 const SSE_LAST_EVENT_ID_KEY = 'xh.sse.lastEventId'
@@ -198,7 +199,7 @@ export default function Dashboard() {
       loadSparklines()
     }, 60 * 1000)
     return () => { clearInterval(kpiTimer); clearInterval(refreshTimer) }
-  }, [loadOverview, loadSparklines])
+  }, [loadOverview, loadSparklines, markSource])
 
   // SSE 实时事件流（O-14-26 断线重连回放）
   // 浏览器原生 EventSource 在自动重连时会携带 Last-Event-ID header，
@@ -288,7 +289,18 @@ export default function Dashboard() {
 
   // ========== 渲染 ==========
   return (
-    <div className="page-container">
+    <div className="page-container xh-dashboard-page" data-testid="dashboard-page">
+      <header className="dashboard-page-header">
+        <div>
+          <h1 className="dashboard-page-title">仪表盘</h1>
+          <p className="dashboard-page-subtitle">系统总览 · 关键指标、告警、事件流与价格分布，每 60 秒自动刷新</p>
+        </div>
+        <div className="dashboard-page-actions">
+          <TipButton size="small" icon={<LineChartOutlined />} onClick={() => setTrendOpen(true)} tip="打开趋势大图，可切换指标与 7 / 30 / 90 天范围">
+            趋势大图
+          </TipButton>
+        </div>
+      </header>
       <Spin spinning={loading}>
         {/* 后端故障必须先于任何数字表态（T02586 假回执清零）：
             原先四处 .catch(()=>null) 把故障渲染成「全 0 正常态」，用户无从判断是没事发生还是没取到数据 */}
@@ -341,13 +353,6 @@ export default function Dashboard() {
             style={{ marginBottom: 16 }}
           />
         )}
-
-        {/* 趋势大图入口（评审 2.1-1：setTrendOpen 全仓无调用点，168h 趋势整体形同虚设） */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-          <TipButton size="small" icon={<LineChartOutlined />} onClick={() => setTrendOpen(true)} tip="打开趋势大图，可切换指标与 7 / 30 / 90 天范围">
-            趋势大图
-          </TipButton>
-        </div>
 
         {/* 统计卡 + Sparkline */}
         <StatCardsSection overview={overview} sparklines={sparklines} failed={failedSources} onNavigate={navigate} />
@@ -422,8 +427,21 @@ export default function Dashboard() {
         >
           <Row gutter={[16, 16]}>
             {visibleQuickEntries().map((e) => (
-              <Col xs={12} md={6} key={e.path}>
-                <Card className="quick-entry-card" size="small" onClick={() => navigate(e.path)}>
+              <Col xs={12} md={8} key={e.path}>
+                <Card
+                  className="quick-entry-card"
+                  size="small"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`打开${e.title}：${e.desc}`}
+                  onClick={() => navigate(e.path)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      navigate(e.path)
+                    }
+                  }}
+                >
                   <QuickEntryIcon type={e.icon} size={48} />
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{e.title}</div>
                   <div style={{ fontSize: 12, color: 'var(--xh-text-tertiary)' }}>{e.desc}</div>
