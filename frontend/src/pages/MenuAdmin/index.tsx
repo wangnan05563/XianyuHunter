@@ -418,6 +418,7 @@ export default function MenuAdmin() {
           </Popconfirm>
           <TipButton
             tip="保存菜单配置修改"
+            aria-label={hasDirty ? `保存菜单配置修改，${dirtyCount} 项未保存` : '保存菜单配置修改'}
             type="primary"
             icon={<SaveOutlined />}
             onClick={() => void handleSave()}
