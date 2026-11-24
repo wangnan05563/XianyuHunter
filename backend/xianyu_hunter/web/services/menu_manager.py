@@ -181,7 +181,7 @@ class MenuManager:
         合并规则：
         1. 以 registry 默认值为基底；
         2. 用户配置覆盖 visible / sort_order；
-        3. 按 sort_order 升序排列；
+        3. 按 sort_order 升序排列；重复排序值按 key 升序稳定排序；
         4. 仅返回 visible=True 的项；
         5. 用户无配置时返回 registry 默认值（default_visible=True 的项）。
 
@@ -223,8 +223,10 @@ class MenuManager:
                 merged_item["visible"] = True
             merged.append(merged_item)
 
-        # 排序在过滤前完成，保证 hidden 项不影响可见项的相对顺序
-        merged.sort(key=lambda x: x["sort_order"])
+        # 排序在过滤前完成，保证 hidden 项不影响可见项的相对顺序。
+        # 重复 sort_order 用 key 做第二排序键：旧数据或并发写入产生同值时，
+        # 每次 GET 仍给出同一顺序，避免侧栏顺序在刷新间跳动。
+        merged.sort(key=lambda x: (x["sort_order"], x["key"]))
         merged = [m for m in merged if m["visible"]]
 
         # 写入缓存：dict 读写原子性由 GIL 保证，无需持锁

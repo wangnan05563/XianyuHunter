@@ -10,6 +10,8 @@ MenuManager UPSERT、GET 回读全链路为真），只把数据库换成临时 
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from sqlalchemy import create_engine
 
@@ -133,3 +135,48 @@ def test_get_menu_carries_group_meta(menu_client):
     # 每个菜单的 category 都要有对应分组，否则前端只能回退到内置常量表（第二份定义）
     categories = {m["category"] for m in data["menus"] if m.get("category")}
     assert categories <= set(groups), f"未定义分组的 category: {categories - set(groups)}"
+
+
+def test_duplicate_sort_order_is_stable_by_key(menu_client):
+    """重复排序值不得让 GET 顺序在刷新间漂移：同值按 key 升序稳定排序。"""
+    client, manager = menu_client
+    payload = {
+        "menus": [
+            {"key": "tasks", "visible": True, "sort_order": 42},
+            {"key": "items", "visible": True, "sort_order": 42},
+        ]
+    }
+    assert client.put("/api/menu", json=payload).status_code == 200
+
+    keys = [m["key"] for m in manager.get_menus("default")]
+    # "items" < "tasks"，同值时 items 必须排在 tasks 前
+    assert keys.index("items") < keys.index("tasks"), keys
+    # 再次获取必须完全一致，而不是依赖 dict/DB 的偶然顺序
+    assert [m["key"] for m in manager.get_menus("default")] == keys
+
+
+def test_concurrent_menu_updates_keep_both_writes(menu_client):
+    """多线程同时 UPSERT 不同菜单项时，不能互相覆盖丢失。"""
+    _, manager = menu_client
+    updates = [
+        ("tasks", 3),
+        ("items", 4),
+        ("orders", 5),
+        ("evaluations", 6),
+    ]
+
+    def write(key: str, sort_order: int) -> None:
+        manager.update_menu_config(
+            "default",
+            [{"key": key, "visible": True, "sort_order": sort_order}],
+        )
+
+    with ThreadPoolExecutor(max_workers=len(updates)) as pool:
+        futures = [pool.submit(write, key, sort_order) for key, sort_order in updates]
+        for future in futures:
+            future.result()
+
+    by_key = {m["key"]: m for m in manager.get_menus("default")}
+    for key, sort_order in updates:
+        assert key in by_key, f"并发写入后 {key} 丢失"
+        assert by_key[key]["sort_order"] == sort_order, f"{key} 排序值被覆盖"
