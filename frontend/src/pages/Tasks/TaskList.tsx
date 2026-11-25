@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Table, Space, Tag, Modal, message, Input, Spin, Empty, Card, Select, Alert, Collapse, Tabs, Form, Tooltip, Segmented, Row, Col, Switch, Dropdown, Popconfirm, Pagination } from 'antd'
 import type { MenuProps, TablePaginationConfig } from 'antd'
-import { PlusOutlined, EditOutlined, PlayCircleOutlined, PauseCircleOutlined, ThunderboltOutlined, AppstoreOutlined, DeleteOutlined, CopyOutlined, StopOutlined, ClearOutlined, LinkOutlined, ReloadOutlined, EyeOutlined, MinusCircleOutlined, MoreOutlined, SaveOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, PlayCircleOutlined, PauseCircleOutlined, ThunderboltOutlined, AppstoreOutlined, DeleteOutlined, CopyOutlined, StopOutlined, ClearOutlined, LinkOutlined, ReloadOutlined, EyeOutlined, MinusCircleOutlined, MoreOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { taskApi, aiApi, templateApi, taskLinkApi, configApi, Task, TaskOption, TaskTemplate, AIParseTaskResult, TaskLink, LiveProgress, LiveFilterSummary, TaskPrecheckResult } from '../../api'
 import {
@@ -18,7 +18,9 @@ import { useAutoLiveSearch } from '../../hooks/useAutoLiveSearch'
 import { AI_GATE_OFF_TIP, useAIEnabled } from '../../hooks/useAIEnabled'
 import { AI_DISABLED_FALLBACK, extractApiError, isAiDisabledError } from '../../utils/apiError'
 import { taskSilence } from '../../utils/taskSilence'
+import { formatPriceRange } from '../../utils/priceRange'
 import { TipButton } from '@/components/TipButton'
+import './taskList.css'
 
 // 让 Tag/span 等非原生交互元素获得键盘可访问性（S6848：onClick 需配合键盘事件）
 // 用结构类型避免引入 React 命名空间依赖
@@ -41,12 +43,24 @@ export default function TaskList() {
   const navigate = useNavigate()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistentState<number>('xh.tasks.pageSize', 20, {
     validator: (v): v is number => typeof v === 'number' && v > 0 && Number.isFinite(v),
   })
   const [statusFilter, setStatusFilter] = useState<string>('')
+  // 关键词搜索：任务数到百级后只能翻页找任务（走查实测 334 条 / 6 页），
+  // 搜索放后端 q 参数走 SQL，保证匹配项在任意分页都能被搜到；输入防抖 400ms 避免每敲一个字打一次接口
+  const [keyword, setKeyword] = useState<string>('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleSearchChange = (value: string) => {
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      setKeyword(value.trim())
+      setPage(1)
+    }, 400)
+  }
 
   // ---- 智能建任务状态 ----
   const [aiModalOpen, setAiModalOpen] = useState(false)
@@ -199,8 +213,9 @@ export default function TaskList() {
 
   const load = async () => {
     setLoading(true)
+    setLoadError('')
     try {
-      const res = await taskApi.list({ status: statusFilter || undefined, limit: pageSize, offset: (page - 1) * pageSize })
+      const res = await taskApi.list({ status: statusFilter || undefined, q: keyword || undefined, limit: pageSize, offset: (page - 1) * pageSize })
       setTasks(res.items || [])
       setTotal(res.total || 0)
       // 加载每个任务的关联数
@@ -216,8 +231,8 @@ export default function TaskList() {
         }),
       )
       setLinkCounts(counts)
-    } catch {
-      message.error('加载任务列表失败')
+    } catch (e) {
+      setLoadError(extractApiError(e, '任务列表加载失败'))
     } finally {
       setLoading(false)
     }
@@ -226,7 +241,7 @@ export default function TaskList() {
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, statusFilter])
+  }, [page, pageSize, statusFilter, keyword])
 
   // ============== 智能建任务 ==============
 
@@ -766,36 +781,50 @@ export default function TaskList() {
       title: '任务名',
       dataIndex: 'name',
       key: 'name',
+      width: 180,
+      ellipsis: true,
       render: (text: string, record: Task) => (
-        <TipButton tip="打开该任务编辑页" type="link" onClick={() => navigate(`/tasks/${record.id}/edit`)} style={{ padding: 0 }}>{text}</TipButton>
+        <span id={`task-name-${record.id}`} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <TipButton tip="打开该任务编辑页" type="link" onClick={() => navigate(`/tasks/${record.id}/edit`)} style={{ padding: 0, width: '100%', justifyContent: 'flex-start', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</TipButton>
+        </span>
       ),
     },
-    { title: '关键词', dataIndex: 'keyword', key: 'keyword' },
+    { title: '关键词', dataIndex: 'keyword', key: 'keyword', responsive: ['xxl'] as Array<'xxl'>,
+      render: (text: string, record: Task) => (
+        // 建任务时「任务名称」默认填关键词，列表里两列常常一字不差（实测 334 条中大量如此）。
+        // 这种情况弱化成「同任务名」，把视觉重量让给真正有差异的信息。
+        record.name === text
+          ? <span style={{ color: 'var(--xh-text-tertiary)' }}>同任务名</span>
+          : text
+      ),
+    },
     {
       title: '价格区间',
       key: 'price',
-      render: (_: unknown, record: Task) => {
-        const min = record.min_price ?? '不限'
-        const max = record.max_price ?? '不限'
-        return `¥${min} ~ ¥${max}`
-      },
+      width: 140,
+      responsive: ['xl'] as Array<'xl'>,
+      render: (_: unknown, record: Task) => formatPriceRange(record.min_price, record.max_price),
     },
     {
       title: '模式',
       dataIndex: 'mode',
       key: 'mode',
+      width: 90,
+      responsive: ['xl'] as Array<'xl'>,
       render: (mode: string) => <Tag>{taskModeLabel(mode)}</Tag>,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 80,
       render: (status: string) => <Tag color={taskStatusColor(status)}>{taskStatusLabel(status)}</Tag>,
     },
     {
       title: '采集周期',
       key: 'interval',
-      width: 110,
+      width: 120,
+      responsive: ['lg'] as Array<'lg'>,
       // 只读列：点击跳转 TaskEditor 修改，避免在列表行内直接编辑造成误操作
       // T02651：这一列一直可点，但除了 cursor:pointer 没有任何可点击暗示（无链接色、
       // 无 hover 态、tooltip 也不提），用户不知道能点。现在补链接色 + hover 下划线，
@@ -825,6 +854,7 @@ export default function TaskList() {
       title: '下次搜索',
       key: 'next_search',
       width: 90,
+      responsive: ['xxl'] as Array<'xxl'>,
       // 仅 running 任务参与倒计时；非 running 显示占位符
       render: (_: unknown, record: Task) => {
         if (record.status !== TASK_STATUS.RUNNING) return <span style={{ color: 'var(--xh-text-tertiary)' }}>—</span>
@@ -841,12 +871,14 @@ export default function TaskList() {
       title: '沉默',
       key: 'silence',
       width: 100,
+      responsive: ['xxl'] as Array<'xxl'>,
       render: (_: unknown, record: Task) => getSilenceTag(record),
     },
     {
       title: '关联',
       key: 'links',
       width: 80,
+      responsive: ['xxl'] as Array<'xxl'>,
       render: (_: unknown, record: Task) => (
         <TipButton tip="查看该任务详情与关联数" type="link" onClick={() => navigate(`/tasks/${record.id}`)} style={{ padding: 0 }}>
           <LinkOutlined /> {linkCounts[record.id] ?? '-'}
@@ -862,7 +894,7 @@ export default function TaskList() {
       // 真机实测（1440/768 两档）补上第二条：仅收纳还不够——本表列合计 1524px，
       // 1440 档可用宽度只有 1112px，操作列不固定时整列落在 x=1621（视口之外），
       // 删除仍要横向滚动才点得到。按 Orders/Evaluations 的既有做法钉右。
-      width: 148,
+      width: 208,
       fixed: 'right' as const,
       render: (_: unknown, record: Task) => {
         return (
@@ -880,7 +912,7 @@ export default function TaskList() {
               </TipButton>
             )}
             <Dropdown trigger={['click']} menu={{ items: buildRowMoreItems(record) }}>
-              <TipButton tip="展开更多操作（复制 / 另存为模板 / 停止 / 删除）" size="small" icon={<MoreOutlined />} aria-label="更多操作" />
+              <TipButton tip="展开更多操作（复制 / 另存为模板 / 停止 / 删除）" size="small" icon={<MoreOutlined />} aria-label="更多操作" aria-describedby={`task-name-${record.id}`} />
             </Dropdown>
           </Space>
         )
@@ -913,22 +945,28 @@ export default function TaskList() {
   }
 
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <Space>
-          <TipButton tip={aiOff ? AI_GATE_OFF_TIP : '用一句话 AI 智能创建任务'} icon={<ThunderboltOutlined />} onClick={openAiParse}>
-            智能建任务
-          </TipButton>
-          <TipButton tip="打开任务模板市场" icon={<AppstoreOutlined />} onClick={openTemplateMarket}>
-            模板市场
-          </TipButton>
-          <TipButton tip="新建一个任务" type="primary" icon={<PlusOutlined />} onClick={() => navigate('/tasks/new')}>
-            新增任务
-          </TipButton>
-        </Space>
-      </div>
+    <div className="page-container xh-tasks-page" data-testid="tasks-page">
+      <header className="tasks-page-header">
+        <div>
+          <h1 className="tasks-page-title">任务管理</h1>
+          <p className="tasks-page-subtitle">创建关键词任务，设置价格区间与执行模式，实时跟踪运行状态。</p>
+        </div>
+        <div className="tasks-page-actions">
+          <Space wrap>
+            <TipButton tip={aiOff ? AI_GATE_OFF_TIP : '用一句话 AI 智能创建任务'} icon={<ThunderboltOutlined />} onClick={openAiParse}>
+              智能建任务
+            </TipButton>
+            <TipButton tip="打开任务模板市场" icon={<AppstoreOutlined />} onClick={openTemplateMarket}>
+              模板市场
+            </TipButton>
+            <TipButton tip="新建一个任务" type="primary" icon={<PlusOutlined />} onClick={() => navigate('/tasks/new')}>
+              新增任务
+            </TipButton>
+          </Space>
+        </div>
+      </header>
 
-      <Space style={{ marginBottom: 16 }}>
+      <Space wrap className="tasks-filter-bar">
         {/* 全部启动：放在状态筛选前作为视觉焦点，使用品牌色渐变提升可发现性 */}
         <TipButton
           tip={`一键启动本页 ${tasks.length} 个任务中的非运行中项；共 ${total} 个任务，其他页需翻页后再启动`}
@@ -957,8 +995,10 @@ export default function TaskList() {
             />
           </Space>
         </Tooltip>
-        <span>状态筛选：</span>
+        <span id="tasks-status-label">状态筛选：</span>
         <Select
+          id="tasks-status-filter"
+          aria-label="按任务状态筛选"
           value={statusFilter || undefined}
           onChange={(v) => { setStatusFilter(v || ''); setPage(1) }}
           style={{ width: 120 }}
@@ -970,6 +1010,16 @@ export default function TaskList() {
             TASK_STATUS.STOPPED,
           ])}
         />
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索任务名 / 关键词 / ID"
+          aria-label="搜索任务"
+          className="tasks-search-input"
+          onChange={(e) => handleSearchChange(e.target.value)}
+          // 清空按钮与输入框的 onClear 是两条路径，这里额外兜底一次即时生效（不必等 400ms 防抖）
+          onClear={() => { setKeyword(''); setPage(1) }}
+        />
         <Segmented
           value={viewMode}
           onChange={(v) => setViewMode(v as 'table' | 'card')}
@@ -979,6 +1029,17 @@ export default function TaskList() {
           ]}
         />
       </Space>
+
+      {loadError && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="任务列表加载失败"
+          description={loadError}
+          action={<TipButton tip="重新加载任务列表" onClick={load}>重试</TipButton>}
+        />
+      )}
 
       {/* 批量操作工具条 */}
       {selectedRowKeys.length > 0 && (
@@ -1005,11 +1066,18 @@ export default function TaskList() {
           dataSource={tasks}
           rowKey="id"
           loading={loading}
-          // 横向滚动：列较多时允许用户滚动浏览，避免列被强制压缩到看不清
-          scroll={{ x: 'max-content' }}
+          // 横向滚动只用于保持 fixed 操作列的 sticky 语义；列已按断点收敛，
+          // 100% 宽保证关键列（任务名/状态/采集周期/操作）在 768 档也不用横向拖动。
+          scroll={{ x: '100%' }}
+          tableLayout="fixed"
           rowSelection={{
             selectedRowKeys,
             onChange: setSelectedRowKeys,
+          }}
+          locale={{
+            emptyText: loadError
+              ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务列表加载失败，请点击重试" />
+              : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务，点击右上角「新增任务」开始监控" />,
           }}
           pagination={paginationConfig}
         />
@@ -1029,7 +1097,7 @@ export default function TaskList() {
                 <TipButton tip="启动该任务" size="small" icon={<PlayCircleOutlined />} onClick={() => handleAction(task.id, 'start')}>启动</TipButton>
               )
               return (
-                <Col key={task.id} xs={24} sm={12} md={8} lg={8}>
+                <Col key={task.id} xs={24} sm={24} md={12} lg={12} xl={8}>
                   <Card
                     size="small"
                     style={{ borderTop: `3px solid ${statusColor}` }}
@@ -1039,16 +1107,16 @@ export default function TaskList() {
                       <TipButton tip="打开该任务编辑页" type="link" onClick={() => navigate(`/tasks/${task.id}/edit`)} style={{ padding: 0, fontWeight: 600 }}>{task.name || task.keyword}</TipButton>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--xh-text-secondary)', marginBottom: 8 }}>
-                      关键词：{task.keyword}
+                      关键词：{task.name === task.keyword ? '同任务名' : task.keyword}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--xh-text-secondary)', marginBottom: 8 }}>
-                      价格：¥{task.min_price ?? '不限'} ~ ¥{task.max_price ?? '不限'}
+                      价格：{formatPriceRange(task.min_price, task.max_price)}
                     </div>
                     <Space size={4} wrap style={{ marginBottom: 8 }}>
                       <Tag>{taskModeLabel(task.mode)}</Tag>
                       <Tag color={taskStatusColor(task.status)}>{taskStatusLabel(task.status)}</Tag>
                     </Space>
-                    <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <div style={{ borderTop: '1px solid var(--xh-border-secondary)', paddingTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       <TipButton tip="编辑该任务" size="small" icon={<EditOutlined />} onClick={() => navigate(`/tasks/${task.id}/edit`)}>编辑</TipButton>
                       {startPauseBtn}
                       {showStopBtn && (
@@ -1078,7 +1146,7 @@ export default function TaskList() {
                           ],
                         }}
                       >
-                        <TipButton tip="展开更多操作" size="small" icon={<MoreOutlined />} aria-label="更多操作" />
+                        <TipButton tip="展开更多操作" size="small" icon={<MoreOutlined />} aria-label={`更多操作：${task.name || task.keyword}`} />
                       </Dropdown>
                       <Popconfirm
                         title="确认删除该任务？"
@@ -1309,6 +1377,7 @@ export default function TaskList() {
 
         <Input.TextArea
           rows={3}
+          aria-label="任务需求描述"
           placeholder="例：我想买 95 新索尼 A7M4 套机，预算 1.2w 以内，上海本地优先"
           value={aiInput}
           onChange={(e) => setAiInput(e.target.value)}
@@ -1339,7 +1408,7 @@ export default function TaskList() {
                 {aiResult.keyword && (<><span style={{ color: 'var(--xh-text-tertiary)' }}>关键词：</span><span style={{ fontWeight: 600 }}>{aiResult.keyword}</span></>)}
                 {aiResult.name && (<><span style={{ color: 'var(--xh-text-tertiary)' }}>任务名：</span><span>{aiResult.name}</span></>)}
                 {(aiResult.min_price != null || aiResult.max_price != null) && (
-                  <><span style={{ color: 'var(--xh-text-tertiary)' }}>价格区间：</span><span>¥{aiResult.min_price ?? '不限'} ~ ¥{aiResult.max_price ?? '不限'}</span></>
+                  <><span style={{ color: 'var(--xh-text-tertiary)' }}>价格区间：</span><span>{formatPriceRange(aiResult.min_price, aiResult.max_price)}</span></>
                 )}
                 {aiResult.mode && (<><span style={{ color: 'var(--xh-text-tertiary)' }}>执行模式：</span><span>{taskModeLabel(aiResult.mode)}</span></>)}
               </div>
@@ -1354,7 +1423,7 @@ export default function TaskList() {
 
         {/* 底部按钮 */}
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <TipButton tip="关闭智能建任务弹窗" onClick={() => setAiModalOpen(false)}>取消</TipButton>
+          <TipButton tip="关闭智能建任务弹窗" onClick={() => { if (!aiParsing) setAiModalOpen(false) }} disabled={aiParsing}>取消</TipButton>
           {/* S7735：避免取反条件，交换分支让 aiResult 为正向判断 */}
           {aiResult ? (
             <TipButton tip="用解析结果前往创建任务" type="primary" onClick={applyAiResult}>
@@ -1397,6 +1466,7 @@ export default function TaskList() {
           </Space>
           <Input
             placeholder="搜索模板名称/关键词"
+            aria-label="搜索模板"
             value={tplSearch}
             onChange={(e) => setTplSearch(e.target.value)}
             style={{ width: 180 }}
@@ -1421,7 +1491,17 @@ export default function TaskList() {
                 key={tpl.id}
                 hoverable
                 size="small"
+                className="tasks-template-card"
+                role="button"
+                tabIndex={0}
+                aria-label={`使用模板：${tpl.name}`}
                 onClick={() => applyTemplate(tpl)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    applyTemplate(tpl)
+                  }
+                }}
                 style={{ cursor: 'pointer', position: 'relative' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -1430,7 +1510,7 @@ export default function TaskList() {
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--xh-text-secondary)', marginBottom: 4 }}>关键词：{tpl.keyword}</div>
                 <div style={{ fontSize: 12, color: 'var(--xh-text-secondary)', marginBottom: 4 }}>
-                  价格：¥{tpl.min_price ?? '不限'} ~ ¥{tpl.max_price ?? '不限'}
+                  价格：{formatPriceRange(tpl.min_price, tpl.max_price)}
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                   <Tag color={tpl.is_preset ? 'blue' : 'orange'} style={{ fontSize: 11 }}>

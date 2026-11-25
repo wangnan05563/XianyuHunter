@@ -59,6 +59,28 @@ function renderPage() {
 beforeEach(() => {
   Object.values(apiMocks).forEach((m) => m.mockReset())
   localStorage.clear()
+  // jsdom 默认没有可用的断点 matchMedia，而任务表按断点收敛列；
+  // 这组用例断言的是桌面表格结构，显式模拟 1280 视口，避免所有 responsive 列被判为隐藏。
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string) => {
+      const min = query.match(/min-width:\s*(\d+)px/)
+      const max = query.match(/max-width:\s*(\d+)px/)
+      const matches = min ? 1280 >= Number(min[1]) : max ? 1280 <= Number(max[1]) : false
+      return {
+        matches,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }
+    },
+  })
   apiMocks.list.mockResolvedValue({ items: ROWS, total: ROWS.length })
   apiMocks.options.mockResolvedValue({ items: [], count: 0 })
   apiMocks.count.mockResolvedValue({ total: 0 })

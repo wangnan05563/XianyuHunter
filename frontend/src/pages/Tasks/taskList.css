@@ -1,0 +1,71 @@
+/* 任务管理页：页头、筛选条与右侧悬浮工具安全区 */
+.xh-tasks-page {
+  container-type: inline-size;
+  /* 壳层右侧固定了导览悬浮按钮（right:24，宽 44）：留出安全区，
+     否则表格固定操作列与页头按钮会被浮层盖住。 */
+  padding-right: 88px;
+}
+
+.tasks-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.tasks-page-title {
+  margin: 0;
+  color: var(--xh-text-primary);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+}
+
+.tasks-page-subtitle {
+  margin: 6px 0 0;
+  color: var(--xh-text-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.tasks-page-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tasks-filter-bar {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.tasks-filter-bar .tasks-search-input {
+  width: 240px;
+}
+
+@media (max-width: 900px) {
+  .tasks-page-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .tasks-page-actions {
+    justify-content: flex-start;
+  }
+}
+
+@container (max-width: 820px) {
+  .tasks-filter-bar .tasks-search-input {
+    width: 200px;
+  }
+}
+
+/* 卡片视图的私有模板删除按钮与卡片点击区域要能被键盘看到 */
+.tasks-template-card:focus-visible {
+  outline: 2px solid var(--xh-link-color, #1677ff);
+  outline-offset: 2px;
+}
