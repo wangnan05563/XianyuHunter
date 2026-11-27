@@ -55,6 +55,7 @@ export default function UsageStats({ usage }: UsageStatsProps) {
           </span>
         </div>
         <Progress
+          aria-label="Token 预算使用进度"
           percent={Math.min(usage.budget.token_usage_pct ?? 0, 100)}
           strokeColor={getProgressColor(usage.budget.token_usage_pct ?? 0)}
           showInfo={false}
@@ -79,6 +80,7 @@ export default function UsageStats({ usage }: UsageStatsProps) {
           </span>
         </div>
         <Progress
+          aria-label="费用预算使用进度"
           percent={Math.min(usage.budget.cost_usage_pct ?? 0, 100)}
           strokeColor={getProgressColor(usage.budget.cost_usage_pct ?? 0)}
           showInfo={false}

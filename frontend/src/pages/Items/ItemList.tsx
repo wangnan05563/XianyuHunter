@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { formatDateTime, formatShortDateTime } from '../../utils/timeFormat'
-import { Card, Table, Tag, Select, Input, Space, Spin, Tooltip, message, Pagination, Empty, Segmented, Row, Col, Alert, Switch, InputNumber, Typography } from 'antd'
+import { Card, Table, Tag, Select, Input, Space, Spin, Tooltip, message, Pagination, Empty, Segmented, Row, Col, Alert, Switch, InputNumber, Typography, Modal } from 'antd'
 import { TipButton } from '@/components/TipButton'
 import PriceTrendChart from '@/components/PriceTrendChart'
 import { ReloadOutlined, SearchOutlined, DeleteOutlined, LinkOutlined, AppstoreOutlined, UnorderedListOutlined, LoginOutlined, ThunderboltOutlined, ClockCircleOutlined, LoadingOutlined, CheckCircleOutlined, SettingOutlined } from '@ant-design/icons'
@@ -22,6 +22,7 @@ import { ExportButton } from '../../components/ExportButton'
 import { API_BASE } from '../../utils/apiBase'
 import { classifyLiveSearchError } from './liveSearchError'
 import { LIVE_MODE_NOTICE, EXIT_LIVE_MODE_LABEL, EXIT_LIVE_MODE_TIP, facetTip, deleteTip } from './liveModeCopy'
+import './itemList.css'
 
 // 相对时间插件：用于 updated_at 列渲染"3分钟前"等格式
 // dayjs 默认不包含 fromNow()，需 extend 插件并切换中文 locale
@@ -62,10 +63,37 @@ const DEFAULT_FIELD_META: FieldMap = {
   updated_at: { label: '更新时间', type: 'datetime', width: 120 },
 }
 
+// 响应式列收敛：视口 1280 内容区约 952px、1024 约 744px、768 约 592px。
+// 固定宽度列全展示会把「标题」挤成 1 字符宽（基线实测），因此按断点保留决策字段：
+// - 768：标题、价格、状态、操作；
+// - 1024：另加图片；
+// - 1280：另加品牌、卖家；
+// - ≥1600：再展示地区、想要、浏览、发布时间、更新时间。
+const FIELD_RESPONSIVE: Record<string, Array<'lg' | 'xl' | 'xxl'>> = {
+  thumb_url: ['lg'],
+  title: [],
+  brand: ['xl'],
+  price: [],
+  seller_nick: ['xl'],
+  seller_credit: ['xl'],
+  region: ['xxl'],
+  want_cnt: ['xxl'],
+  view_cnt: ['xxl'],
+  publish_time: ['xxl'],
+  is_sold: [],
+  updated_at: ['xxl'],
+}
+
 // 从 axios 错误中提取后端返回的具体错误信息
 function errDetail(err: unknown): string {
   const axiosErr = err as AxiosError<{ detail: string }>
   return axiosErr?.response?.data?.detail || String(err)
+}
+
+// 价格文案统一（表格 / 卡片 / 悬浮提示共用）
+// 旧写法 `¥{price ?? '—'}` 在缺价时渲染成「¥—」，看着像金额为负数/占位符
+function formatItemPrice(price?: number | null): string {
+  return typeof price === 'number' ? `¥${price.toFixed(2)}` : '—'
 }
 
 // 数据变化检测：对比新旧数据的价格/状态/想要数签名，返回变化的 link_key 集合
@@ -181,6 +209,8 @@ export default function ItemList() {
     validator: (v): v is number => typeof v === 'number' && v > 0 && Number.isFinite(v),
   })
   const [loading, setLoading] = useState(false)
+  // 商品列表加载失败要持久提示，不能只弹一次 toast：否则页面只剩空态，用户误以为没有数据。
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [liveMode, setLiveMode] = useState(false)
   const [liveLoading, setLiveLoading] = useState(false)
   // 实时模式说明条：进入时讲清「不分页 / 不能删 / 未入库」，关掉后本次实时不再反复弹；
@@ -266,6 +296,7 @@ export default function ItemList() {
     setTotal(0)
     setPage(1)
     setFieldMap(null)
+    setLoadError(null)
     prevItemsRef.current = new Map()  // 切换任务时重置变化检测快照，避免跨任务误判
     liveItemsRef.current = []  // 清空实时搜索原始结果，避免跨任务残留
   }, [selectedTask])
@@ -275,6 +306,7 @@ export default function ItemList() {
   const loadItems = useCallback(() => {
     if (!selectedTask) return
     setLoading(true)
+    setLoadError(null)
     taskLinkApi.list(selectedTask, {
       type: 'item',
       limit: pageSize,
@@ -296,7 +328,8 @@ export default function ItemList() {
         }
       })
       .catch((err) => {
-        message.error(errDetail(err) || '加载商品列表失败')
+        const detail = errDetail(err)
+        setLoadError(detail || '商品列表加载失败')
         setItems([])
         setTotal(0)
       })
@@ -582,6 +615,7 @@ export default function ItemList() {
   const loadLive = () => {
     if (!selectedTask) return
     setLiveLoading(true)
+    setLoadError(null)
     setSessionExpired(false)  // 重置上次的状态
     // 进度提示：2 秒后显示"正在搜索闲鱼..."，更快的反馈
     const progressTimer = setTimeout(() => {
@@ -652,6 +686,20 @@ export default function ItemList() {
     }).catch((err) => message.error(errDetail(err) || '删除失败'))
   }, [selectedTask, loadItems])
 
+  // 删除前确认：一列/一卡一个红叉，点一下就真删关联，误触成本太高。
+  // 与任务管理页的 Modal.confirm 保持一致；标题带商品名，确认框脱离行上下文也能核对对象。
+  // 文案点明「只移除关联、不动闲鱼原帖」，避免用户以为会删掉别人的商品。
+  const confirmDelete = useCallback((record: TaskLink) => {
+    Modal.confirm({
+      title: '删除该商品关联？',
+      content: `${record.display?.title || record.link_key}——仅从本任务的商品列表移除，不会影响闲鱼原帖`,
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => handleDelete(record.link_id),
+    })
+  }, [handleDelete])
+
   // 地区/品牌选项来源：
   // - 实时模式：从本次实时搜索的原始全量结果提取（DB 里的 facets 不代表刚搜到的这批）
   // - DB 模式：用后端 facets 接口按当前筛选收缩后的 DISTINCT（T02661 裁决「方案1」，
@@ -697,7 +745,9 @@ export default function ItemList() {
   // 列定义基于字段元数据动态生成：fieldMap 变化时（实时搜索 vs DB 模式）自动合并新列
   const columnDefinitions = useMemo<ColumnConfig[]>(() => {
     const meta = fieldMap || DEFAULT_FIELD_META
-    const order = fieldMap ? Object.keys(fieldMap) : DEFAULT_FIELD_ORDER
+    // 信用度已经内嵌在「卖家」列（昵称下方绿色 Tag），独立「信用」列是同一数据的重复展示；
+    // 去掉后表格少 80px，列配置里也不会留一个无意义的开关
+    const order = (fieldMap ? Object.keys(fieldMap) : DEFAULT_FIELD_ORDER).filter((key) => key !== 'seller_credit')
     return order.map((key) => ({
       key,
       label: meta[key]?.label || key,
@@ -719,40 +769,42 @@ export default function ItemList() {
   // 避免"列头显示卖家但实际展示信用信息"等错位问题
   const columns = useMemo(() => {
     // 确定字段顺序：优先使用 fieldMap 的顺序，否则使用默认顺序
-    const order = fieldMap ? Object.keys(fieldMap) : DEFAULT_FIELD_ORDER
+    // 信用列不再单独渲染（见 columnDefinitions 注释）
+    const order = (fieldMap ? Object.keys(fieldMap) : DEFAULT_FIELD_ORDER)
+      .filter((key) => key !== 'seller_credit')
     // 确定字段元数据：优先使用 fieldMap，否则使用默认元数据
     const meta: FieldMap = fieldMap || DEFAULT_FIELD_META
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cols: any[] = []
     for (const field of order) {
       const m = meta[field]
       if (!m) continue
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const col: any = {
         title: m.label,
         dataIndex: 'display',
         key: field,
         width: m.width,
       }
+      if (FIELD_RESPONSIVE[field]?.length) col.responsive = FIELD_RESPONSIVE[field]
 
       switch (m.type) {
         case 'image':
-          col.render = (d: TaskLink['display']) => d?.thumb_url ? <LazyImage src={d.thumb_url} referrerPolicy="no-referrer" width={60} height={60} style={{ borderRadius: 6 }} /> : '—'
+          col.render = (d: TaskLink['display']) => d?.thumb_url ? <LazyImage src={d.thumb_url} alt={d?.title ? `${d.title} 商品图片` : '商品图片'} referrerPolicy="no-referrer" width={60} height={60} style={{ borderRadius: 6 }} /> : '—'
           break
         case 'link':
           // 标题只负责「打开原帖」：链接色 + hover 下划线（Typography.Link），
           // 采集改为操作列的独立按钮，避免一个控件两个语义（T02658）
+          col.ellipsis = true
           col.render = (d: TaskLink['display']) => (
             d?.url
-              ? <Typography.Link href={d.url} target="_blank" rel="noopener noreferrer">{d?.title || '—'}</Typography.Link>
+              ? <Typography.Link href={d.url} target="_blank" rel="noopener noreferrer" title={d?.title || undefined}>{d?.title || '—'}</Typography.Link>
               : (d?.title || '—')
           )
           break
         case 'price':
           col.sorter = (a: TaskLink, b: TaskLink) => (a.display?.price || 0) - (b.display?.price || 0)
-          col.render = (d: TaskLink['display']) => <span style={{ color: '#ff4d4f', fontWeight: 600 }}>¥{d?.price?.toFixed(2) ?? '—'}</span>
+          col.render = (d: TaskLink['display']) => <span style={{ color: '#ff4d4f', fontWeight: 600 }}>{formatItemPrice(d?.price)}</span>
           break
         case 'seller':
           col.render = (d: TaskLink['display']) => {
@@ -772,11 +824,9 @@ export default function ItemList() {
           col.render = (d: TaskLink['display']) => d?.seller_credit ? <Tag color={m.color || 'green'} style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{d.seller_credit}</Tag> : '—'
           break
         case 'text':
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           col.render = (d: TaskLink['display']) => (d as any)?.[field] || '—'
           break
         case 'number':
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           col.render = (d: TaskLink['display']) => (d as any)?.[field] ?? '—'
           break
         case 'datetime':
@@ -827,17 +877,21 @@ export default function ItemList() {
       title: '操作',
       key: 'action',
       width: 96,
+      // 固定右侧：12 列总宽 1166px，在 1280 视口下表格可视区只有 910px，
+      // 操作列原来被挤到横向滚动条之外，用户找不到采集/删除入口
+      fixed: 'right',
       render: (_: unknown, record: TaskLink) => (
         <Space size={0}>
-          <TipButton tip="采集更新商品信息（不打开原帖）" type="link" icon={<ReloadOutlined />} onClick={() => handleRefreshItem(record.link_key ?? undefined)} size="small" disabled={!record.link_key} />
+          <TipButton tip="采集更新商品信息（不打开原帖）" aria-label="采集更新商品信息" type="link" icon={<ReloadOutlined />} onClick={() => handleRefreshItem(record.link_key ?? undefined)} size="small" disabled={!record.link_key} />
           {/* 禁用态也要说清原因：TipButton 在 disabled 时会包一层 span，
               所以这里的 tip 在实时模式下真的能被 hover/长按看到（T02659） */}
           <TipButton
             tip={deleteTip({ liveMode, hasLinkId: Boolean(record.link_id) })}
+            aria-label="删除商品关联"
             type="link"
             danger
             icon={<DeleteOutlined />}
-            onClick={() => handleDelete(record.link_id)}
+            onClick={() => confirmDelete(record)}
             size="small"
             disabled={!record.link_id || liveMode}
           />
@@ -846,14 +900,43 @@ export default function ItemList() {
     })
 
     return visibleCols
-  }, [fieldMap, liveMode, handleDelete, handleRefreshItem, applyColumnConfig])
+  }, [fieldMap, liveMode, confirmDelete, handleRefreshItem, applyColumnConfig])
 
   // 提取嵌套模板字符串为变量：避免在模板字符串内再嵌套模板字符串，提升可读性
   // 同时区分实时模式与 DB 模式下的轮询间隔展示文案
   const intervalLabel = liveMode ? `实时模式 ${liveRefreshInterval}秒` : `DB模式 ${refreshInterval}秒`
 
+  // 空态文案要区分「任务本来没数据」和「筛选后没命中」：旧实现两种情况都写
+  // 「暂无商品数据，可尝试实时搜索」，用户搜了个词没结果时会以为数据丢了/要去实时搜索。
+  const hasActiveFilter = Boolean(search.trim() || regionFilter || brandFilter || soldFilter !== 'all')
+  const clearFilters = () => {
+    setSearch('')
+    setRegionFilter(undefined)
+    setBrandFilter(undefined)
+    // 「清空筛选」应把被筛掉的已售商品也放回来，回到「全部」而不是默认的在售
+    setSoldFilter('all')
+    setPage(1)
+  }
+
   return (
-    <div className="page-container">
+    <div className="page-container xh-items-page" data-testid="items-page">
+      <div className="items-page-header">
+        <div>
+          <h1 className="items-page-title">商品中心</h1>
+          <span className="items-page-subtitle">按任务浏览已采集商品，支持表格 / 卡片视图、筛选与实时搜索</span>
+        </div>
+        <div className="items-page-actions">
+          <Segmented
+            aria-label="视图切换"
+            value={viewMode}
+            onChange={(v) => setViewMode(v as ViewMode)}
+            options={[
+              { label: '卡片视图', value: 'card', icon: <AppstoreOutlined /> },
+              { label: '表格视图', value: 'table', icon: <UnorderedListOutlined /> },
+            ]}
+          />
+        </div>
+      </div>
       {/* 登录态异常提示：醒目居中显示在搜索区域上方 */}
       {sessionExpired && (
         <Alert
@@ -880,11 +963,16 @@ export default function ItemList() {
         <Space wrap>
           <span>选择任务：</span>
           <Select
-            style={{ width: 300 }}
+            aria-label="选择任务"
+            style={{ width: 260 }}
             placeholder="请选择任务"
             value={selectedTask || undefined}
             onChange={(v) => { setSelectedTask(v); setPage(1); setLiveMode(false) }}
             options={tasks.map((t) => ({ label: `${t.name}（${t.keyword}）`, value: t.id }))}
+            // 任务有 334 个时纯滚动选择找不到目标（实测），支持按任务名/关键词搜索
+            showSearch
+            optionFilterProp="label"
+            filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.trim().toLowerCase())}
           />
           <TipButton
             tip="调用闲鱼实时搜索并写入最新商品"
@@ -906,9 +994,10 @@ export default function ItemList() {
             刷新
           </TipButton>
           <Input
+            aria-label="搜索标题"
             placeholder="搜索标题"
             prefix={<SearchOutlined />}
-            style={{ width: 200 }}
+            style={{ width: 180 }}
             value={search}
             // 搜索条件变化时重置到第 1 页，避免看的是搜索结果的中间页
             onChange={(e) => { setSearch(e.target.value); setPage(1) }}
@@ -918,8 +1007,9 @@ export default function ItemList() {
               原先两种模式共用同一句无提示的下拉，用户在实时模式下会以为候选是全库的（T02659） */}
           <Tooltip title={facetTip(liveMode, 'region')}>
             <Select
+              aria-label="按地区筛选"
               placeholder="筛选地区"
-              style={{ width: 140 }}
+              style={{ width: 128 }}
               allowClear
               value={regionFilter}
               onChange={(v) => { setRegionFilter(v); setPage(1) }}
@@ -928,8 +1018,9 @@ export default function ItemList() {
           </Tooltip>
           <Tooltip title={facetTip(liveMode, 'brand')}>
             <Select
+              aria-label="按品牌筛选"
               placeholder="筛选品牌"
-              style={{ width: 140 }}
+              style={{ width: 128 }}
               allowClear
               value={brandFilter}
               onChange={(v) => { setBrandFilter(v); setPage(1) }}
@@ -938,6 +1029,7 @@ export default function ItemList() {
           </Tooltip>
           {/* 状态筛选：固定三档选项，与地区/品牌筛选并列排放 */}
           <Select
+            aria-label="按商品状态筛选"
             placeholder="状态筛选"
             style={{ width: 100 }}
             value={soldFilter}
@@ -957,6 +1049,7 @@ export default function ItemList() {
                 checked={autoRefreshEnabled}
                 onChange={setAutoRefreshEnabled}
                 size="small"
+                aria-label="自动轮询开关"
               />
             </Space>
           </Tooltip>
@@ -966,6 +1059,7 @@ export default function ItemList() {
                 {/* addonAfter 已废弃，改用 Space.Compact 包装静态文本（antd v5） */}
                 <Space.Compact>
                   <InputNumber
+                    aria-label="自动轮询间隔（秒）"
                     size="small"
                     min={MIN_INTERVAL}
                     max={MAX_INTERVAL}
@@ -997,16 +1091,6 @@ export default function ItemList() {
           </TipButton>
           {/* O-05-26 数据导出：按当前选中任务过滤导出商品 CSV */}
           <ExportButton dataset="items" params={{ task_id: selectedTask || undefined }} />
-          <div style={{ marginLeft: 'auto' }}>
-            <Segmented
-              value={viewMode}
-              onChange={(v) => setViewMode(v as ViewMode)}
-              options={[
-                { label: '', value: 'card', icon: <AppstoreOutlined /> },
-                { label: '', value: 'table', icon: <UnorderedListOutlined /> },
-              ]}
-            />
-          </div>
         </Space>
         {/* 搜索历史小药丸：点击复用历史关键词，避免重复输入 */}
         {history.length > 0 && (
@@ -1015,6 +1099,15 @@ export default function ItemList() {
               <Tag
                 key={kw}
                 onClick={() => { setSearch(kw); setPage(1) }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setSearch(kw)
+                    setPage(1)
+                  }
+                }}
                 style={{ cursor: 'pointer', margin: 0, fontSize: 11 }}
               >
                 {kw}
@@ -1027,7 +1120,18 @@ export default function ItemList() {
         )}
       </Card>
 
-      <Card style={{ position: 'relative' }}>
+      <Card className="items-list-card" style={{ position: 'relative' }}>
+        {loadError && (
+          <Alert
+            className="items-load-error"
+            type="error"
+            showIcon
+            message="商品列表加载失败"
+            description={loadError}
+            action={<TipButton tip="重新加载商品列表" onClick={() => loadItems()}>重试</TipButton>}
+            style={{ marginBottom: 12, borderRadius: 8 }}
+          />
+        )}
         {/* 实时模式一次性说明（T02659）：分页器消失与删除置灰都是有意设计，
             但页面此前没有任何解释，用户第一反应是「功能坏了」。
             文案不写「改用刷新落库」：实时模式下「刷新」只做又一次实时搜索（handleRefresh 里
@@ -1112,7 +1216,20 @@ export default function ItemList() {
           {(() => {
             // 列表展示：空数据 / 表格 / 卡片
             if (items.length === 0) {
-              return <Empty description={selectedTask ? '暂无商品数据，可尝试实时搜索' : '请先选择任务'} />
+              let emptyDescription: string
+              if (!selectedTask) emptyDescription = '请先选择任务'
+              else if (loadError) emptyDescription = '商品列表加载失败，请点击重试'
+              else if (hasActiveFilter) emptyDescription = '没有符合筛选条件的商品'
+              else emptyDescription = '暂无商品数据，可尝试实时搜索'
+              return (
+                <Empty description={emptyDescription}>
+                  {selectedTask && hasActiveFilter && !loadError && (
+                    <TipButton tip="清空搜索词与地区/品牌筛选，状态回到全部" onClick={clearFilters}>
+                      清空筛选条件
+                    </TipButton>
+                  )}
+                </Empty>
+              )
             }
             if (viewMode === 'table') {
               return (
@@ -1126,7 +1243,11 @@ export default function ItemList() {
                     rowKey={rowKeyOf}
                 pagination={false}
                 size="middle"
-                scroll={{ x: 1000 }}
+                tableLayout="fixed"
+                scroll={{ x: '100%' }}
+                // 分页在后端，antd 的 sorter 只作用于「当前页 dataSource」。
+                // 不加说明时用户会以为点一次价格就把全部 24 条排好了（实际只排了本页 20 条）
+                showSorterTooltip={{ title: '仅对当前页排序；跨页顺序仍由后端分页决定' }}
                 rowClassName={(record) => highlightRows.has(record.link_key) ? 'xh-row-highlight' : ''}
                 /* 行展开：近 30 天价格走势（PRD FR-F1-2），懒加载仅在展开时请求 */
                 expandable={{
@@ -1157,12 +1278,12 @@ export default function ItemList() {
                 {items.map((item) => {
                   const d = item.display
                   return (
-                    <Col xs={12} sm={8} md={6} lg={4} xl={4} key={rowKeyOf(item)}>
+                    <Col xs={24} sm={12} md={12} lg={12} xl={8} xxl={6} key={rowKeyOf(item)}>
                       <Tooltip
                         title={
                           <div style={{ maxWidth: 300 }}>
                             <div style={{ fontWeight: 600, marginBottom: 4 }}>{d?.title || '—'}</div>
-                            <div style={{ color: '#ff4d4f' }}>¥{d?.price?.toFixed(2) ?? '—'}</div>
+                            <div style={{ color: '#ff4d4f' }}>{formatItemPrice(d?.price)}</div>
                             <div style={{ color: 'var(--xh-text-tertiary)', fontSize: 12, marginTop: 4 }}>
                               {d?.brand ? `${d.brand} · ` : ''}{d?.region || '—'} · 想要 {d?.want_cnt ?? 0} · 浏览 {d?.view_cnt ?? 0} · {d?.seller_nick || d?.seller_id || '—'}
                               {d?.seller_credit && <span style={{ color: '#52c41a', marginLeft: 4 }}>[{d.seller_credit}]</span>}
@@ -1228,10 +1349,27 @@ export default function ItemList() {
                           >
                             <ReloadOutlined />
                           </button>,
-                          <DeleteOutlined key="delete" onClick={() => handleDelete(item.link_id)} style={{ color: item.link_id ? '#ff4d4f' : '#d9d9d9' }} />,
+                          <button
+                            key="delete"
+                            type="button"
+                            aria-label={`删除商品关联：${d?.title || ''}`}
+                            title={deleteTip({ liveMode, hasLinkId: Boolean(item.link_id) })}
+                            onClick={() => confirmDelete(item)}
+                            disabled={!item.link_id || liveMode}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              font: 'inherit',
+                              color: 'inherit',
+                              cursor: item.link_id && !liveMode ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <DeleteOutlined style={{ color: item.link_id && !liveMode ? '#ff4d4f' : '#d9d9d9' }} />
+                          </button>,
                         ]}
                       >
-                        <div className="item-card-price">¥{d?.price?.toFixed(2) ?? '—'}</div>
+                        <div className="item-card-price">{formatItemPrice(d?.price)}</div>
                         <div className="item-card-title" title={d?.title}>
                           {d?.title || '—'}
                         </div>
@@ -1240,6 +1378,13 @@ export default function ItemList() {
                           <span>{d?.region || '—'}</span>
                           <span>想要 {d?.want_cnt ?? 0}</span>
                           <span>浏览 {d?.view_cnt ?? 0}</span>
+                        </div>
+                        {/* 卡片默认视图在触屏上没有 hover，卖家/信用/发布时间只放在 Tooltip 里等于看不到；
+                            表格有的关键决策信息这里补一行，保证两种视图信息对等 */}
+                        <div className="item-card-meta item-card-meta--sub">
+                          <span>{d?.seller_nick || d?.seller_id || '卖家未知'}</span>
+                          {d?.seller_credit && <span className="item-card-credit">[{d.seller_credit}]</span>}
+                          {d?.publish_time && <span>{formatShortDateTime(d.publish_time, 'month-day-time')}</span>}
                         </div>
                       </Card>
                       </Tooltip>

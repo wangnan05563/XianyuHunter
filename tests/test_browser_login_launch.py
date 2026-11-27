@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -191,6 +192,77 @@ async def test_collect_settled_cookies_keeps_waiting_while_cookie_count_grows(mo
 
     assert len(cookies) == 75
     assert context.cookies.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_browser_login_reports_real_navigation_error_when_goto_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """离线/导航失败时，finally 不能因轮询心跳变量未初始化而掩盖真实错误。"""
+    status_file = tmp_path / "status.json"
+    profile = tmp_path / "browser-data"
+    profile.mkdir()
+
+    class FakePage:
+        async def goto(self, *_args, **_kwargs):
+            raise RuntimeError(
+                "Page.goto: net::ERR_NETWORK_ACCESS_DENIED at "
+                "https://www.goofish.com/personal"
+            )
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.pages = [FakePage()]
+            self.closed = False
+
+        async def route(self, *_args, **_kwargs):
+            return None
+
+        async def cookies(self):
+            return []
+
+        async def close(self):
+            self.closed = True
+
+    context = FakeContext()
+
+    class FakeChromium:
+        async def launch_persistent_context(self, **_kwargs):
+            return context
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(
+        "playwright.async_api.async_playwright",
+        lambda: FakePlaywright(),
+    )
+    monkeypatch.setattr(
+        browser_login,
+        "_resolve_kernel",
+        lambda _cfg: SimpleNamespace(
+            kind="bundled",
+            source="bundled",
+            launch_kwargs=lambda: {},
+        ),
+    )
+    monkeypatch.setattr(browser_login, "get_browser_data_dir", lambda _configured: profile)
+
+    result = await browser_login._cmd_login(status_file, timeout=5)
+
+    status = json.loads(status_file.read_text(encoding="utf-8"))
+    assert result == 1
+    assert status["status"] == "error"
+    assert "ERR_NETWORK_ACCESS_DENIED" in status["message"]
+    assert "local variable" not in status["message"]
+    assert context.closed
 
 
 @pytest.mark.asyncio

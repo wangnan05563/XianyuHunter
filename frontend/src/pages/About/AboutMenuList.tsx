@@ -1,5 +1,5 @@
 import { Card, theme } from 'antd'
-import { ExportOutlined } from '@ant-design/icons'
+import { ExportOutlined, FileTextOutlined, RightOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { TEXTS } from './i18n'
 import { API_BASE } from '../../utils/apiBase'
@@ -37,6 +37,13 @@ interface AboutMenuListProps {
   readonly onOpenLicenses: () => void
 }
 
+// 内部入口用右箭头/文件图标；只有真正的新窗口外链才显示外链图标
+function MenuIcon({ item }: { readonly item: MenuItem }) {
+  if (item.external) return <ExportOutlined className="xh-about-menu-icon" aria-hidden />
+  if (item.key === 'licenses') return <FileTextOutlined className="xh-about-menu-icon" aria-hidden />
+  return <RightOutlined className="xh-about-menu-icon" aria-hidden />
+}
+
 export function AboutMenuList({ onOpenLicenses }: AboutMenuListProps) {
   const { token } = theme.useToken()
 
@@ -47,22 +54,14 @@ export function AboutMenuList({ onOpenLicenses }: AboutMenuListProps) {
     }
   }
 
-  const renderContent = (item: MenuItem, idx: number) => (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '14px 16px',
-        cursor: 'pointer',
-        borderBottom: idx < VISIBLE_ITEMS.length - 1 ? `1px solid ${token.colorBorderSecondary}` : 'none',
-        transition: 'background-color 120ms cubic-bezier(0.2, 0, 0, 1)',
-      }}
-    >
-      <span style={{ fontSize: 14, color: token.colorText }}>{item.label}</span>
-      <ExportOutlined style={{ fontSize: 14, color: token.colorTextTertiary }} aria-hidden />
-    </div>
-  )
+  const hoverHandlers = {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.backgroundColor = token.colorBgTextHover
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.backgroundColor = 'transparent'
+    },
+  }
 
   return (
     <Card
@@ -74,40 +73,49 @@ export function AboutMenuList({ onOpenLicenses }: AboutMenuListProps) {
       }}
       styles={{ body: { padding: 0 } }}
     >
-      {VISIBLE_ITEMS.map((item, idx) => {
-        // SPA 内链用 Link 组件避免整页刷新；licenses 走 Modal 回调
-        const isInternal = !item.external && SPA_INTERNAL_KEYS.has(item.key)
-        // S6819：移除内层 div 的 role="button"，交互由外层 a/Link 承担
-        // hover/click 放在外层交互元素上，避免内层 div 触发 S6847
-        const hoverHandlers = {
-          onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
-            e.currentTarget.style.backgroundColor = token.colorBgTextHover
-          },
-          onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
-            e.currentTarget.style.backgroundColor = 'transparent'
-          },
-        }
-        if (isInternal) {
-          return (
-            <Link key={item.key} to={item.href} style={{ textDecoration: 'none', color: 'inherit' }} {...hoverHandlers}>
-              {renderContent(item, idx)}
-            </Link>
-          )
-        }
-        return (
-          <a
-            key={item.key}
-            href={item.href}
-            target={item.external ? '_blank' : undefined}
-            rel={item.external ? 'noopener noreferrer' : undefined}
-            style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
-            onClick={(e) => handleClick(item, e)}
-            {...hoverHandlers}
-          >
-            {renderContent(item, idx)}
-          </a>
-        )
-      })}
+      <nav aria-label={TEXTS.menuNavLabel}>
+        <ul className="xh-about-menu-list">
+          {VISIBLE_ITEMS.map((item, idx) => {
+            // SPA 内链用 Link 组件避免整页刷新；licenses 走 Modal 回调
+            const isInternal = !item.external && SPA_INTERNAL_KEYS.has(item.key)
+            const linkStyle = {
+              borderTop: idx > 0 ? `1px solid ${token.colorBorderSecondary}` : 'none',
+            }
+            const commonProps = {
+              className: 'xh-about-menu-link',
+              style: linkStyle,
+              ...hoverHandlers,
+            }
+            const externalAria = item.external ? `${item.label}（新窗口打开）` : undefined
+            if (isInternal) {
+              return (
+                <li key={item.key} className="xh-about-menu-item">
+                  <Link to={item.href} {...commonProps}>
+                    <span>{item.label}</span>
+                    <MenuIcon item={item} />
+                  </Link>
+                </li>
+              )
+            }
+            return (
+              <li key={item.key} className="xh-about-menu-item">
+                <a
+                  href={item.href}
+                  target={item.external ? '_blank' : undefined}
+                  rel={item.external ? 'noopener noreferrer' : undefined}
+                  aria-label={externalAria}
+                  aria-haspopup={item.key === 'licenses' ? 'dialog' : undefined}
+                  {...commonProps}
+                  onClick={(e) => handleClick(item, e)}
+                >
+                  <span>{item.label}</span>
+                  <MenuIcon item={item} />
+                </a>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
     </Card>
   )
 }

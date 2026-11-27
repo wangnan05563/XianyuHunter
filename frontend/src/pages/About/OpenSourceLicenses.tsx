@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Modal, Input, List, Tag, Typography, theme } from 'antd'
+import type { InputRef } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { TEXTS } from './i18n'
 
@@ -74,6 +75,7 @@ interface OpenSourceLicensesProps {
 export function OpenSourceLicenses({ open, onClose }: OpenSourceLicensesProps) {
   const { token } = theme.useToken()
   const [search, setSearch] = useState('')
+  const searchRef = useRef<InputRef>(null)
 
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase()
@@ -83,26 +85,47 @@ export function OpenSourceLicenses({ open, onClose }: OpenSourceLicensesProps) {
     )
   }, [search])
 
+  // 打开后把焦点送进搜索框：既方便键盘用户直接过滤，也让 Esc 落在对话框内可正常关闭
+  const handleOpenChange = (visible: boolean) => {
+    if (!visible) return
+    globalThis.setTimeout(() => searchRef.current?.focus(), 50)
+  }
+
+  const handleClose = () => {
+    setSearch('')
+    onClose()
+  }
+
+  const countText = TEXTS.licensesCount.replace('{count}', String(filtered.length))
+
   return (
     <Modal
       title={TEXTS.licensesTitle}
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       footer={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{TEXTS.licensesFooter}</Typography.Text>}
       width={720}
       destroyOnHidden
+      afterOpenChange={handleOpenChange}
+      afterClose={() => setSearch('')}
     >
-      <Input
-        placeholder={TEXTS.licensesSearchPlaceholder}
-        prefix={<SearchOutlined />}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        allowClear
-        style={{ marginBottom: 16 }}
-      />
-      <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+      <div className="xh-about-licenses-search">
+        <Input
+          ref={searchRef}
+          aria-label={TEXTS.licensesSearchAriaLabel}
+          placeholder={TEXTS.licensesSearchPlaceholder}
+          prefix={<SearchOutlined />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+        />
+        <Typography.Text type="secondary" className="xh-about-licenses-count" aria-live="polite">
+          {countText}
+        </Typography.Text>
+      </div>
+      <div className="xh-about-licenses-list">
         {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 32, color: token.colorTextSecondary }}>
+          <div className="xh-about-licenses-empty" aria-live="polite">
             {TEXTS.emptySearch}
           </div>
         ) : (

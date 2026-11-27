@@ -1,0 +1,61 @@
+/* 商品中心列表页：页头、响应式留白与卡片操作可访问性 */
+.items-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  /* 给右侧全局悬浮工具条留出安全区，避免遮住列表/卡片操作 */
+  padding-right: 56px;
+}
+
+.items-page-title {
+  margin: 0;
+  color: var(--xh-text-primary);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.items-page-subtitle {
+  display: block;
+  margin-top: 4px;
+  color: var(--xh-text-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.items-page-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 列表卡片与页头使用同一右侧安全区，表格/卡片操作不再被悬浮工具压住 */
+.items-list-card {
+  margin-right: 56px;
+}
+
+/* 卡片操作栏默认是 antd 的 #f0f0f0 硬编码；跟随主题 token 才能在暗色下自然 */
+.item-card .ant-card-actions {
+  border-top: 1px solid var(--xh-border-secondary);
+}
+
+.item-card button:focus-visible,
+.item-card a:focus-visible {
+  outline: 2px solid var(--xh-color-primary, #1677ff);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (max-width: 900px) {
+  .items-page-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .items-page-actions {
+    align-self: flex-start;
+  }
+}

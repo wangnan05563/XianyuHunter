@@ -15,6 +15,7 @@ chromium_executable()，绝不硬编码单一目录名，否则随包内核明�
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess as sp
@@ -150,9 +151,13 @@ def browsers_dir() -> Path:
     return Path.home() / "AppData" / "Local" / "ms-playwright"
 
 
-# Full 包构建期写入的显式标记（build-exe.ps1 5.4 节）。比“目录是否存在”可靠：
-# Lite 包经 Inno Setup 排除 playwright_browsers\* 后可能残留空目录，不能据此误判为 Full。
-_BUNDLE_MARKER = ".xh-full-bundle"
+# Full/Lite 身份的显式清单（build-exe.ps1 5.4 节）。放在应用根目录而不是
+# playwright_browsers 内部：整个内核目录被杀软隔离/清理时，清单仍在，运行时
+# 才能报“安装包不完整”，而不是误判成 Lite 转去联网下载。
+_BUNDLE_MANIFEST = "bundle-manifest.json"
+
+# 兼容旧 Full 包：旧版把标记写在 playwright_browsers 内部。
+_LEGACY_BUNDLE_MARKER = ".xh-full-bundle"
 
 # 完整 Chromium 可执行文件在 chromium-<rev>/ 下的候选布局。
 # Playwright 自 chromium-1223 起在 Windows 上把目录从 chrome-win 改为 chrome-win64
@@ -166,6 +171,33 @@ _CHROMIUM_EXE_SUBDIRS = (
     ("chrome-linux", "chrome"),
 )
 
+# 只有 chrome.exe 存在不代表内核可用：杀软隔离 chrome.dll / 磁盘写满留下
+# 0 字节文件时，Playwright 仍会“找到”内核，但一启动就崩。这里用关键文件
+# 非空作为最小完整性判据（构建期还会额外跑 chrome --version）。
+_REQUIRED_CHROMIUM_FILES = {
+    _CHROME_EXE_NAME: ("chrome.dll", "resources.pak", "icudtl.dat"),
+    "chrome": ("resources.pak", "icudtl.dat"),
+}
+_MIN_CHROMIUM_FILE_BYTES = 1024
+
+
+def _non_empty_file(path: Path, min_bytes: int = _MIN_CHROMIUM_FILE_BYTES) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size >= min_bytes
+    except OSError:
+        return False
+
+
+def _complete_chromium_exe(exe: Path) -> bool:
+    """判断一个候选 chrome.exe 是否满足最小可启动完整性。"""
+    if not _non_empty_file(exe):
+        return False
+    required = _REQUIRED_CHROMIUM_FILES.get(exe.name)
+    if required is None:
+        return False
+    base = exe.parent
+    return all(_non_empty_file(base / name) for name in required)
+
 
 def chromium_executable(chromium_dir: Path) -> Path | None:
     """返回 chromium-<rev> 目录下完整内核的可执行文件路径；找不到返回 None。
@@ -177,21 +209,39 @@ def chromium_executable(chromium_dir: Path) -> Path | None:
     """
     for subdir, exe_name in _CHROMIUM_EXE_SUBDIRS:
         exe = chromium_dir / subdir / exe_name
-        if exe.is_file():
+        if _complete_chromium_exe(exe):
             return exe
     # 兜底：未来 Playwright 再改目录名时，扫描一层子目录内的 chrome.exe / chrome
     for pattern in ("*/chrome.exe", "*/chrome"):
         for exe in sorted(chromium_dir.glob(pattern)):
-            if exe.is_file():
+            if _complete_chromium_exe(exe):
                 return exe
     return None
+
+
+def read_bundle_manifest(root: Path | None = None) -> dict | None:
+    """读取 Full/Lite 身份清单；不存在或损坏时返回 None（兼容旧包）。"""
+    if root is None:
+        from xianyu_hunter.paths import get_app_dir
+
+        root = get_app_dir()
+    path = root / _BUNDLE_MANIFEST
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def is_bundled_build(root: Path | None = None) -> bool:
     """判断当前运行的是否为随包 Chromium 的 Full 构建（T05717）。
 
-    判据优先级：① 构建期写入的显式标记（最可靠）；② 兼容旧包：目录内存在
-    chromium-* 完整内核子目录。纯空目录视为 Lite 包残留，不算 Full。
+    判据优先级：
+    ① 应用根目录 bundle-manifest.json 的 bundle_browser（Full/Lite 安装包各自携带，
+       即使 playwright_browsers 整个目录被删也能识别 Full）；
+    ② 兼容旧包：playwright_browsers/.xh-full-bundle 标记；
+    ③ 兼容更旧包：目录内存在可用的完整 chromium-* 内核。
+    纯空目录/空 chromium-* 子目录不算 Full。
     dev 模式（非 frozen）永远返回 False，走普通解析链（含下载兜底）。
     """
     if not getattr(sys, "frozen", False):
@@ -200,16 +250,20 @@ def is_bundled_build(root: Path | None = None) -> bool:
         from xianyu_hunter.paths import get_app_dir
 
         root = get_app_dir()
+    manifest = read_bundle_manifest(root)
+    if manifest is not None:
+        return bool(manifest.get("bundle_browser"))
     pw = root / "playwright_browsers"
     if not pw.is_dir():
         return False
-    if (pw / _BUNDLE_MARKER).is_file():
+    if (pw / _LEGACY_BUNDLE_MARKER).is_file():
         return True
     try:
         return any(
             d.is_dir()
             and d.name.startswith("chromium-")
             and not d.name.startswith("chromium_headless_shell-")
+            and chromium_executable(d) is not None
             for d in pw.iterdir()
         )
     except OSError:
@@ -354,6 +408,16 @@ def _describe_browsers_tree(root: Path) -> str:
     return ", ".join(names[:12]) + (" ..." if len(names) > 12 else "")
 
 
+def _bundle_integrity_dir() -> Path:
+    """完整性错误/诊断应指向应用自己的随包目录，而不是外部 env 覆盖的缓存。"""
+    manifest = read_bundle_manifest()
+    if manifest is not None and manifest.get("bundle_browser"):
+        from xianyu_hunter.paths import get_app_dir
+
+        return get_app_dir() / "playwright_browsers"
+    return browsers_dir()
+
+
 def _bundled_integrity_error() -> BrowserKernelUnavailable:
     """Full 构建随包 Chromium 缺失（T05717）。
 
@@ -361,11 +425,11 @@ def _bundled_integrity_error() -> BrowserKernelUnavailable:
     必须提示用户检查安装包完整性，而不是退化为“联网下载”（下载在离线/
     无权限的 Program Files 目录下本就会失败，只会甩出更难懂的报错）。
     """
-    dest = browsers_dir()
+    dest = _bundle_integrity_dir()
     return BrowserKernelUnavailable(
         "安装包内的 Chromium 不完整或缺失：在 "
         f"{dest} 未找到可用的完整内核（期望 chromium-*/chrome-win64/chrome.exe "
-        "或 chromium-*/chrome-win/chrome.exe）。"
+        "或 chromium-*/chrome-win/chrome.exe，且 chrome.dll 等关键文件非空）。"
         f"\n实际目录内容：{_describe_browsers_tree(dest)}"
         "\n这通常是安装包损坏或误装了 -Lite 版本，离线环境无法自动修复。请："
         "① 重新运行官方完整版安装程序（非 -Lite）；"

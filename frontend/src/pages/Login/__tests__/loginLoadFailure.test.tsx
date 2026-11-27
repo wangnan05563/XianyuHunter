@@ -114,8 +114,13 @@ describe('登录页数据源失败态（T02939）', () => {
     })
     expect(screen.getByRole('button', { name: /重\s*试/ })).toBeInTheDocument()
     // 状态未知时不允许点「自动关闭并导入」
-    expect(screen.getByRole('button', { name: /自动关闭 Edge 并导入/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /自动关闭 Chrome 并导入/ })).toBeDisabled()
+    // 这两个按钮现在收在「导入失败 / 提示『文件被锁定』？」排查折叠面板里（默认收起），
+    // 展开后再校验禁用态
+    fireEvent.click(screen.getByText(/导入失败 \/ 提示/))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /自动关闭 Edge 并导入/ })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /自动关闭 Chrome 并导入/ })).toBeDisabled()
+    })
 
     fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }))
     await waitFor(() => {

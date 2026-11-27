@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { AppConfig, configApi } from '../api'
+import { extractApiError } from '../utils/apiError'
 import {
   applyDrafts,
   collectChangedPaths,
@@ -77,8 +78,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       // 深拷贝作为原始值（structuredClone 性能更好且保留 Date 等类型，SonarQube S7784）
       set({ config: nextConfig, original: structuredClone(fresh), loading: false })
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '加载配置失败'
-      set({ error: msg, loading: false })
+      set({ error: extractApiError(e, '加载配置失败'), loading: false })
     }
   },
 
@@ -107,8 +107,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       await configApi.save(config, false)
       set({ original: structuredClone(config), loading: false })
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '保存配置失败'
-      set({ error: msg, loading: false })
+      set({ error: extractApiError(e, '保存配置失败'), loading: false })
       throw e
     }
   },
@@ -168,8 +167,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         : structuredClone(config)
       set({ original: nextOriginal, loading: false })
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '保存配置失败'
-      set({ error: msg, loading: false })
+      set({ error: extractApiError(e, '保存配置失败'), loading: false })
       throw e
     }
   },

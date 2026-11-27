@@ -12,6 +12,8 @@ interface DataBlockProps {
   readonly emptyText: string
   readonly onRetry?: () => void
   readonly emptyImageSimple?: boolean
+  /** 覆盖默认失败说明；用于把接口的具体错误原因展示给用户 */
+  readonly errorDescription?: string
   readonly children: ReactNode
 }
 
@@ -24,10 +26,10 @@ interface DataBlockProps {
  * 不可能再出现「失败也显示空态」。
  */
 export default function DataBlock({
-  failed, source, count, emptyText, onRetry, emptyImageSimple, children,
+  failed, source, count, emptyText, onRetry, emptyImageSimple, errorDescription, children,
 }: DataBlockProps) {
   if (failed) {
-    return <FetchFailedHint source={source} onRetry={onRetry} />
+    return <FetchFailedHint source={source} onRetry={onRetry} description={errorDescription} />
   }
   if (count === 0) {
     return (

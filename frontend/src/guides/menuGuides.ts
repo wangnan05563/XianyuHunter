@@ -76,7 +76,7 @@ export const MENU_GUIDES: MenuGuide[] = [
   {
     route: '/logs/errors',
     steps: [
-      { selector: '.page-container', title: '错误日志', description: '集中捕获未处理异常，按模块/级别/时间筛选，可导出含堆栈与任务状态的上下文用于 AI 诊断。' },
+      { selector: '.page-container', title: '错误日志', description: '集中捕获未处理异常，按状态/错误类型筛选，查看堆栈、请求参数、服务器环境与 AI 上下文，支持批量标记和清理。' },
     ],
   },
   {

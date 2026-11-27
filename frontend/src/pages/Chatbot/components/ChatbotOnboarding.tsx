@@ -133,7 +133,7 @@ export default function ChatbotOnboarding({ onQuestionClick, onDismiss }: Props)
 
       <div className="cb-onboarding-center">
         <div className="cb-onboarding-hero">
-          <h1 className="cb-onboarding-greeting">{greeting}</h1>
+          <h2 className="cb-onboarding-greeting">{greeting}</h2>
           <p className="cb-onboarding-subtitle">
             基于项目知识库与工具调用，为您提供准确答案
           </p>

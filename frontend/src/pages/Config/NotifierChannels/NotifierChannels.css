@@ -1,0 +1,274 @@
+/* 通知渠道页：两栏布局、响应式渠道墙与主题化状态边框。 */
+
+.notifier-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .notifier-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 单栏时内容铺满页宽，为右侧固定工具条留出安全区。 */
+  .page-container[data-testid='notifier-config-page'] {
+    padding-right: 80px;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1180px) {
+  /* 中等宽度下标题与操作区保持同一行，避免按钮掉到标题左侧下方。 */
+  .page-container[data-testid='notifier-config-page'] [data-testid='notifier-config-header'] {
+    flex-wrap: nowrap !important;
+  }
+
+  .page-container[data-testid='notifier-config-page'] [data-testid='notifier-config-header'] > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0 !important;
+  }
+
+  .page-container[data-testid='notifier-config-page'] [data-testid='notifier-config-header'] .ant-space {
+    flex-shrink: 0;
+    flex-wrap: nowrap !important;
+  }
+}
+
+.notifier-main,
+.notifier-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 右侧悬浮工具条固定覆盖页面右缘，侧栏卡片预留安全区，避免说明文字被遮住。 */
+.notifier-side {
+  padding-right: 56px;
+}
+
+.notifier-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 680px) {
+  .notifier-channel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.notifier-channel-card {
+  background: var(--xh-bg-container);
+  border: 1px solid var(--xh-border-secondary);
+}
+
+/* 启用态用品牌橙描边；暗色主题切到较亮的品牌色，避免蓝边与浅灰边刺眼。 */
+.notifier-channel-card[data-enabled='true'] {
+  border-color: var(--xh-brand-gradient-from);
+}
+
+[data-theme='dark'] .notifier-channel-card[data-enabled='true'] {
+  border-color: var(--xh-brand-gradient-to);
+}
+
+[data-theme='dark'] .notifier-channel-card[data-enabled='false'] {
+  border-color: var(--xh-border-secondary);
+}
+
+.notifier-channel-card:not([data-enabled='true']) {
+  background: var(--xh-bg-spotlight);
+}
+
+.notifier-channel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.notifier-channel-icon {
+  font-size: 20px;
+  line-height: 24px;
+}
+
+.notifier-channel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.notifier-channel-name {
+  font-weight: 600;
+}
+
+.notifier-mini-tag {
+  font-size: 10px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.notifier-channel-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-channel-limits {
+  margin-left: 4px;
+  color: var(--xh-text-secondary);
+}
+
+.notifier-channel-obtain {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.notifier-channel-fields {
+  margin-top: 12px;
+}
+
+.notifier-field {
+  margin-bottom: 10px;
+}
+
+.notifier-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--xh-text-secondary);
+  cursor: text;
+}
+
+.notifier-field-optional {
+  margin-left: 2px;
+  font-size: 11px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-field-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-quiet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.notifier-quiet-times {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.notifier-quiet-time-field {
+  min-width: 0;
+}
+
+.notifier-quiet-time-field .ant-picker {
+  width: 100%;
+}
+
+.notifier-quiet-arrow {
+  margin-bottom: 7px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px 12px;
+}
+
+.notifier-event-checkbox {
+  width: 100%;
+}
+
+.notifier-event-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notifier-timeline-bar {
+  display: flex;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--xh-border);
+}
+
+.notifier-timeline-bar span {
+  flex: 1;
+}
+
+.notifier-timeline-bar .quiet {
+  background: #ff4d4f;
+  opacity: 0.72;
+}
+
+.notifier-timeline-bar .active {
+  background: #52c41a;
+  opacity: 0.55;
+}
+
+[data-theme='dark'] .notifier-timeline-bar .quiet {
+  background: #ff7875;
+  opacity: 0.78;
+}
+
+[data-theme='dark'] .notifier-timeline-bar .active {
+  background: #73d13d;
+  opacity: 0.62;
+}
+
+.notifier-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--xh-text-tertiary);
+}
+
+.notifier-timeline-legend .quiet-dot,
+.notifier-timeline-legend .active-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 2px;
+}
+
+.notifier-timeline-legend .quiet-dot {
+  background: #ff4d4f;
+}
+
+.notifier-timeline-legend .active-dot {
+  background: #52c41a;
+}

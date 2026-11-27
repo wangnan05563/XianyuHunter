@@ -1,127 +1,158 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Alert,
+  App as AntdApp,
   Card,
-  Switch,
-  Space,
-  message,
-  Row,
-  Col,
-  TimePicker,
   Checkbox,
   Divider,
+  Space,
+  Spin,
+  Switch,
   Tag,
-  Segmented,
+  TimePicker,
+  theme,
 } from 'antd'
-import { SaveOutlined, UndoOutlined, BellOutlined } from '@ant-design/icons'
+import { BellOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons'
+import dayjs, { type Dayjs } from 'dayjs'
 import { TipButton } from '@/components/TipButton'
-import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core'
-import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import dayjs from 'dayjs'
 import { useConfigStore } from '../../../stores/configStore'
 import { SCOPE_NOTIFIER } from '../../../stores/configDirty'
 import { extractApiError } from '../../../utils/apiError'
 import type { DiffChange } from '../../../stores/configStore'
 import api from '../../../api/client'
 import type { AppConfig } from '../../../api'
-import { defaultChannels, eventTypes, severityColors, pricingMeta, type ChannelDef, type Pricing } from './constants'
+import {
+  DB_ONLY_EVENT_KEYS,
+  defaultChannels,
+  notifiableEventTypes,
+  pricingMeta,
+  severityColors,
+  severityLabels,
+  type ChannelDef,
+  type Pricing,
+} from './constants'
+import {
+  buildTestCredentials,
+  filterSubscribedEvents,
+  formatQuietWindow,
+  getLegacySubscribedEvents,
+  getNotifierConfigIssue,
+  getNotifierReadyConfig,
+  getNotifierValidationError,
+  getNotifierWarnings,
+  getEnabledChannels,
+  parseTimeToMinutes,
+} from './notifierModel'
 import ChannelCard from './components/ChannelCard'
-import SortableChannelItem from './components/SortableChannelItem'
 import QuietHoursTimeline from './components/QuietHoursTimeline'
 import { DiffPreviewModal } from '../../../components/DiffPreviewModal'
+import './NotifierChannels.css'
 
-type SortMode = 'category' | 'custom'
+const PRICING_ORDER: Pricing[] = ['free', 'freemium', 'paid']
+const BRAND_COLOR = '#FF6200'
+const CARD_STYLES = { body: { padding: 16 } } as const
 
-export default function NotifierChannels() {
-  const { config, load, dirtyPathsInScope, reset, update, previewSave, confirmSave } = useConfigStore()
-  const [channels, setChannels] = useState<ChannelDef[]>(defaultChannels)
-  const [channelOrder, setChannelOrder] = useState<string[]>(defaultChannels.map((c) => c.key))
-  const [subscribedEvents, setSubscribedEvents] = useState<string[]>(
-    eventTypes.filter((e) => e.defaultNotify).map((e) => e.key),
+/** AntD TimePicker 需要 Dayjs；用 dayjs() 偏移而不是字符串解析，避免依赖 customParseFormat。 */
+function timeToPickerValue(value: string): Dayjs | null {
+  const minutes = parseTimeToMinutes(value)
+  if (minutes === null) return null
+  return dayjs().startOf('day').add(minutes, 'minute')
+}
+
+/** 页面外壳提供 AntdApp 上下文，避免静态 message 在暗色主题下告警。 */
+export default function NotifierChannels() { // NOSONAR S3776：页面级容器组件，主体为组合式子组件与条件渲染；再拆分需跨组件传参与状态提升，回归风险大于收益
+  return (
+    <AntdApp component={false}>
+      <NotifierChannelsContent />
+    </AntdApp>
   )
-  const [loading, setLoading] = useState(false)
+}
+
+function NotifierChannelsContent() { // NOSONAR S3776：页面级容器组件，主体为组合式子组件与条件渲染；再拆分需跨组件传参与状态提升，回归风险大于收益
+  const { message } = AntdApp.useApp()
+  const { token } = theme.useToken()
+  const {
+    config,
+    loading: configLoading,
+    error: configError,
+    load,
+    dirtyPathsInScope,
+    reset,
+    update,
+    previewSave,
+    confirmSave,
+  } = useConfigStore()
+
+  // StrictMode 下 effect 会执行两次；本页只允许首屏请求一次。
+  const didAutoLoadRef = useRef(false)
+  useEffect(() => {
+    if (didAutoLoadRef.current) return
+    didAutoLoadRef.current = true
+    void load()
+  }, [load])
+
+  const [saving, setSaving] = useState(false)
   const [testingChannel, setTestingChannel] = useState<string | null>(null)
-  // 排序模式：category=按免费/限额/收费分类，custom=按通道顺序
-  const [sortMode, setSortMode] = useState<SortMode>('category')
-  // Diff 预览
   const [diffModalOpen, setDiffModalOpen] = useState(false)
   const [diffChanges, setDiffChanges] = useState<DiffChange[]>([])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  const ready = getNotifierReadyConfig(config)
+  const configIssue = getNotifierConfigIssue(config)
+  const dirtyCount = config ? dirtyPathsInScope(SCOPE_NOTIFIER).length : 0
+  const validationError = ready ? getNotifierValidationError(ready) : null
+  const warnings = ready ? getNotifierWarnings(ready) : []
+  const canSave = Boolean(ready) && dirtyCount > 0 && !validationError && !saving
+  const canReset = Boolean(ready) && dirtyCount > 0 && !saving
 
-  // 从配置同步渠道开关状态 + 事件订阅状态
-  useEffect(() => {
-    if (!config) return
-    const updated = channels.map((ch) => {
-      const configEnabled = config.notifier.channels[ch.key as keyof typeof config.notifier.channels]
-      return { ...ch, enabled: configEnabled ?? ch.enabled }
-    })
-    setChannels(updated)
-    if (config.notifier.default_channels?.length) {
-      setChannelOrder(config.notifier.default_channels)
-    }
-    // 从后端配置恢复事件订阅状态（持久化数据优先于默认值）
-    if (config.notifier.subscribed_events?.length !== undefined) {
-      setSubscribedEvents(config.notifier.subscribed_events)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config])
+  const channelList = useMemo<ChannelDef[]>(() => defaultChannels.map((channel) => ({
+    ...channel,
+    enabled: ready?.notifier.channels[channel.key as keyof AppConfig['notifier']['channels']] ?? false,
+  })), [ready])
 
-  const toggleChannel = (key: string, enabled: boolean) => {
-    setChannels(channels.map((ch) => (ch.key === key ? { ...ch, enabled } : ch)))
-    // 同步到配置（所有渠道均持久化开关状态）
-    if (config) {
-      update({
-        notifier: {
-          ...config.notifier,
-          channels: {
-            ...config.notifier.channels,
-            [key]: enabled,
-          },
-        },
-      })
+  const enabledChannels = ready ? getEnabledChannels(ready.notifier) : []
+  const displayEvents = ready ? filterSubscribedEvents(ready.notifier.subscribed_events) : []
+  const legacyEvents = ready ? getLegacySubscribedEvents(ready.notifier.subscribed_events) : []
+
+  const groups = useMemo(() => {
+    const result: Record<Pricing, ChannelDef[]> = { free: [], freemium: [], paid: [] }
+    for (const channel of channelList) {
+      result[channel.pricing].push(channel)
     }
+    return result
+  }, [channelList])
+
+  const headerStyle: CSSProperties = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 20,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+    flexWrap: 'wrap',
+    padding: '14px 0 12px',
+    marginBottom: 16,
+    background: token.colorBgLayout,
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
   }
 
-  const updateChannelField = (_channelKey: string, fieldKey: string, value: string) => {
-    if (!config) return
-    // 参数 _channelKey 当前未使用，但参数签名需匹配子组件回调
-    // 下划线前缀表示有意未使用，避免 void 操作符（S3735）
-    update({ [fieldKey]: value } as Partial<typeof config>)
-  }
-
-  // 拖拽排序
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = channelOrder.indexOf(active.id as string)
-      const newIndex = channelOrder.indexOf(over.id as string)
-      const newOrder = arrayMove(channelOrder, oldIndex, newIndex)
-      setChannelOrder(newOrder)
-      // 同步到配置
-      if (config) {
-        update({
-          notifier: { ...config.notifier, default_channels: newOrder },
-        })
-      }
-    }
-  }
-
-  // 免打扰时段更新
-  const updateQuietHours = (patch: Partial<AppConfig['notifier']['quiet_hours']>) => {
-    if (!config) return
-    update({
-      notifier: {
-        ...config.notifier,
-        quiet_hours: { ...config.notifier.quiet_hours, ...patch },
-      },
-    })
+  const handleReset = () => {
+    reset(SCOPE_NOTIFIER)
+    message.info('已恢复本页未保存的修改')
   }
 
   const handleSave = async () => {
+    if (!ready) return
+    if (validationError) {
+      message.error(validationError, 5)
+      return
+    }
+    if (dirtyCount === 0) {
+      message.info('配置未变更')
+      return
+    }
     try {
-      setLoading(true)
+      setSaving(true)
       const changes = await previewSave(SCOPE_NOTIFIER)
       if (changes.length === 0) {
         message.info('配置未变更')
@@ -129,312 +160,420 @@ export default function NotifierChannels() {
       }
       setDiffChanges(changes)
       setDiffModalOpen(true)
-    } catch (e) {
+    } catch (e: unknown) {
       message.error(extractApiError(e), 5)
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
   const handleConfirmSave = async () => {
     try {
-      setLoading(true)
+      setSaving(true)
       await confirmSave(SCOPE_NOTIFIER)
       setDiffModalOpen(false)
       message.success('通知配置已保存')
-    } catch (e) {
+    } catch (e: unknown) {
       message.error(extractApiError(e), 5)
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
+  const toggleChannel = (key: string, enabled: boolean) => {
+    if (!ready) return
+    update({
+      notifier: {
+        ...ready.notifier,
+        channels: {
+          ...ready.notifier.channels,
+          [key]: enabled,
+        },
+      },
+    })
+  }
+
+  const updateChannelField = (_channelKey: string, fieldKey: string, value: string) => {
+    if (!ready) return
+    // 13 个凭据字段在 AppConfig 顶层；页段提交由 SCOPE_NOTIFIER 覆盖。
+    update({ [fieldKey]: value } as Partial<AppConfig>)
+  }
+
+  const updateQuietHours = (patch: Partial<AppConfig['notifier']['quiet_hours']>) => {
+    if (!ready) return
+    update({
+      notifier: {
+        ...ready.notifier,
+        quiet_hours: { ...ready.notifier.quiet_hours, ...patch },
+      },
+    })
+  }
+
+  const handleEventChange = (values: Array<string | number>) => {
+    if (!ready) return
+    const next = filterSubscribedEvents(values.map(String))
+    update({
+      notifier: {
+        ...ready.notifier,
+        subscribed_events: next,
+      },
+    })
+  }
+
   const handleTest = async (channelKey: string) => {
-    if (!config) return
+    if (!ready) return
+    const channel = channelList.find((item) => item.key === channelKey)
+    if (!channel) return
     setTestingChannel(channelKey)
     try {
-      // 收集该渠道当前填写的所有凭据字段
-      const ch = channels.find((c) => c.key === channelKey)
-      if (!ch) return
-      const credentials: Record<string, string> = {}
-      for (const field of ch.fields) {
-        const val = (config as unknown as Record<string, unknown>)[field.key] as string
-        if (val) credentials[field.key] = val
-      }
-      // 检查必填字段是否为空
-      const emptyFields = ch.fields.filter((f) => !credentials[f.key])
-      if (emptyFields.length > 0) {
-        message.warning(`请先填写 ${emptyFields.map((f) => f.label).join('、')}`)
-        setTestingChannel(null)
-        return
-      }
-
+      const credentials = buildTestCredentials(ready.credentials, channel.fields)
       const { data } = await api.post('/api/notifier/test', {
         channel: channelKey,
         credentials,
       })
-      if (data.ok) {
-        message.success(`✅ ${ch.name} 测试推送成功！请检查是否收到消息`)
+      if (data?.ok) {
+        message.success(`${channel.name} 测试推送成功，请检查是否收到消息`)
       } else {
-        message.error(`❌ 推送失败: ${data.error || '未知错误'}`)
+        const reason = data?.error || data?.detail || '未知错误'
+        message.error(`${channel.name} 推送失败：${reason}`, 5)
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '网络错误'
-      message.error(`❌ 请求失败: ${msg}`)
+      message.error(`${channel.name} 测试失败：${extractApiError(err, '网络错误')}`, 5)
     } finally {
       setTestingChannel(null)
     }
   }
 
-  // 分类排序：免费 → 限额 → 收费，类内按启用状态 + 功能完整性降序
-  const groupedChannels = useMemo(() => {
-    const sorted = [...channels].sort((a, b) => {
-      const priceDiff = pricingMeta[a.pricing].order - pricingMeta[b.pricing].order
-      if (priceDiff !== 0) return priceDiff
-      // 已启用的渠道排在前面（使用频率代理）
-      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1
-      // 功能完整性评分降序
-      return b.featureScore - a.featureScore
-    })
-    // 按 pricing 分组，保持排序后的顺序
-    const groups: Record<Pricing, ChannelDef[]> = { free: [], freemium: [], paid: [] }
-    for (const ch of sorted) groups[ch.pricing].push(ch)
-    return groups
-  }, [channels])
+  const header = (
+    <div style={headerStyle} data-testid="notifier-config-header">
+      <div style={{ minWidth: 280 }}>
+        <h1 style={{ margin: 0, fontSize: 20, lineHeight: 1.4 }}>通知渠道</h1>
+        <div style={{ marginTop: 3, fontSize: 12, color: token.colorTextTertiary }}>
+          配置渠道、免打扰与事件订阅；并发推送，不做顺序降级
+        </div>
+      </div>
+      <Space wrap align="center">
+        {dirtyCount > 0 && (
+          <Tag color="orange" data-testid="notifier-config-dirty">
+            未保存 {dirtyCount} 项
+          </Tag>
+        )}
+        <TipButton
+          tip="放弃本页未保存的修改并重置"
+          icon={<UndoOutlined />}
+          onClick={handleReset}
+          disabled={!canReset}
+          data-testid="notifier-config-reset"
+        >
+          重置
+        </TipButton>
+        <TipButton
+          tip={validationError ?? (dirtyCount === 0 ? '当前没有需要保存的修改' : '保存通知渠道配置')}
+          type="primary"
+          style={canSave ? { backgroundColor: BRAND_COLOR, borderColor: BRAND_COLOR } : undefined}
+          icon={<SaveOutlined />}
+          onClick={() => { void handleSave() }}
+          loading={saving}
+          disabled={!canSave}
+          data-testid="notifier-config-save"
+        >
+          保存配置
+        </TipButton>
+      </Space>
+    </div>
+  )
 
-  // 统计各类别渠道数量
-  const channelCounts = useMemo(() => {
-    const counts = { free: 0, freemium: 0, paid: 0 }
-    for (const ch of channels) counts[ch.pricing]++
-    return counts
-  }, [channels])
+  let body: ReactNode
+  if (!ready) {
+    if (configError) {
+      body = (
+        <Alert
+          type="error"
+          showIcon
+          message="通知渠道配置加载失败"
+          description={`${configError}。请检查后端服务或网络后重试，避免在默认值上覆盖真实配置。`}
+          action={(
+            <TipButton
+              tip="重新加载通知渠道配置"
+              size="small"
+              onClick={() => { void load() }}
+              loading={configLoading}
+              data-testid="notifier-config-retry"
+            >
+              重试
+            </TipButton>
+          )}
+          data-testid="notifier-config-config-error"
+        />
+      )
+    } else if (config) {
+      body = (
+        <Alert
+          type="error"
+          showIcon
+          message="通知渠道配置不完整，无法编辑"
+          description={`${configIssue}。本页同时读写 notifier 段与 13 个顶层凭据字段；请重新加载，确认后端返回完整数据。`}
+          action={(
+            <TipButton
+              tip="重新加载通知渠道配置"
+              size="small"
+              onClick={() => { void load() }}
+              loading={configLoading}
+              data-testid="notifier-config-retry"
+            >
+              重试
+            </TipButton>
+          )}
+          data-testid="notifier-config-config-missing"
+        />
+      )
+    } else {
+      body = (
+        <div
+          data-testid="notifier-config-loading"
+          style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Spin tip="正在加载通知渠道配置…" size="large">
+            <div style={{ width: 260, height: 90 }} />
+          </Spin>
+        </div>
+      )
+    }
 
-  if (!config) {
-    return <div className="page-container">加载中...</div>
+    return (
+      <div className="page-container" data-testid="notifier-config-page">
+        {header}
+        {body}
+      </div>
+    )
   }
 
-  const quietHours = config.notifier.quiet_hours
-
-  // 按排序顺序获取渠道（用于自定义排序模式 + 拖拽列表）
-  const orderedChannels = channelOrder
-    .map((key) => channels.find((c) => c.key === key))
-    .filter(Boolean) as ChannelDef[]
+  const activeConfig = config as AppConfig
 
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <Space>
-          <TipButton
-            tip="放弃本页未保存的修改并重置"
-            icon={<UndoOutlined />}
-            onClick={() => reset(SCOPE_NOTIFIER)}
-            disabled={dirtyPathsInScope(SCOPE_NOTIFIER).length === 0}
-          >
-            重置
-          </TipButton>
-          <TipButton tip="保存通知渠道配置" type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>
-            保存
-          </TipButton>
-        </Space>
-      </div>
+    <div className="page-container" data-testid="notifier-config-page">
+      {header}
 
-      <Row gutter={24}>
-        {/* 左侧：渠道卡片墙 */}
-        <Col span={14}>
+      {validationError && (
+        <Alert
+          type="error"
+          showIcon
+          message="配置校验未通过"
+          description={validationError}
+          style={{ marginBottom: 12 }}
+          data-testid="notifier-config-validation"
+        />
+      )}
+
+      {warnings.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="配置提醒（不阻止保存）"
+          description={(
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          )}
+          style={{ marginBottom: 12 }}
+          data-testid="notifier-config-warning"
+        />
+      )}
+
+      <div className="notifier-layout">
+        <div className="notifier-main">
           <Card
-            style={{ marginBottom: 16 }}
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span>渠道卡片墙</span>
-                <Tag>{channels.length} 个渠道</Tag>
-                <Segmented
-                  size="small"
-                  value={sortMode}
-                  onChange={(v) => setSortMode(v as SortMode)}
-                  options={[
-                    { label: '分类排序', value: 'category' },
-                    { label: '自定义', value: 'custom' },
-                  ]}
-                />
-              </div>
-            }
+            title={(
+              <span className="notifier-summary">
+                <span>推送渠道</span>
+                <Tag>{channelList.length} 个渠道</Tag>
+                <Tag color={enabledChannels.length > 0 ? 'green' : 'default'}>{enabledChannels.length} 个已启用</Tag>
+              </span>
+            )}
+            styles={CARD_STYLES}
+            data-testid="notifier-channels-card"
           >
-            {sortMode === 'category' ? (
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                {(Object.keys(groupedChannels) as Pricing[])
-                  .filter((p) => groupedChannels[p].length > 0)
-                  .map((pricing) => (
-                    <div key={pricing}>
-                      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Tag color={pricingMeta[pricing].color}>
-                          {pricingMeta[pricing].label}
-                        </Tag>
-                        <span style={{ fontSize: 12, color: 'var(--xh-text-tertiary)' }}>
-                          {channelCounts[pricing]} 个渠道
-                        </span>
-                      </div>
-                      <Row gutter={[12, 12]}>
-                        {groupedChannels[pricing].map((ch) => (
-                          <Col span={12} key={ch.key}>
-                            <ChannelCard
-                              channel={ch}
-                              config={config}
-                              testing={testingChannel === ch.key}
-                              anyTesting={testingChannel !== null}
-                              onToggle={toggleChannel}
-                              onFieldChange={updateChannelField}
-                              onTest={handleTest}
-                            />
-                          </Col>
-                        ))}
-                      </Row>
-                    </div>
-                  ))}
-              </Space>
-            ) : (
-              <Row gutter={[12, 12]}>
-                {orderedChannels.map((ch) => (
-                  <Col span={12} key={ch.key}>
+            {PRICING_ORDER.map((pricing) => groups[pricing].length > 0 && (
+              <div key={pricing} className="notifier-channel-group">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 10px' }}>
+                  <Tag color={pricingMeta[pricing].color}>{pricingMeta[pricing].label}</Tag>
+                  <span style={{ fontSize: 12, color: token.colorTextTertiary }}>
+                    {groups[pricing].length} 个渠道
+                  </span>
+                </div>
+                <div className="notifier-channel-grid">
+                  {groups[pricing].map((channel) => (
                     <ChannelCard
-                      channel={ch}
-                      config={config}
-                      testing={testingChannel === ch.key}
+                      key={channel.key}
+                      channel={channel}
+                      config={activeConfig}
+                      testing={testingChannel === channel.key}
                       anyTesting={testingChannel !== null}
                       onToggle={toggleChannel}
                       onFieldChange={updateChannelField}
-                      onTest={handleTest}
+                      onTest={(key) => { void handleTest(key) }}
                     />
-                  </Col>
-                ))}
-              </Row>
-            )}
+                  ))}
+                </div>
+              </div>
+            ))}
           </Card>
 
-          {/* 通道顺序拖拽排序 */}
-          <Card title="通道顺序（拖拽排序）" style={{ marginBottom: 16 }}>
-            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={channelOrder} strategy={verticalListSortingStrategy}>
-                {orderedChannels.map((ch, index) => (
-                  <SortableChannelItem key={ch.key} channel={ch} index={index + 1} />
-                ))}
-              </SortableContext>
-            </DndContext>
-            <div style={{ fontSize: 12, color: 'var(--xh-text-tertiary)', marginTop: 12 }}>
-              按顺序尝试推送，失败则降级到下一个渠道。
+          <Alert
+            type="info"
+            showIcon
+            message="推送方式"
+            description="后端会向所有已启用渠道并发发送同一事件，不做失败降级；全部渠道关闭时，重启后回退到 default_channels 兜底。"
+            data-testid="notifier-push-semantics"
+          />
+        </div>
+
+        <div className="notifier-side">
+          <Card
+            title="免打扰时段"
+            styles={CARD_STYLES}
+            data-testid="notifier-quiet-card"
+          >
+            <div className="notifier-quiet-head">
+              <div>
+                <div style={{ fontWeight: 500 }}>启用免打扰</div>
+                <div style={{ marginTop: 2, fontSize: 12, color: token.colorTextTertiary }}>
+                  静默期内仅 critical 事件可按策略放行
+                </div>
+              </div>
+              <Switch
+                checked={ready.notifier.quiet_hours.enabled}
+                onChange={(v) => updateQuietHours({ enabled: v })}
+                aria-label="启用免打扰"
+                data-testid="notifier-quiet-switch"
+              />
             </div>
-          </Card>
-        </Col>
 
-        {/* 右侧：免打扰时段 + 事件订阅 */}
-        <Col span={10}>
-          <div className="preview-panel">
-            <Card title="免打扰时段" style={{ marginBottom: 16 }}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>启用免打扰</span>
-                  <Switch
-                    checked={quietHours.enabled}
-                    onChange={(v) => updateQuietHours({ enabled: v })}
+            <div style={{ marginTop: 14 }}>
+              <div className="notifier-quiet-times">
+                <div className="notifier-quiet-time-field">
+                  <label htmlFor="notifier-quiet-start" className="notifier-field-label">
+                    开始
+                  </label>
+                  <TimePicker
+                    id="notifier-quiet-start"
+                    aria-label="免打扰开始时间"
+                    value={timeToPickerValue(ready.notifier.quiet_hours.start)}
+                    format="HH:mm"
+                    minuteStep={1}
+                    allowClear={false}
+                    disabled={!ready.notifier.quiet_hours.enabled}
+                    onChange={(v) => {
+                      if (v) updateQuietHours({ start: v.format('HH:mm') })
+                    }}
+                    data-testid="notifier-quiet-start"
                   />
                 </div>
-
-                <div style={{ opacity: quietHours.enabled ? 1 : 0.5 }}>
-                  <div style={{ marginBottom: 8 }}>静默时段（支持跨午夜）</div>
-                  <Space>
-                    <TimePicker
-                      value={dayjs(quietHours.start, 'HH:mm')}
-                      format="HH:mm"
-                      onChange={(v) => updateQuietHours({ start: v?.format('HH:mm') || '23:00' })}
-                    />
-                    <span>→</span>
-                    <TimePicker
-                      value={dayjs(quietHours.end, 'HH:mm')}
-                      format="HH:mm"
-                      onChange={(v) => updateQuietHours({ end: v?.format('HH:mm') || '07:00' })}
-                    />
-                  </Space>
-
-                  {/* 24 小时时间轴预览 */}
-                  <div style={{ marginTop: 16 }}>
-                    <QuietHoursTimeline start={quietHours.start} end={quietHours.end} />
-                  </div>
-
-                  <Divider />
-
-                  <Checkbox
-                    checked={quietHours.critical_only}
-                    onChange={(e) => updateQuietHours({ critical_only: e.target.checked })}
-                  >
-                    仅 critical 级别可推送（其他事件落本地"待发摘要"）
-                  </Checkbox>
-
-                  <br />
-
-                  <Checkbox
-                    checked={quietHours.weekend_only}
-                    onChange={(e) => updateQuietHours({ weekend_only: e.target.checked })}
-                  >
-                    仅周末启用（工作日保持全量推送）
-                  </Checkbox>
+                <span className="notifier-quiet-arrow" aria-hidden="true">→</span>
+                <div className="notifier-quiet-time-field">
+                  <label htmlFor="notifier-quiet-end" className="notifier-field-label">
+                    结束
+                  </label>
+                  <TimePicker
+                    id="notifier-quiet-end"
+                    aria-label="免打扰结束时间"
+                    value={timeToPickerValue(ready.notifier.quiet_hours.end)}
+                    format="HH:mm"
+                    minuteStep={1}
+                    allowClear={false}
+                    disabled={!ready.notifier.quiet_hours.enabled}
+                    onChange={(v) => {
+                      if (v) updateQuietHours({ end: v.format('HH:mm') })
+                    }}
+                    data-testid="notifier-quiet-end"
+                  />
                 </div>
-              </Space>
-            </Card>
-
-            <Card title={`事件订阅规则（${eventTypes.length} 种事件）`}>
-              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--xh-text-tertiary)' }}>
-                勾选需要推送通知的事件类型：
               </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: token.colorTextTertiary }}>
+                {formatQuietWindow(ready.notifier.quiet_hours.start, ready.notifier.quiet_hours.end)}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <QuietHoursTimeline
+                start={ready.notifier.quiet_hours.start}
+                end={ready.notifier.quiet_hours.end}
+              />
+            </div>
+
+            <Divider />
+
+            <Space direction="vertical" size={8}>
+              <Checkbox
+                checked={ready.notifier.quiet_hours.critical_only}
+                disabled={!ready.notifier.quiet_hours.enabled}
+                onChange={(e) => updateQuietHours({ critical_only: e.target.checked })}
+              >
+                仅 critical 级别可推送（其他事件落本地“待发摘要”）
+              </Checkbox>
+              <Checkbox
+                checked={ready.notifier.quiet_hours.weekend_only}
+                disabled={!ready.notifier.quiet_hours.enabled}
+                onChange={(e) => updateQuietHours({ weekend_only: e.target.checked })}
+              >
+                仅周末启用（工作日保持全量推送）
+              </Checkbox>
+            </Space>
+          </Card>
+
+          <Card
+            title={`事件订阅规则（${notifiableEventTypes.length} 种可推送事件）`}
+            styles={CARD_STYLES}
+            data-testid="notifier-events-card"
+          >
+            <div style={{ marginBottom: 10, fontSize: 12, color: token.colorTextTertiary }}>
+              勾选需要推送的事件；空订阅会被后端回退成默认订阅，因此至少保留 1 项。
+            </div>
+            <fieldset aria-label="事件订阅规则" style={{ border: 0, padding: 0, margin: 0 }}>
               <Checkbox.Group
-                value={subscribedEvents}
-                onChange={(values) => {
-                  // S4325: 类型推断后已是 string[]，无需显式断言
-                  const newEvents = values
-                  setSubscribedEvents(newEvents)
-                  // 同步到配置（保存时会持久化到 YAML）
-                  if (config) {
-                    update({
-                      notifier: {
-                        ...config.notifier,
-                        subscribed_events: newEvents,
-                      },
-                    })
-                  }
-                }}
+                value={displayEvents}
+                onChange={handleEventChange}
                 style={{ width: '100%' }}
               >
-                <Row gutter={[8, 8]}>
-                  {eventTypes.map((ev) => (
-                    <Col span={24} key={ev.key}>
-                      <Checkbox value={ev.key} style={{ width: '100%' }}>
-                        <Space>
-                          <Tag color={severityColors[ev.severity]} style={{ fontSize: 10 }}>
-                            {ev.severity}
-                          </Tag>
-                          <span>{ev.label}</span>
-                        </Space>
-                      </Checkbox>
-                    </Col>
+                <div className="notifier-event-grid">
+                  {notifiableEventTypes.map((event) => (
+                    <Checkbox key={event.key} value={event.key} className="notifier-event-checkbox">
+                      <Space size={6}>
+                        <Tag color={severityColors[event.severity]} style={{ fontSize: 10, margin: 0 }}>
+                          {severityLabels[event.severity] ?? event.severity}
+                        </Tag>
+                        <span>{event.label}</span>
+                      </Space>
+                    </Checkbox>
                   ))}
-                </Row>
+                </div>
               </Checkbox.Group>
+            </fieldset>
 
-              <Divider />
+            <Divider />
 
-              <div style={{ fontSize: 12, color: 'var(--xh-text-tertiary)' }}>
-                <BellOutlined /> 已订阅 {subscribedEvents.length} / {eventTypes.length} 种事件
+            <div style={{ fontSize: 12, color: token.colorTextTertiary }}>
+              <BellOutlined /> 已订阅 {displayEvents.length} / {notifiableEventTypes.length} 种可推送事件
+            </div>
+            {legacyEvents.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: token.colorWarning }}>
+                当前配置含 {legacyEvents.length} 个仅写入时间线的事件；重新勾选订阅后会自动清理。
               </div>
-            </Card>
-          </div>
-        </Col>
-      </Row>
+            )}
+            <div className="notifier-event-note">
+              另有 {DB_ONLY_EVENT_KEYS.length} 种维护/生命周期事件只写入时间线，不会触发通知，已从本列表隐藏。
+            </div>
+          </Card>
+        </div>
+      </div>
 
       <DiffPreviewModal
         open={diffModalOpen}
         diffChanges={diffChanges}
         config={config}
-        loading={loading}
+        loading={saving}
         onCancel={() => setDiffModalOpen(false)}
-        onConfirm={handleConfirmSave}
+        onConfirm={() => { void handleConfirmSave() }}
       />
     </div>
   )

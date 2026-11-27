@@ -125,10 +125,12 @@ describe('wizardLockedTips（4.6-4）', () => {
 })
 
 describe('buildTunnelStopCopy（4.6-5）', () => {
-  it('有公网地址时确认可复述该地址，并说明重启会换地址', () => {
-    const c = buildTunnelStopCopy('cloudflare', 'https://abc.trycloudflare.com')
+  it('有公网地址时确认可复述该地址与实际本地端口，并说明重启会换地址', () => {
+    const c = buildTunnelStopCopy('cloudflare', 'https://abc.trycloudflare.com', 8800)
     expect(c.scope).toContain('https://abc.trycloudflare.com')
-    expect(c.count).toBe('正在运行的隧道 1 条（cloudflare）')
+    expect(c.scope).toContain('本地端口 8800 转发到公网')
+    expect(c.count).toContain('Cloudflare Tunnel')
+    expect(c.count).toContain('本地端口 8800')
     expect(c.recovery).toContain('重新启动会拿到新的随机地址')
     expect(c.recovery).toContain('固定域名模式重启后地址不变')
   })
@@ -136,6 +138,7 @@ describe('buildTunnelStopCopy（4.6-5）', () => {
   it('地址没读到时不编造 URL，如实标注并说明需重新复制', () => {
     const c = buildTunnelStopCopy('tailscale', null)
     expect(c.scope).toContain('（未获取到）')
+    expect(c.scope).toContain('本地端口 （未读取到）')
     expect(c.scope).not.toContain('http')
     expect(c.recovery).toContain('重新启动后需重新复制新的公网地址')
   })

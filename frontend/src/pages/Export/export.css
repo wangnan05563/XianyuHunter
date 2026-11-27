@@ -1,0 +1,39 @@
+/* 数据导出页专用样式：仅放本页需要的极小样式，避免污染全局 */
+
+/* 仅屏幕阅读器可见的页面主标题；页面上仍以面包屑 + 说明承载视觉标题 */
+.export-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 数据加载态：独立可见文案，不使用 Spin 的 tip（tip 仅在 nest/fullscreen 生效） */
+.export-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 60px 0;
+}
+
+[data-theme="dark"] .export-loading .ant-typography {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* AntD 默认 placeholder 仅 25% 透明度，在浅色/暗色下对比度都不足；
+ * 本页筛选高度依赖 placeholder 提示，提升到 60% 保证可读。 */
+[data-testid="export-page"] .ant-input::placeholder,
+[data-testid="export-page"] .ant-picker-input > input::placeholder {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="dark"] [data-testid="export-page"] .ant-input::placeholder,
+[data-theme="dark"] [data-testid="export-page"] .ant-picker-input > input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}

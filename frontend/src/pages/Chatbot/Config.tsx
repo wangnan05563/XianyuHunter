@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react'
 import {
   Tabs, Switch, InputNumber, Input, Slider, Radio, Table, Modal,
-  Card, Tag, message, Space, Typography, List, Alert,
+  Card, Tag, Space, Typography, List, App as AntdApp, Spin, theme,
 } from 'antd'
 import { PlusOutlined, DeleteOutlined, RollbackOutlined, HistoryOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons'
 import { chatbotApi } from './api'
@@ -15,7 +15,10 @@ import FetchFailedHint from '@/components/FetchFailedHint'
 import DataBlock from '@/components/DataBlock'
 import { useFailedSources } from '@/hooks/useFailedSources'
 import { formatDateTime } from '@/utils/timeFormat'
+import { extractApiError } from '@/utils/apiError'
+import { confirmDanger, COUNT_UNKNOWN } from '@/components/DangerSummary'
 import type { KBStatus, KBVersion, FAQ, AuditLog } from './types'
+import './ChatbotConfig.css'
 
 // 本页各路数据源（T02700 假回执清零）：原先统一 catch 成 null/[]，
 // 后端故障会被说成「暂无重建记录 / 暂无 FAQ / 加载中...」。
@@ -37,10 +40,13 @@ function pickRebuildLogs(logs: AuditLog[]): AuditLog[] {
     .slice(0, 5)
 }
 
-export default function ChatbotConfigPage() {
+export default function ChatbotConfigPage() { // NOSONAR S3776：页面级容器组件，主体为组合式子组件与条件渲染；再拆分需跨组件传参与状态提升，回归风险大于收益
+  const { token } = theme.useToken()
+  const { message, modal } = AntdApp.useApp()
   // T05072：配置草稿收进 useChatbotConfigStore（统一保存范式）。
   // 页级只保留四路只读/动作数据源（kbStatus/kbVersions/faqs/auditLogs）。
   const config = useChatbotConfigStore((s) => s.config)
+  const configError = useChatbotConfigStore((s) => s.error)
   const update = useChatbotConfigStore((s) => s.update)
   const dirtyPaths = useChatbotConfigStore((s) => s.dirtyPaths)
   const resetDraft = useChatbotConfigStore((s) => s.reset)
@@ -59,6 +65,8 @@ export default function ChatbotConfigPage() {
   const [diffChanges, setDiffChanges] = useState<DiffChange[]>([])
   const [diffModalOpen, setDiffModalOpen] = useState(false)
   const { failed, mark, settle } = useFailedSources<ConfigSource>()
+  // StrictMode 会在挂载后立即卸载重挂，首屏五路请求会被重复打一遍；门闩保证只引导一次。
+  const bootstrapped = useRef(false)
 
   const loadAll = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -77,7 +85,7 @@ export default function ChatbotConfigPage() {
       mark('config', true)
     } else {
       mark('config', false)
-      message.error('智能客服模块未启用或加载失败')
+      message.error(useChatbotConfigStore.getState().error || '智能客服模块未启用或加载失败')
     }
     const status = settle(statusRes, 'kbStatus')
     if (status) setKbStatus(status)
@@ -94,7 +102,7 @@ export default function ChatbotConfigPage() {
       mark('rebuild', false)
     }
     setLoading(false)
-  }, [settle, mark, loadConfig])
+  }, [settle, mark, loadConfig, message])
 
   // T02900：区块级重试。原先每个失败区块的「重试」都指向 loadAll()，一处失败要把五路一起重取：
   // setLoading(true) 让整页骨架屏闪一遍，活动页签之外的区块被顺手重置，
@@ -140,7 +148,9 @@ export default function ChatbotConfigPage() {
   }, [settle, mark, loadConfig])
 
   useEffect(() => {
-    loadAll()
+    if (bootstrapped.current) return
+    bootstrapped.current = true
+    void loadAll()
   }, [loadAll])
 
   // building 状态轮询：构建中每 2 秒拉取一次 status，构建完成时整体刷新
@@ -181,8 +191,8 @@ export default function ChatbotConfigPage() {
       }
       setDiffChanges(changes)
       setDiffModalOpen(true)
-    } catch {
-      message.error('预览失败，请重试')
+    } catch (e) {
+      message.error(extractApiError(e, '预览失败，请重试'), 5)
     } finally {
       setSaving(false)
     }
@@ -200,7 +210,7 @@ export default function ChatbotConfigPage() {
         message.success('客服配置已保存，已实时生效')
       }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '保存失败，请重试', 5)
+      message.error(extractApiError(e, '保存失败，请重试'), 5)
     } finally {
       setSaving(false)
     }
@@ -225,19 +235,24 @@ export default function ChatbotConfigPage() {
   }
 
   const handleRollback = async (versionId: string) => {
-    Modal.confirm({
-      title: '回滚知识库',
-      content: '确定回滚到此版本？回滚期间对话功能短暂不可用。',
-      onOk: async () => {
-        try {
-          await chatbotApi.rollbackKB(versionId)
-          message.success('回滚成功')
-          reload('kbStatus', 'kbVersions', 'audit')
-        } catch {
-          message.error('回滚失败')
-        }
-      },
-    })
+    const target = kbVersions.find((v) => v.id === versionId)
+    const shortId = versionId.slice(0, 8)
+    const current = kbStatus?.current_version ? kbStatus.current_version.slice(0, 8) : '（未知）'
+    const confirmed = await confirmDanger({
+      title: `回滚到版本 ${shortId}？`,
+      action: '将当前知识库切换到该历史版本',
+      scope: `当前版本 ${current} 的全部片段会被版本 ${shortId} 替换；回滚期间对话功能短暂不可用`,
+      count: target?.chunk_count ?? COUNT_UNKNOWN,
+      recovery: '当前版本记录仍保留在版本列表，可再次回滚；版本快照文件不会被删除',
+    }, modal)
+    if (!confirmed) return
+    try {
+      await chatbotApi.rollbackKB(versionId)
+      message.success('回滚成功')
+      reload('kbStatus', 'kbVersions', 'audit')
+    } catch (e) {
+      message.error(extractApiError(e, '回滚失败'), 5)
+    }
   }
 
   const handleSaveFaq = async (faq: FAQ) => {
@@ -247,19 +262,27 @@ export default function ChatbotConfigPage() {
       setFaqModalOpen(false)
       const list = await chatbotApi.listFAQ()
       setFaqs(list)
-    } catch {
-      message.error('保存失败')
+    } catch (e) {
+      message.error(extractApiError(e, '保存失败'), 5)
     }
   }
 
-  const handleDeleteFaq = async (id: number) => {
+  const handleDeleteFaq = async (faq: FAQ) => {
+    const confirmed = await confirmDanger({
+      title: '删除这条 FAQ？',
+      action: '从 FAQ 列表删除该条问答',
+      scope: `仅删除「${faq.question}」这一条；其他 FAQ 不受影响`,
+      count: 1,
+      recovery: '删除后不可恢复；需要时可重新新增该条问答',
+    }, modal)
+    if (!confirmed) return
     try {
-      await chatbotApi.deleteFAQ(id)
+      await chatbotApi.deleteFAQ(faq.id!)
       message.success('已删除')
       const list = await chatbotApi.listFAQ()
       setFaqs(list)
-    } catch {
-      message.error('删除失败')
+    } catch (e) {
+      message.error(extractApiError(e, '删除失败'), 5)
     }
   }
 
@@ -269,58 +292,100 @@ export default function ChatbotConfigPage() {
       setAuditLogs(items)
       mark('audit', true)
       mark('rebuild', true)
-    } catch {
+    } catch (e) {
       mark('audit', false)
       mark('rebuild', false)
-      message.error('加载审计日志失败')
+      message.error(extractApiError(e, '加载审计日志失败'), 5)
     }
   }
 
-  if (loading) {
-    return <Card loading>加载中...</Card>
-  }
-
-  // 配置取不到就没有可编辑的对象：给错误态 + 重试，而不是永久「加载中...」（T02700）
-  if (!config) {
-    return (
-      <FetchFailedHint
-        source={SOURCE_LABELS.config}
-        onRetry={() => void reload('config')}
-      />
-    )
-  }
-
   const rebuildLogs = pickRebuildLogs(auditLogs)
+  const configReady = Boolean(config) && !loading
+  const canSave = Boolean(config && dirtyCount > 0 && !saving)
+  const canReset = Boolean(config && dirtyCount > 0 && !saving)
+  let dirtyLabel: string
+  if (loading) {
+    dirtyLabel = '正在加载配置…'
+  } else if (!config) {
+    dirtyLabel = '配置未加载'
+  } else if (dirtyCount > 0) {
+    dirtyLabel = `配置未保存 ${dirtyCount} 项修改`
+  } else {
+    dirtyLabel = '配置无未保存修改'
+  }
+  const headerStyle: CSSProperties = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 20,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+    flexWrap: 'wrap',
+    padding: '14px 0 12px',
+    marginBottom: 16,
+    background: token.colorBgLayout,
+    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+  }
 
   return (
-    <Card title="智能客服配置">
-      {/* T05072 统一保存范式：页级保存条（口径同 SearchConfig 等配置页）。
-          保存 = dry-run diff 预览 → 确认落库；重置 = 放弃全部草稿。 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          FAQ、知识库重建/回滚、向量库维护、审计日志为即时操作或只读页，不参与配置草稿
-        </Typography.Text>
-        <TipButton
-          tip="放弃全部未保存的配置改动并回滚"
-          icon={<UndoOutlined />}
-          onClick={handleReset}
-          disabled={dirtyCount === 0}
-        >
-          重置
-        </TipButton>
-        <TipButton tip="预览并保存客服配置" type="primary" icon={<SaveOutlined />} onClick={() => void handleSave()} loading={saving}>
-          保存配置
-        </TipButton>
-      </div>
-      {dirtyCount > 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          message={`有 ${dirtyCount} 项配置改动尚未保存：保存前仅在本页生效为草稿，刷新或离开页面将丢失`}
-          style={{ marginBottom: 12 }}
+    <div className="page-container" data-testid="chatbot-config-page">
+      <header style={headerStyle} className="chatbot-config-header" data-testid="chatbot-config-header">
+        <div className="chatbot-config-header-title">
+          <h1 style={{ margin: 0, fontSize: 20, lineHeight: 1.4 }}>客服配置</h1>
+          <div style={{ marginTop: 3, fontSize: 12, color: token.colorTextTertiary }}>
+            配置 RAG、Agent、知识库、FAQ 与转人工策略
+          </div>
+        </div>
+        <Space wrap align="center" className="chatbot-config-header-actions">
+          <Tag
+            color={!loading && config && dirtyCount > 0 ? 'orange' : undefined}
+            data-testid="chatbot-dirty-count"
+            aria-live="polite"
+          >
+            {dirtyLabel}
+          </Tag>
+          <TipButton
+            tip={dirtyCount > 0 ? '放弃全部未保存的配置改动并恢复服务端值' : '当前没有可重置的修改'}
+            icon={<UndoOutlined />}
+            onClick={handleReset}
+            disabled={!canReset}
+            data-testid="chatbot-reset-config"
+          >
+            重置
+          </TipButton>
+          <TipButton
+            tip={dirtyCount === 0 ? '当前没有需要保存的修改' : '预览差异并保存客服配置'}
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={() => { void handleSave() }}
+            loading={saving}
+            disabled={!canSave}
+            data-testid="chatbot-save-config"
+          >
+            保存配置
+          </TipButton>
+        </Space>
+      </header>
+
+      {loading && (
+        <div className="chatbot-config-loading" data-testid="chatbot-config-loading">
+          <Spin size="large" />
+          <span>正在加载客服配置…</span>
+        </div>
+      )}
+
+      {!loading && !config && (
+        <FetchFailedHint
+          source={SOURCE_LABELS.config}
+          description={`${configError || '接口请求失败'}。为避免把默认值当成服务端配置并误保存，表单暂不展示；请重试后再操作。`}
+          onRetry={() => void reload('config')}
         />
       )}
-      <Tabs
+
+      {configReady && config && (
+        <Card className="chatbot-config-card">
+          <Tabs
         // 旧入口 /maintenance/vector 会带 ?tab=vector-admin 跳过来（T02577 D-9）
         defaultActiveKey={new URLSearchParams(globalThis.location?.search ?? '').get('tab') ?? 'basic'}
         items={[
@@ -332,6 +397,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>启用智能客服</Typography.Text>
                   <Switch
+                    aria-label="启用智能客服"
                     checked={config.enabled}
                     onChange={(v) => updateConfig('enabled', v)}
                     style={{ marginLeft: 16 }}
@@ -340,6 +406,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>历史轮数（1-20）</Typography.Text>
                   <InputNumber
+                    aria-label="历史轮数"
                     min={1} max={20}
                     value={config.max_history_turns}
                     onChange={(v) => v != null && updateConfig('max_history_turns', v)}
@@ -349,6 +416,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>会话超时（分钟，5-1440）</Typography.Text>
                   <InputNumber
+                    aria-label="会话超时分钟"
                     min={5} max={1440}
                     value={config.session_timeout_min}
                     onChange={(v) => v != null && updateConfig('session_timeout_min', v)}
@@ -363,6 +431,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>欢迎语（留空使用默认文案）</Typography.Text>
                   <Input.TextArea
+                    aria-label="欢迎语"
                     value={config.welcome_message ?? ''}
                     onChange={(e) => updateConfig('welcome_message', e.target.value)}
                     placeholder="默认：Hi，我是智能客服小蜜，请问有什么可以帮您？"
@@ -393,6 +462,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>top_k（1-20）</Typography.Text>
                   <InputNumber
+                    aria-label="RAG top_k"
                     min={1} max={20}
                     value={config.rag.top_k}
                     onChange={(v) => v != null && updateConfig('rag.top_k', v)}
@@ -402,6 +472,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>相似度阈值（0-1，热更新）</Typography.Text>
                   <Slider
+                    ariaLabelForHandle="RAG 相似度阈值"
                     min={0} max={1} step={0.05}
                     value={config.rag.similarity_threshold}
                     onChange={(v) => updateConfig('rag.similarity_threshold', v)}
@@ -411,6 +482,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>context 最大字符（500-32000）</Typography.Text>
                   <InputNumber
+                    aria-label="RAG 上下文最大字符"
                     min={500} max={32000}
                     value={config.rag.max_context_chars}
                     onChange={(v) => v != null && updateConfig('rag.max_context_chars', v)}
@@ -428,6 +500,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>模型名（热更新）</Typography.Text>
                   <Input
+                    aria-label="LLM 模型名"
                     value={config.llm.model}
                     onChange={(e) => updateConfig('llm.model', e.target.value)}
                     placeholder="如 gpt-4o-mini / qwen-plus / glm-4-flash"
@@ -437,6 +510,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>采样温度（0-2，热更新）</Typography.Text>
                   <Slider
+                    ariaLabelForHandle="LLM 采样温度"
                     min={0} max={2} step={0.1}
                     value={config.llm.temperature}
                     onChange={(v) => updateConfig('llm.temperature', v)}
@@ -446,6 +520,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>单次回复最大 token（1-4096）</Typography.Text>
                   <InputNumber
+                    aria-label="单次回复最大 token"
                     min={1} max={4096}
                     value={config.llm.max_tokens}
                     onChange={(v) => v != null && updateConfig('llm.max_tokens', v)}
@@ -455,6 +530,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>HTTP 总超时（5-120 秒）</Typography.Text>
                   <InputNumber
+                    aria-label="LLM HTTP 总超时秒"
                     min={5} max={120}
                     value={config.llm.http_timeout_sec}
                     onChange={(v) => v != null && updateConfig('llm.http_timeout_sec', v)}
@@ -464,6 +540,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>首 token 超时（3-60 秒）</Typography.Text>
                   <InputNumber
+                    aria-label="LLM 首 token 超时秒"
                     min={3} max={60}
                     value={config.llm.first_token_timeout_sec}
                     onChange={(v) => v != null && updateConfig('llm.first_token_timeout_sec', v)}
@@ -473,6 +550,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>视觉模型（留空则用主模型处理图片）</Typography.Text>
                   <Input
+                    aria-label="LLM 视觉模型"
                     value={config.llm.vision_model ?? ''}
                     onChange={(e) => updateConfig('llm.vision_model', e.target.value)}
                     placeholder="如 gpt-4o / qwen-vl-max（留空=不单独配置）"
@@ -490,6 +568,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>启用工具</Typography.Text>
                   <Switch
+                    aria-label="AGENT 启用工具"
                     checked={config.agent.enable_tools}
                     onChange={(v) => updateConfig('agent.enable_tools', v)}
                     style={{ marginLeft: 16 }}
@@ -498,6 +577,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>最大轮数（1-10）</Typography.Text>
                   <InputNumber
+                    aria-label="AGENT 最大轮数"
                     min={1} max={10}
                     value={config.agent.max_tool_rounds}
                     onChange={(v) => v != null && updateConfig('agent.max_tool_rounds', v)}
@@ -507,6 +587,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>触发模式</Typography.Text>
                   <Radio.Group
+                    aria-label="工具触发模式"
                     value={config.agent.tool_trigger_mode}
                     onChange={(e) => updateConfig('agent.tool_trigger_mode', e.target.value)}
                     style={{ marginLeft: 16 }}
@@ -578,6 +659,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>定时自动更新</Typography.Text>
                   <Switch
+                    aria-label="定时自动更新知识库"
                     checked={config.kb.auto_update_enabled}
                     onChange={(v) => updateConfig('kb.auto_update_enabled', v)}
                     style={{ marginLeft: 16 }}
@@ -586,6 +668,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>更新间隔（小时，1-168）</Typography.Text>
                   <InputNumber
+                    aria-label="知识库更新间隔小时"
                     min={1} max={168}
                     value={config.kb.update_interval_hours}
                     onChange={(v) => v != null && updateConfig('kb.update_interval_hours', v)}
@@ -599,6 +682,7 @@ export default function ChatbotConfigPage() {
                   size="small"
                   rowKey="id"
                   dataSource={kbVersions}
+                  scroll={{ x: 760 }}
                   locale={{
                     // 上方已有错误条时，表格里不能再挂「暂无版本记录」，否则空态与错误态互相打脸
                     emptyText: failed.kbVersions
@@ -658,6 +742,7 @@ export default function ChatbotConfigPage() {
                   size="small"
                   rowKey="id"
                   dataSource={faqs}
+                  scroll={{ x: 720 }}
                   locale={{
                     emptyText: failed.faqs
                       ? <span style={{ color: 'var(--xh-text-tertiary)' }}>未取到 FAQ（见上方错误提示）</span>
@@ -674,7 +759,7 @@ export default function ChatbotConfigPage() {
                       render: (_: unknown, record: FAQ) => (
                         <Space>
                           <TipButton size="small" tip="编辑该条 FAQ" onClick={() => { setEditingFaq(record); setFaqModalOpen(true) }}>编辑</TipButton>
-                          <TipButton size="small" tip="删除该条 FAQ" danger icon={<DeleteOutlined />} onClick={() => record.id && handleDeleteFaq(record.id)} />
+                          <TipButton size="small" tip="删除该条 FAQ" aria-label="删除该条 FAQ" danger icon={<DeleteOutlined />} onClick={() => void handleDeleteFaq(record)} />
                         </Space>
                       ),
                     },
@@ -697,6 +782,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>点踩阈值（1-10，热更新）</Typography.Text>
                   <InputNumber
+                    aria-label="转人工点踩阈值"
                     min={1} max={10}
                     value={config.escalation.feedback_threshold}
                     onChange={(v) => v != null && updateConfig('escalation.feedback_threshold', v)}
@@ -706,6 +792,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>统计窗口（分钟，5-1440，热更新）</Typography.Text>
                   <InputNumber
+                    aria-label="转人工统计窗口分钟"
                     min={5} max={1440}
                     value={config.escalation.feedback_window_min}
                     onChange={(v) => v != null && updateConfig('escalation.feedback_window_min', v)}
@@ -715,6 +802,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>联系方式（热更新）</Typography.Text>
                   <Input
+                    aria-label="转人工联系方式"
                     value={config.escalation.contact}
                     onChange={(e) => updateConfig('escalation.contact', e.target.value)}
                     placeholder="如：QQ群 123456"
@@ -724,6 +812,7 @@ export default function ChatbotConfigPage() {
                 <div>
                   <Typography.Text>PII 脱敏</Typography.Text>
                   <Switch
+                    aria-label="PII 脱敏"
                     checked={config.escalation.sanitize_pii}
                     onChange={(v) => updateConfig('escalation.sanitize_pii', v)}
                     style={{ marginLeft: 16 }}
@@ -750,6 +839,7 @@ export default function ChatbotConfigPage() {
                   size="small"
                   rowKey="id"
                   dataSource={auditLogs}
+                  scroll={{ x: 720 }}
                   locale={{
                     emptyText: failed.audit
                       ? <span style={{ color: 'var(--xh-text-tertiary)' }}>未取到审计日志（见上方错误提示）</span>
@@ -780,7 +870,9 @@ export default function ChatbotConfigPage() {
         onCancel={() => setDiffModalOpen(false)}
         onConfirm={() => void handleConfirmSave()}
       />
-    </Card>
+        </Card>
+      )}
+    </div>
   )
 }
 
@@ -812,22 +904,29 @@ function FaqEditModal({
     <Modal
       title={faq ? '编辑 FAQ' : '新增 FAQ'}
       open={open}
-      onOk={() => onSave(form)}
+      onOk={() => {
+        if (!form.question.trim() || !form.answer.trim()) return
+        onSave(form)
+      }}
+      okButtonProps={{ disabled: !form.question.trim() || !form.answer.trim() }}
       onCancel={onCancel}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         <Input
+          aria-label="FAQ 问题"
           placeholder="问题"
           value={form.question}
           onChange={(e) => setForm({ ...form, question: e.target.value })}
         />
         <Input.TextArea
+          aria-label="FAQ 答案"
           placeholder="答案"
           rows={4}
           value={form.answer}
           onChange={(e) => setForm({ ...form, answer: e.target.value })}
         />
         <Input
+          aria-label="FAQ 分类"
           placeholder="分类"
           value={form.category}
           onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -835,6 +934,7 @@ function FaqEditModal({
         <div>
           <Typography.Text>启用</Typography.Text>
           <Switch
+            aria-label="FAQ 启用"
             checked={form.enabled}
             onChange={(v) => setForm({ ...form, enabled: v })}
             style={{ marginLeft: 16 }}

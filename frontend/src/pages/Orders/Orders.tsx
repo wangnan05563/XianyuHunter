@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { formatDateTime, formatDuration } from '../../utils/timeFormat'
 import {
-  App, Card, Table, Tag, Select, Space, Spin, Statistic, Row, Col,
+  App, Card, Table, Tag, Select, Space, Spin, Statistic, Row, Col, Grid,
   message, Empty, Modal, Steps, Progress, Radio, InputNumber, Result,
   Alert, Tooltip,
 } from 'antd'
@@ -26,6 +26,7 @@ import ColumnSettingsModal from '../Evaluations/components/ColumnSettingsModal'
 import { API_BASE } from '../../utils/apiBase'
 import { parseOrderStatusParam } from '../../utils/alertDeepLink'
 import ItemSummaryCell from './ItemSummaryCell'
+import './orders.css'
 
 // 列配置元数据：key 必须与下方 columns 定义中的 key 完全一致
 const COLUMN_DEFINITIONS: ColumnConfig[] = [
@@ -38,6 +39,19 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
   { key: 'takeover_deadline', label: '接管截止' },
   { key: 'action', label: '操作', locked: true },
 ]
+
+// 列宽按三档视口收敛：1280 保留全部 8 列；1024/768 只留
+// 商品ID/金额/状态/创建时间/操作，避免把状态和操作挤到横向滚动之外。
+// 768 的 494 是实测可用宽度，五个列宽之和必须与它一致。
+const ORDER_COLUMN_WIDTHS = {
+  wide: { id: 54, item: 140, price: 87, status: 85, created: 126, confirmed: 121, deadline: 121, action: 144 },
+  mid: { id: 0, item: 148, price: 90, status: 84, created: 136, confirmed: 0, deadline: 0, action: 94 },
+  narrow: { id: 0, item: 128, price: 86, status: 82, created: 118, confirmed: 0, deadline: 0, action: 80 },
+} as const
+
+const EMPTY_STATS: OrderStats = {
+  pending: 0, succeeded: 0, failed: 0, cancelled: 0, takeover: 0, total: 0,
+}
 
 // 状态中文标签与颜色统一来自 constants/orderStatus（与后端 OrderStatus 同源，T02716）
 // 原先这里一份 STATUS_TEXT、移动端一份 STATUS_LABELS，两边都各自漏过值（桌面漏 cancelled）
@@ -504,10 +518,21 @@ export default function Orders() {
   // 删除确认走 App 上下文的 modal（T02975）：操作列 fixed:'right' 是 sticky 单元格，
   // Popconfirm 的 trigger 会在横向滚动时反复重算位置，确认框跟着闪（同 T02671 因果链）
   const { modal } = App.useApp()
+  // 响应式列宽：xl（≥1200）保留完整列；lg（≥992）走中档；其余走窄档。
+  // 首帧 breakpoint 尚未测量时按宽档渲染，避免 jsdom/首屏闪成窄表。
+  const screens = Grid.useBreakpoint()
+  let layoutMode: keyof typeof ORDER_COLUMN_WIDTHS
+  if (screens.xl === undefined || screens.xl) {
+    layoutMode = 'wide'
+  } else if (screens.lg) {
+    layoutMode = 'mid'
+  } else {
+    layoutMode = 'narrow'
+  }
+  const columnWidths = ORDER_COLUMN_WIDTHS[layoutMode]
   const [items, setItems] = useState<OrderItem[]>([])
-  const [stats, setStats] = useState<OrderStats>({
-    pending: 0, succeeded: 0, failed: 0, cancelled: 0, takeover: 0, total: 0,
-  })
+  const [stats, setStats] = useState<OrderStats>(EMPTY_STATS)
+  const [loadError, setLoadError] = useState<string | null>(null)
   // URL 深链（T02620）：本页既读 ?ref=（行定位）也读 ?status=（状态筛选）。
   // useSearchParams 必须早于 statusFilter 的初值使用，故 searchParams 上移。
   const [searchParams, setSearchParams] = useSearchParams()
@@ -585,6 +610,7 @@ export default function Orders() {
 
   const load = useCallback(() => {
     setLoading(true)
+    setLoadError(null)
     orderApi.list({ page_num: page, page_size: pageSize, status: statusFilter, type: typeFilter, sort_by: sortBy, sort_dir: sortDir, start_time: urlStartTime || undefined })
       .then((res) => {
         const list = res.items || []
@@ -596,7 +622,15 @@ export default function Orders() {
         // 实际写入值 pending_pay，导致「待处理」常显示 0。
         setStats(res.stats)
       })
-      .catch(() => message.error('加载订单失败'))
+      .catch((err: unknown) => {
+        // 列表失败不再只弹一次 toast：清掉旧数据和旧统计，留下持久 Alert + 重试入口，
+        // 否则页面会拿上一页的表格冒充成功结果，用户分不清“没数据”和“接口坏了”。
+        setItems([])
+        setTotal(0)
+        setStats(EMPTY_STATS)
+        setRefLocated(null)
+        setLoadError(takeoverErrMsg(err, '加载抢单记录失败，请点击重试'))
+      })
       .finally(() => setLoading(false))
   }, [page, pageSize, statusFilter, typeFilter, refId, sortBy, sortDir, urlStartTime])
 
@@ -796,62 +830,72 @@ export default function Orders() {
   }
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
+    ...(layoutMode === 'wide'
+      ? [{ title: 'ID', dataIndex: 'id', key: 'id', width: columnWidths.id, ellipsis: true }]
+      : []),
     // T02674：点 ID 弹商品快照（Popover，见 ItemSummaryCell），不再是纯文本
-    { title: '商品ID', dataIndex: 'item_id', key: 'item_id', width: 180, ellipsis: true, render: (v: string) => <ItemSummaryCell itemId={v} /> },
+    { title: '商品ID', dataIndex: 'item_id', key: 'item_id', width: columnWidths.item, ellipsis: true, render: (v: string) => <ItemSummaryCell itemId={v} /> },
     {
       // T02677：sorter 交服务端（sort_by=price），不再是仅当前页的本地排序
-      title: '金额', dataIndex: 'price', key: 'price', width: 100,
+      title: '金额', dataIndex: 'price', key: 'price', width: columnWidths.price,
       sorter: true,
-      render: (v: number) => <span style={{ color: '#f5222d', fontWeight: 600 }}>¥{v.toFixed(2)}</span>,
+      render: (v: number) => <span className="orders-price-cell">¥{v.toFixed(2)}</span>,
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 100,
+      title: '状态', dataIndex: 'status', key: 'status', width: columnWidths.status,
       render: (s: string) => <Tag color={orderStatusColor(s)}>{orderStatusLabel(s)}</Tag>,
     },
     {
       // T02677：创建/确认时间列补排序（服务端全量排序），接管场景找最新待接管单不再翻页人肉找
-      title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170,
+      title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: columnWidths.created,
       sorter: true, sortDirections: ['ascend', 'descend'] as SortOrder[],
       render: (t: string) => formatDateTime(t),
     },
+    ...(layoutMode === 'wide'
+      ? [
+        {
+          title: '确认时间', dataIndex: 'confirmed_at', key: 'confirmed_at', width: columnWidths.confirmed,
+          sorter: true, sortDirections: ['ascend', 'descend'] as SortOrder[],
+          render: (t: string | null) => formatDateTime(t),
+        },
+        {
+          title: '接管截止', dataIndex: 'takeover_deadline', key: 'takeover_deadline', width: columnWidths.deadline,
+          render: (t: string | null, r: OrderItem) => {
+            if (!t) return '—'
+            const remain = r.takeover_remaining_sec
+            if (remain !== null && remain !== undefined && remain > 0) {
+              return <Tag color="orange">{formatDuration(remain, { withSeconds: true })}</Tag>
+            }
+            return formatDateTime(t)
+          },
+        },
+      ]
+      : []),
     {
-      title: '确认时间', dataIndex: 'confirmed_at', key: 'confirmed_at', width: 170,
-      sorter: true, sortDirections: ['ascend', 'descend'] as SortOrder[],
-      render: (t: string | null) => formatDateTime(t),
-    },
-    {
-      title: '接管截止', dataIndex: 'takeover_deadline', key: 'takeover_deadline', width: 170,
-      render: (t: string | null, r: OrderItem) => {
-        if (!t) return '—'
-        const remain = r.takeover_remaining_sec
-        if (remain !== null && remain !== undefined && remain > 0) {
-          return <Tag color="orange">{formatDuration(remain, { withSeconds: true })}</Tag>
-        }
-        return formatDateTime(t)
-      },
-    },
-    {
-      title: '操作', key: 'action', width: 200, fixed: 'right' as const,
+      title: '操作', key: 'action', width: columnWidths.action,
       render: (_: unknown, r: OrderItem) => (
-        <Space size="small">
+        <Space size={4}>
           {(r.status === ORDER_STATUS.PENDING_PAY || r.status === ORDER_STATUS.TAKEOVER_PENDING) && (
             <TipButton
               tip={r.status === ORDER_STATUS.PENDING_PAY ? '接管此待支付订单' : '查看接管进度'}
+              aria-label={r.status === ORDER_STATUS.PENDING_PAY ? '接管订单' : '查看进度'}
               type="link"
               icon={<ThunderboltOutlined />}
               size="small"
+              className="orders-row-action"
               onClick={() => openTakeoverModal(r)}
             >
-              {r.status === ORDER_STATUS.PENDING_PAY ? '接管' : '查看'}
+              <span className="orders-action-label">{r.status === ORDER_STATUS.PENDING_PAY ? '接管' : '查看'}</span>
             </TipButton>
           )}
           <TipButton
             tip="删除此订单（不可恢复）"
+            aria-label="删除订单"
             type="link"
             danger
             icon={<DeleteOutlined />}
             size="small"
+            className="orders-row-action"
             onClick={() => modal.confirm({
               title: '确认删除此订单？',
               content: '删除后不可恢复',
@@ -861,7 +905,7 @@ export default function Orders() {
               onOk: () => handleDelete(r.id),
             })}
           >
-            删除
+            <span className="orders-action-label">删除</span>
           </TipButton>
         </Space>
       ),
@@ -874,47 +918,81 @@ export default function Orders() {
   const refAlert = refId && refLocated === false ? refAlertText(refId, refUnreachable) : null
 
   return (
-    <div className="page-container">
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title={<StatTitle label="待处理" />} value={stats.pending} valueStyle={{ color: '#faad14' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title={<StatTitle label="已成功" />} value={stats.succeeded} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title={<StatTitle label="已失败" />} value={stats.failed} valueStyle={{ color: '#ff4d4f' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title={<StatTitle label="人工接管" />} value={stats.takeover} valueStyle={{ color: '#1890ff' }} suffix={<span style={{ fontSize: 12, color: 'var(--xh-text-secondary)' }}>&nbsp;/ 共 {stats.total}</span>} /></Card></Col>
+    <div className="page-container orders-page" data-testid="orders-page">
+      <header className="orders-page-header">
+        <div className="orders-page-heading">
+          <h1>抢单记录</h1>
+          <div className="orders-page-subtitle">查看抢单结果、接管进度与订单状态，支持状态筛选和列配置</div>
+        </div>
+      </header>
+
+      <Row gutter={[16, 16]} className="orders-stats-row">
+        <Col xs={12} md={12} xl={6}><Card><Statistic title={<StatTitle label="待处理" />} value={stats.pending} valueStyle={{ color: '#faad14' }} /></Card></Col>
+        <Col xs={12} md={12} xl={6}><Card><Statistic title={<StatTitle label="已成功" />} value={stats.succeeded} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col xs={12} md={12} xl={6}><Card><Statistic title={<StatTitle label="已失败" />} value={stats.failed} valueStyle={{ color: '#ff4d4f' }} /></Card></Col>
+        <Col xs={12} md={12} xl={6}><Card><Statistic title={<StatTitle label="人工接管" />} value={stats.takeover} valueStyle={{ color: '#1890ff' }} suffix={<span className="orders-stat-total">&nbsp;/ 共 {stats.total}</span>} /></Card></Col>
       </Row>
 
-      <Card>
-        <Space style={{ marginBottom: 16 }}>
-          <span>状态筛选：</span>
-          <Select
-            style={{ width: 150 }}
-            allowClear
-            placeholder="全部状态"
-            value={statusFilter ?? typeFilter}
-            onChange={onStatusChange}
-            options={[
-              ...orderStatusOptions([
-                ORDER_STATUS.PENDING_PAY,
-                ORDER_STATUS.SUCCEEDED,
-                ORDER_STATUS.FAILED,
-                ORDER_STATUS.TAKEOVER_PENDING,
-              ]),
-              // T02673：演练记录与真实记录混排，高频用户无法只看/排除演练单；
-              // 该项走 type=dry_run 参数，不是订单状态
-              { label: '演练单', value: ORDER_STATUS.DRY_RUN },
-            ]}
-          />
-          <TipButton tip="重新加载订单列表" icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</TipButton>
-          <TipButton tip="自定义表格显示列与顺序" icon={<SettingOutlined />} onClick={() => setColumnConfigOpen(true)}>列配置</TipButton>
-          {urlStartTime && (
-            <Tooltip title={`告警深链带的「今日」窗口：创建时间 ≥ ${urlStartTime}（UTC 日界），北京时间即当日 08:00 起`}>
-              <Tag closable onClose={clearDateFilter} color="blue" data-testid="orders-date-filter-tag">
-                今日（UTC {urlStartTime}）
-              </Tag>
-            </Tooltip>
-          )}
-        </Space>
+      <Card className="orders-list-card">
+        <div className="orders-toolbar">
+          <div className="orders-filter-item">
+            <span className="orders-filter-label">状态筛选：</span>
+            <Select
+              className="orders-status-select"
+              aria-label="按订单状态筛选"
+              style={{ width: 150 }}
+              allowClear
+              placeholder="全部状态"
+              value={statusFilter ?? typeFilter}
+              onChange={onStatusChange}
+              options={[
+                ...orderStatusOptions([
+                  ORDER_STATUS.PENDING_PAY,
+                  ORDER_STATUS.SUCCEEDED,
+                  ORDER_STATUS.FAILED,
+                  ORDER_STATUS.CANCELLED,
+                  ORDER_STATUS.TAKEOVER_PENDING,
+                ]),
+                // T02673：演练记录与真实记录混排，高频用户无法只看/排除演练单；
+                // 该项走 type=dry_run 参数，不是订单状态
+                { label: '演练单', value: ORDER_STATUS.DRY_RUN },
+              ]}
+            />
+          </div>
+          <div className="orders-toolbar-actions">
+            <TipButton tip="重新加载订单列表" icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</TipButton>
+            <TipButton tip="自定义表格显示列与顺序" icon={<SettingOutlined />} onClick={() => setColumnConfigOpen(true)}>列配置</TipButton>
+            {urlStartTime && (
+              <Tooltip title={`告警深链带的「今日」窗口：创建时间 ≥ ${urlStartTime}（UTC 日界），北京时间即当日 08:00 起`}>
+                <Tag closable onClose={clearDateFilter} color="blue" data-testid="orders-date-filter-tag">
+                  今日（UTC {urlStartTime}）
+                </Tag>
+              </Tooltip>
+            )}
+          </div>
+        </div>
 
         <Spin spinning={loading}>
+          {loadError && (
+            <Alert
+              className="orders-load-error"
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="加载抢单记录失败"
+              description={loadError}
+              action={(
+                <TipButton
+                  size="small"
+                  aria-label="重新加载抢单记录"
+                  onClick={load}
+                  tip="重新请求抢单记录列表"
+                >
+                  重新加载
+                </TipButton>
+              )}
+            />
+          )}
           {refAlert && (
             <Alert type={refAlert.type} showIcon style={{ marginBottom: 12 }}
               message={refAlert.message}
@@ -930,15 +1008,17 @@ export default function Orders() {
             />
           )}
           {items.length === 0 ? (
-            <Empty description="暂无抢单记录" />
+            <Empty description={loadError ? '抢单记录加载失败，请使用上方“重新加载”' : '暂无抢单记录'} />
           ) : (
             <Table
+              className="orders-table"
+              tableLayout="fixed"
               columns={visibleColumns}
               dataSource={items}
               rowKey="id"
               rowClassName={(r) => (refId && String(r.id) === refId ? 'xh-row-highlight' : '')}
               size="middle"
-              scroll={{ x: 1200 }}
+              scroll={{ x: '100%' }}
               pagination={{
                 current: page,
                 pageSize,

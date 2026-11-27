@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { formatDateTime, formatDuration, formatShortDateTime } from '../../utils/timeFormat'
+import { formatPriceRange as formatPriceRangeShared } from '../../utils/priceRange'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Descriptions, Tag, Space, Spin, Row, Col, Table, Empty, message, Tabs, List,
@@ -138,12 +139,10 @@ const formatWarnCount = (v: number) => (v > 0 ? <Tag color="orange">{v}</Tag> : 
 
 // S3776 修复：价格区间两个三元提取为模块级纯函数
 // 原 JSX 内 `task.min_price ? ¥x : '不限'` 出现两次，每处三元都计入主函数复杂度
+// 2026-11-20 走查：旧实现用 `if (minPrice)` 判空，0 元会被误显示成「不限」；分隔符也和列表的 `~` 不一致。
+// 统一收敛到 utils/priceRange（null=不限，0=合法价格）。
 function formatPriceRange(minPrice?: number | null, maxPrice?: number | null): string {
-  let minText = '不限'
-  if (minPrice) minText = `¥${minPrice}`
-  let maxText = '不限'
-  if (maxPrice) maxText = `¥${maxPrice}`
-  return `${minText} - ${maxText}`
+  return formatPriceRangeShared(minPrice, maxPrice)
 }
 
 // S3776 修复：关联内容列内的价格/发布时间三元提取为模块级渲染函数
@@ -559,9 +558,17 @@ export default function TaskDetail() {
                 <Descriptions.Item label="价格区间">{formatPriceRange(task.min_price, task.max_price)}</Descriptions.Item>
                 <Descriptions.Item label="地域">{task.region || '不限'}</Descriptions.Item>
                 <Descriptions.Item label="Cron 表达式"><code>{task.cron}</code></Descriptions.Item>
+                <Descriptions.Item label="调度方式">
+                  {/* 走查发现：详情无条件展示 Cron 表达式，但 use_cron=false 的任务实际按间隔调度，
+                      用户看到 cron 文本会误判成按该表达式运行 */}
+                  {task.use_cron ? 'Cron 表达式' : `按间隔（${task.interval_seconds ?? '—'} 秒）`}
+                </Descriptions.Item>
                 <Descriptions.Item label="最大发布天数">{task.max_publish_days || '不限'}</Descriptions.Item>
                 <Descriptions.Item label="排除词"><JsonListField raw={task.exclude_words} /></Descriptions.Item>
                 <Descriptions.Item label="搜索过滤"><JsonListField raw={task.search_filters} /></Descriptions.Item>
+                <Descriptions.Item label="评估阈值">
+                  {task.eval_threshold ?? '沿用全局'}
+                </Descriptions.Item>
                 <Descriptions.Item label="创建时间">{formatDateTime(task.created_at)}</Descriptions.Item>
                 <Descriptions.Item label="更新时间">{formatDateTime(task.updated_at)}</Descriptions.Item>
               </Descriptions>

@@ -1,4 +1,4 @@
-import { Card, Progress, theme } from 'antd'
+import { Card, Progress, Spin, Typography, theme } from 'antd'
 import { TipButton } from '@/components/TipButton'
 import {
   CopyOutlined,
@@ -13,6 +13,8 @@ import type { UpdateState, UpdateDownload } from './useUpdateChecker'
 import { TEXTS } from './i18n'
 import { formatShortDateTime } from '../../utils/timeFormat'
 
+const { Text } = Typography
+
 // 计算下载百分比（total 为 0 时显示不确定进度）
 function downloadPercent(download: UpdateDownload): number {
   if (download.total <= 0) return 0
@@ -23,6 +25,8 @@ interface BrandCardProps {
   readonly version: string
   readonly buildDate: string
   readonly gitSha: string
+  readonly loading?: boolean
+  readonly available?: boolean
   readonly state: UpdateState
   readonly download: UpdateDownload
   readonly onCheck: () => void
@@ -45,30 +49,51 @@ interface NewerStateProps {
 // 下载进行中/已完成：进度条 + 安装按钮，不可重复点击
 function renderDownloadProgress({ download, onInstall }: NewerStateProps) {
   const installing = download.installing
+  const installed = download.installed
   const done = download.status === 'done'
-  const buttonText = done ? TEXTS.updateInstallConfirm : TEXTS.updateDownloadProgress
   const percent = done ? 100 : downloadPercent(download)
-  const strokeColor = done ? '#52c41a' : undefined
+  const installError = download.installError
+  let buttonText: string = done ? TEXTS.updateInstallConfirm : TEXTS.updateDownloadProgress
+  if (installed) buttonText = TEXTS.updateInstallStartedShort
+  else if (installing) buttonText = TEXTS.updateInstalling
+  else if (installError) buttonText = TEXTS.updateInstallRetry
+  let tip: string = buttonText
+  if (installError) tip = installError
+  let installIcon
+  if (installed) installIcon = <CheckCircleFilled />
+  else if (done) installIcon = <ThunderboltOutlined />
+  else installIcon = <DownloadOutlined />
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ width: 120 }}>
+    <div className="xh-about-update-progress-wrap">
+      <div className="xh-about-download-progress">
         <Progress
           percent={percent}
           size="small"
-          showInfo={done}
-          strokeColor={strokeColor}
+          showInfo={false}
+          strokeColor={done ? '#52c41a' : undefined}
+          aria-label={`${TEXTS.updateDownloadPercent} ${percent}%`}
         />
+        <Text className="xh-about-download-percent" type={done ? 'success' : 'secondary'}>
+          {percent}%
+        </Text>
       </div>
-      <TipButton
-        tip={buttonText}
-        type={done ? 'primary' : 'default'}
-        icon={done ? <ThunderboltOutlined /> : <DownloadOutlined />}
-        loading={installing}
-        disabled={!done}
-        onClick={onInstall}
-      >
-        {buttonText}
-      </TipButton>
+      <div className="xh-about-update-actions">
+        {installError && (
+          <Text type="danger" role="alert" className="xh-about-install-error">
+            {installError}
+          </Text>
+        )}
+        <TipButton
+          tip={tip}
+          type={done ? 'primary' : 'default'}
+          icon={installIcon}
+          loading={installing}
+          disabled={!done || installing || installed}
+          onClick={onInstall}
+        >
+          {buttonText}
+        </TipButton>
+      </div>
     </div>
   )
 }
@@ -113,7 +138,7 @@ function renderNewerState(props: NewerStateProps) {
 }
 
 // 五态更新按钮：根据状态机（idle/loading/latest/newer/error）渲染；
-// newrer 态细分为「立即更新 / 下载进度 / 安装」三阶段
+// newer 态细分为「立即更新 / 下载进度 / 安装」三阶段
 function UpdateButton({
   state, onCheck, download, onUpdate, onInstall,
 }: {
@@ -125,17 +150,20 @@ function UpdateButton({
 }) {
   switch (state.kind) {
     case 'loading':
-      // antd Button 的 loading prop 已自带 spinner，无需再叠加 LoadingOutlined
+      // antd Button 的 loading prop 已自带 spinner，无需再叠加 LoadingOutlined；
+      // 显式 disabled 保证键盘/读屏也不会把加载态误当成可点击动作
       return (
-        <TipButton tip="正在检查更新" loading>
+        <TipButton tip="正在检查更新" loading disabled>
           {TEXTS.updateLoading}
         </TipButton>
       )
     case 'latest':
+      // 状态不是动作：不再渲染一个点击无效的 button，而是可被读屏播报的 status
       return (
-        <TipButton tip="已是最新版本" type="text" icon={<CheckCircleFilled style={{ color: '#52c41a' }} />}>
+        <span className="xh-about-update-status" aria-live="polite">
+          <CheckCircleFilled style={{ color: '#52c41a' }} aria-hidden />
           {TEXTS.updateLatest}
-        </TipButton>
+        </span>
       )
     case 'newer':
       return renderNewerState({ state, download, onUpdate, onInstall })
@@ -163,11 +191,12 @@ function UpdateButton({
 }
 
 export function BrandCard({
-  version, buildDate, gitSha, state, onCheck, onCopy, download, onUpdate, onInstall,
+ version, buildDate, gitSha, loading = false, available = true, state, onCheck, onCopy, download, onUpdate, onInstall,
 }: BrandCardProps) {
   const { token } = theme.useToken()
   // git_sha 为 unknown 时不显示（避免误导用户）
   const showSha = gitSha && gitSha !== 'unknown'
+  const showVersion = available && version && version !== '--'
 
   return (
     <Card
@@ -179,7 +208,7 @@ export function BrandCard({
       }}
       styles={{ body: { padding: 20 } }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+      <div className="xh-about-brand-row">
         {/* Logo：与 Swagger UI 顶栏品牌块完全一致（品牌识别统一） */}
         <div
           aria-hidden
@@ -200,34 +229,60 @@ export function BrandCard({
         >
           闲
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 18, fontWeight: 600, color: token.colorText }}>
-              {TEXTS.versionLabel}: {version}
-            </span>
-            <TipButton
-              tip={TEXTS.copyHint}
-              type="text"
-              size="small"
-              icon={<CopyOutlined />}
-              onClick={onCopy}
-              aria-label={TEXTS.copyAriaLabel}
-            />
-          </div>
-          <div style={{ fontSize: 13, color: token.colorTextSecondary, marginTop: 4 }}>
-            {TEXTS.releasedOn} {buildDate}
-            {showSha && (
-              <span style={{ marginLeft: 8, fontFamily: 'monospace' }}>@{gitSha}</span>
-            )}
-          </div>
+        <div className="xh-about-brand-main">
+          {loading && (
+            <div className="xh-about-brand-loading" aria-live="polite">
+              <Spin size="small" />
+              <span>{TEXTS.infoLoading}</span>
+            </div>
+          )}
+          {!loading && !available && (
+            <>
+              <span className="xh-about-version-unavailable">{TEXTS.infoUnavailable}</span>
+              <div className="xh-about-meta-muted">{TEXTS.infoUnavailableDesc}</div>
+            </>
+          )}
+          {!loading && available && (
+            <>
+              <div className="xh-about-version-row">
+                {showVersion ? (
+                  <span className="xh-about-version">
+                    {TEXTS.versionLabel}: {version}
+                  </span>
+                ) : (
+                  <span className="xh-about-version-unavailable">{TEXTS.infoUnavailable}</span>
+                )}
+                {showVersion && (
+                  <TipButton
+                    tip={TEXTS.copyHint}
+                    type="text"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={onCopy}
+                    aria-label={TEXTS.copyAriaLabel}
+                  />
+                )}
+              </div>
+              <div className="xh-about-meta">
+                <span className="xh-about-meta-item">{TEXTS.releasedOn} {buildDate}</span>
+                {showSha && (
+                  <span className="xh-about-meta-item xh-about-sha" title={`Git SHA: ${gitSha}`}>
+                    @{gitSha}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </div>
-        <UpdateButton
-          state={state}
-          onCheck={onCheck}
-          download={download}
-          onUpdate={onUpdate}
-          onInstall={onInstall}
-        />
+        {!loading && (
+          <UpdateButton
+            state={state}
+            onCheck={onCheck}
+            download={download}
+            onUpdate={onUpdate}
+            onInstall={onInstall}
+          />
+        )}
       </div>
     </Card>
   )

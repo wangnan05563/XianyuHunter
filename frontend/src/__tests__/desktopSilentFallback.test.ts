@@ -155,9 +155,11 @@ describe('Chatbot 配置页的重试只重取失败那一路（T02900）', () =>
     expect(body.length, 'reload 函数体解析为空，多半是写法改了').toBeGreaterThan(0)
     expect(body, 'reload 里又 setLoading：整页骨架屏会把页签与其它区块一起打回').not.toContain('setLoading(')
     // 局部重试只应命中自己那一路的接口：出现两路以上就是在重加载整页
+    // 审计日志与重建记录共用 listAuditLogs 一次请求（2026-11 合并，pickRebuildLogs 从结果里筛），
+    // 因此这里是 4 个不同接口而不是 5 个
     const fetches = body.match(/chatbotApi\.[a-zA-Z]+\(/g) ?? []
-    expect(fetches.length, 'reload 的分支写法变了，核对后更新本条').toBe(5)
-    expect(new Set(fetches).size, 'reload 一条分支里混进了别的源').toBe(5)
+    expect(fetches.length, 'reload 的分支写法变了，核对后更新本条').toBe(4)
+    expect(new Set(fetches).size, 'reload 一条分支里混进了别的源').toBe(4)
   })
 
   it('reload 的调用点逐个钉住（5 处重试 + 2 处刷新）', () => {

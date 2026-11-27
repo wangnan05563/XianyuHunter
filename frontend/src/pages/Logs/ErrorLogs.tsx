@@ -2,19 +2,23 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { formatDateTime as fmtTime } from '../../utils/timeFormat'
 import {
   Card, Space, Input, Select, List, Tag, Empty, Spin, message,
-  Tabs, Descriptions, Typography, Row, Col, Statistic, Popconfirm, Checkbox,
+  Tabs, Descriptions, Typography, Row, Col, Statistic, Popconfirm, Checkbox, Alert, Button,
 } from 'antd'
 import {
   ReloadOutlined, SearchOutlined, DeleteOutlined,
-  CopyOutlined, CheckOutlined, StopOutlined,
+  CopyOutlined, CheckOutlined, StopOutlined, LeftOutlined, RightOutlined,
 } from '@ant-design/icons'
 import { TipButton } from '@/components/TipButton'
 import { errorLogApi, type ErrorLog } from '../../api'
+import { extractApiError } from '../../utils/apiError'
 import { usePersistentState } from '../../hooks/usePersistentState'
 import { useSearch } from '../../hooks/useSearch'
 import { useSearchHistory } from '../../hooks/useSearchHistory'
+import './errorLogs.css'
 
 const { Text } = Typography
+
+const PAGE_SIZE = 20
 
 // 状态颜色映射
 const STATUS_COLOR: Record<string, string> = {
@@ -63,6 +67,10 @@ export default function ErrorLogs() {
   const [detail, setDetail] = useState<ErrorLog | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [listError, setListError] = useState<string | null>(null)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
   // 批量勾选用：使用 Set 存储 id，便于 O(1) 检查与切换
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
@@ -82,10 +90,17 @@ export default function ErrorLogs() {
 
   const loadList = useCallback(() => {
     setLoading(true)
+    setListError(null)
     errorLogApi
-      .list({ status: filterStatus, error_type: filterType || undefined, limit: 100 })
+      .list({
+        status: filterStatus,
+        error_type: filterType || undefined,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      })
       .then((res) => {
         setErrorLogs(res.items)
+        setTotal(res.count ?? res.items.length)
         setStatusCounts(res.status_counts || {})
         // 列表刷新后清理失效勾选，避免对已不存在记录执行批量操作
         // S2004：原嵌套 setSelectedIds((prev) => {...}) 拆为模块级 pruneSelection
@@ -96,16 +111,19 @@ export default function ErrorLogs() {
           add(filterType.trim())
         }
       })
-      .catch(() => message.error('加载错误日志失败'))
+      .catch((err: unknown) => {
+        // 失败时保留上一次成功列表，同时给出可重试的区块；不要用「暂无错误日志」冒充空数据
+        setListError(extractApiError(err, '加载错误日志失败'))
+      })
       .finally(() => setLoading(false))
-  }, [filterStatus, filterType, add])
+  }, [filterStatus, filterType, page, add])
 
   const loadDetail = useCallback((id: number) => {
     setDetailLoading(true)
     errorLogApi
       .get(id)
       .then((data) => setDetail(data))
-      .catch(() => message.error('加载详情失败'))
+      .catch((err: unknown) => message.error(extractApiError(err, '加载详情失败')))
       .finally(() => setDetailLoading(false))
   }, [])
 
@@ -115,7 +133,7 @@ export default function ErrorLogs() {
       errorLogApi
         .getAiContext(id, format)
         .then((content) => setAiContent(content))
-        .catch(() => message.error('加载 AI 上下文失败'))
+        .catch((err: unknown) => message.error(extractApiError(err, '加载 AI 上下文失败')))
         .finally(() => setAiLoading(false))
     },
     [],
@@ -125,7 +143,8 @@ export default function ErrorLogs() {
   // async 包装：loadList 同步返回 void，async 包装后返回 Promise<void> 满足 useSearch 接口
   const { doSearch } = useSearch({
     search: async () => { loadList() },
-    deps: [loadList],
+    // 只按筛选条件/页码触发：loadList 的闭包随渲染变化，放进 deps 会让防抖反复重排
+    deps: [filterStatus, filterType, page],
   })
 
   // 选中错误日志时加载详情和 AI 上下文
@@ -234,13 +253,45 @@ export default function ErrorLogs() {
   }
 
   const handleCopyAi = () => {
-    navigator.clipboard.writeText(aiContent).then(() => message.success('已复制到剪贴板'))
+    navigator.clipboard.writeText(aiContent)
+      .then(() => message.success('已复制到剪贴板'))
+      .catch(() => message.error('复制失败，请手动选择文本'))
   }
 
   const handleAiFormatChange = (fmt: 'json' | 'markdown') => {
     setAiFormat(fmt)
     if (selectedId) loadAiContext(selectedId, fmt)
   }
+
+  const handleCleanup = () => {
+    setCleanupLoading(true)
+    errorLogApi
+      .cleanup(30)
+      .then((r) => {
+        message.success(`已清理 ${r.deleted} 条`)
+        loadList()
+      })
+      .catch((err: unknown) => message.error(`清理失败：${extractApiError(err, '请稍后重试')}`, 10))
+      .finally(() => setCleanupLoading(false))
+  }
+
+  const hasFilter = Boolean(filterStatus) || Boolean(filterType.trim())
+  const resetFilters = () => {
+    setFilterStatus(undefined)
+    setFilterType('')
+    setPage(1)
+  }
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // 翻页后清空跨页勾选，避免「已选 N 项」里混入上一页看不见的记录
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [page])
+
+  // 总数缩小时回落到最后一页，避免停在已经不存在的页码
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   // Tab 内容构建
   const tabItems = detail
@@ -249,7 +300,12 @@ export default function ErrorLogs() {
           key: 'overview',
           label: '概览',
           children: (
-            <Descriptions column={1} bordered size="small">
+            <Descriptions
+              column={1}
+              bordered
+              size="small"
+              labelStyle={{ width: 100, whiteSpace: 'nowrap' }}
+            >
               <Descriptions.Item label="错误类型">
                 <Tag color="red">{detail.error_type}</Tag>
               </Descriptions.Item>
@@ -344,7 +400,8 @@ export default function ErrorLogs() {
     : []
 
   return (
-    <div className="page-container">
+    <div className="page-container xh-error-logs-page" aria-label="错误日志">
+      <h1 className="xh-visually-hidden">错误日志</h1>
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
@@ -371,7 +428,7 @@ export default function ErrorLogs() {
           </Card>
         </Col>
         <Col span={6}>
-          <Card>
+          <Card className="xh-error-log-actions">
             <Space direction="vertical" style={{ width: '100%' }}>
               <TipButton tip="重新加载错误日志列表" icon={<ReloadOutlined />} onClick={loadList} loading={loading} block>
                 刷新
@@ -379,14 +436,14 @@ export default function ErrorLogs() {
               <Popconfirm
                 title="清理已解决/已忽略的错误日志"
                 description="清理 30 天前的记录"
-                onConfirm={() => {
-                  errorLogApi.cleanup(30).then((r) => {
-                    message.success(`已清理 ${r.deleted} 条`)
-                    loadList()
-                  })
-                }}
+                onConfirm={handleCleanup}
               >
-                <TipButton tip="清理 30 天前已解决/已忽略的日志" icon={<DeleteOutlined />} block>
+                <TipButton
+                  tip="清理 30 天前已解决/已忽略的日志"
+                  icon={<DeleteOutlined />}
+                  loading={cleanupLoading}
+                  block
+                >
                   批量清理
                 </TipButton>
               </Popconfirm>
@@ -398,14 +455,46 @@ export default function ErrorLogs() {
       <Row gutter={16}>
         {/* 左侧：错误列表 */}
         <Col span={10}>
-          <Card title="错误列表">
+          <Card
+            title="错误列表"
+            data-testid="error-log-list-card"
+            extra={(
+              <Space size={4} data-testid="error-log-pager">
+                <Text type="secondary" style={{ fontSize: 12 }} data-testid="error-log-total">
+                  共 {total} 条
+                </Text>
+                <TipButton
+                  tip="上一页"
+                  aria-label="上一页"
+                  type="text"
+                  size="small"
+                  icon={<LeftOutlined />}
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                />
+                <Text style={{ fontSize: 12 }}>{page}/{totalPages}</Text>
+                <TipButton
+                  tip="下一页"
+                  aria-label="下一页"
+                  type="text"
+                  size="small"
+                  icon={<RightOutlined />}
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                />
+              </Space>
+            )}
+          >
             <Space style={{ marginBottom: 16 }} wrap>
               <Select
                 allowClear
                 placeholder="状态"
-                style={{ width: 120 }}
+                style={{ width: 100 }}
                 value={filterStatus}
-                onChange={(v) => setFilterStatus(v)}
+                onChange={(v) => {
+                  setFilterStatus(v)
+                  setPage(1)
+                }}
                 options={[
                   { label: '新建', value: 'new' },
                   { label: '已解决', value: 'resolved' },
@@ -414,13 +503,16 @@ export default function ErrorLogs() {
               />
               <Input
                 placeholder="错误类型"
-                style={{ width: 150 }}
+                style={{ width: 120 }}
                 value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                onPressEnter={() => doSearch()}
+                onChange={(e) => {
+                  setFilterType(e.target.value)
+                  setPage(1)
+                }}
+                onPressEnter={() => { setPage(1); doSearch() }}
                 allowClear
               />
-              <TipButton tip="按状态与错误类型搜索日志" type="primary" icon={<SearchOutlined />} onClick={() => doSearch()}>
+              <TipButton tip="按状态与错误类型搜索日志" type="primary" icon={<SearchOutlined />} onClick={() => { setPage(1); doSearch() }}>
                 搜索
               </TipButton>
             </Space>
@@ -430,7 +522,7 @@ export default function ErrorLogs() {
                 {history.map((kw) => (
                   <Tag
                     key={kw}
-                    onClick={() => setFilterType(kw)}
+                    onClick={() => { setFilterType(kw); setPage(1) }}
                     style={{ cursor: 'pointer', margin: 0, fontSize: 11 }}
                   >
                     {kw}
@@ -458,7 +550,7 @@ export default function ErrorLogs() {
                     indeterminate={someChecked}
                     onChange={toggleSelectAll}
                   >
-                    全选
+                    全选本页
                   </Checkbox>
                   <Text strong>已选 {selectedIds.size} 项</Text>
                   <TipButton
@@ -500,16 +592,41 @@ export default function ErrorLogs() {
               </div>
             )}
             <Spin spinning={loading}>
-              {errorLogs.length === 0 ? (
-                <Empty description="暂无错误日志" />
-              ) : (
+              {listError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  data-testid="error-log-load-failure"
+                  message="错误日志加载失败"
+                  description={(
+                    <>
+                      <div>{listError}</div>
+                      {errorLogs.length > 0 && <div>下方仍是上一次成功加载的内容，可重试刷新。</div>}
+                    </>
+                  )}
+                  action={<Button size="small" autoInsertSpace={false} onClick={loadList}>重试</Button>}
+                  style={{ marginBottom: 12 }}
+                />
+              )}
+              {errorLogs.length === 0 && !listError && (
+                  <Empty description={hasFilter ? '未找到匹配的错误日志' : '暂无错误日志'} data-testid="error-log-empty">
+                    {hasFilter && (
+                      <Button size="small" onClick={resetFilters}>清除筛选</Button>
+                    )}
+                  </Empty>
+              )}
+              {errorLogs.length > 0 && (
                 <List
                   size="small"
                   bordered
+                  className="xh-error-log-list"
+                  data-testid="error-log-list"
                   style={{ maxHeight: 500, overflow: 'auto' }}
                   dataSource={errorLogs}
                   renderItem={(item) => (
                     <List.Item
+                      className="xh-error-log-row"
+                      data-testid="error-log-row"
                       onClick={() => setSelectedId(item.id)}
                       style={{
                         cursor: 'pointer',
@@ -545,23 +662,27 @@ export default function ErrorLogs() {
                           style={{ marginTop: 2 }}
                         />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <Space size="small" wrap>
-                            <Tag color={STATUS_COLOR[item.status]}>
+                          <Space size={4} wrap>
+                            <Tag color={STATUS_COLOR[item.status]} style={{ margin: 0 }}>
                               {STATUS_LABEL[item.status] || item.status}
                             </Tag>
-                            <Tag color="red">{item.error_type}</Tag>
-                            {item.request_path && (
+                            <Tag color="red" className="xh-error-log-type" title={item.error_type}>
+                              {item.error_type}
+                            </Tag>
+                          </Space>
+                          {item.request_path && (
+                            <div className="xh-error-log-path" title={`${item.request_method} ${item.request_path}`}>
                               <Text style={{ fontSize: 12, color: 'var(--xh-text-tertiary)' }}>
                                 {item.request_method} {item.request_path}
                               </Text>
-                            )}
-                          </Space>
-                          <div style={{ marginTop: 4, fontSize: 13 }}>
+                            </div>
+                          )}
+                          <div className="xh-error-log-message" style={{ marginTop: 4, fontSize: 13 }}>
                             {item.error_message.length > 80
                               ? `${item.error_message.slice(0, 80)}...`
                               : item.error_message}
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--xh-text-tertiary)', marginTop: 2 }}>
+                          <div className="xh-error-log-time" style={{ fontSize: 11, color: 'var(--xh-text-tertiary)', marginTop: 2 }}>
                             {fmtTime(item.timestamp)}
                           </div>
                         </div>
@@ -576,7 +697,7 @@ export default function ErrorLogs() {
 
         {/* 右侧：详情面板 */}
         <Col span={14}>
-          <Card title="错误详情">
+          <Card title="错误详情" data-testid="error-log-detail-card" styles={{ body: { minHeight: 520 } }}>
             <Spin spinning={detailLoading}>
               {detail ? (
                 <Tabs items={tabItems} />

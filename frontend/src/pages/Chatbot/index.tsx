@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Layout, List, Input, Typography, Tag, Popconfirm, Empty, Spin, Upload, Select, message, Modal, Alert } from 'antd'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { App, Layout, List, Input, Typography, Tag, Popconfirm, Empty, Spin, Upload, Select, Alert } from 'antd'
 import {
   PlusOutlined,
   UserOutlined,
@@ -15,6 +15,8 @@ import {
   QuestionCircleOutlined,
   CustomerServiceOutlined,
   MessageOutlined,
+  ReloadOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import { useSSEChat } from './hooks/useSSEChat'
 import { useModelList } from './hooks/useModelList'
@@ -104,7 +106,9 @@ type StreamSetters = {
   setStreamingSources: (v: Message['sources']) => void
   setStreamingToolCalls: (v: Message['tool_calls']) => void
 }
-type StreamContext = StreamRefs & StreamSetters
+type StreamContext = StreamRefs & StreamSetters & {
+  message: ReturnType<typeof App.useApp>['message']
+}
 
 // 标记所有"发送中"的用户消息为已送达（首 token 兜底/完成兜底共用）
 const markSendingUserMessagesAsSent = (prev: Message[]): Message[] =>
@@ -138,15 +142,15 @@ const handleSSEToolCall = (event: SSEEvent, ctx: StreamContext) => {
 }
 
 // SSE error 事件：按 code 分支显示友好提示
-const handleSSEError = (event: SSEEvent) => {
+const handleSSEError = (event: SSEEvent, ctx: StreamContext) => {
   const code = event.data.code as string
   const msg = event.data.message as string
   if (code === 'SECURITY_VIOLATION') {
-    message.warning('检测到不安全输入，已拦截')
+    ctx.message.warning('检测到不安全输入，已拦截')
   } else if (code === 'OUT_OF_SCOPE') {
-    message.warning(msg || '该问题超出客服范围')
+    ctx.message.warning(msg || '该问题超出客服范围')
   } else {
-    message.error(msg || '生成失败')
+    ctx.message.error(msg || '生成失败')
   }
 }
 
@@ -181,10 +185,11 @@ const SSE_EVENT_HANDLERS: Record<string, (event: SSEEvent, ctx: StreamContext) =
 // S2004 修复：抽到模块级避免 sendMessage 回调内联加深嵌套
 type SendErrorDeps = {
   setMessages: (updater: (prev: Message[]) => Message[]) => void
+  message: ReturnType<typeof App.useApp>['message']
 }
 const createSendErrorHandler = (tempId: string, deps: SendErrorDeps) => (err: Error) => {
   deps.setMessages(createFailedMessageUpdater(tempId))
-  message.error('对话失败: ' + err.message)
+  deps.message.error('对话失败: ' + err.message)
 }
 
 // SSE onComplete 工厂：固化 assistant 消息 + 重置流式状态 + 刷新会话列表
@@ -258,6 +263,7 @@ type EscalateDeps = {
   setEscalating: (v: boolean) => void
   setSessions: (updater: (prev: Session[]) => Session[]) => void
   setCurrentSession: (updater: (prev: Session | null) => Session | null) => void
+  message: ReturnType<typeof App.useApp>['message']
 }
 const confirmEscalate = async (targetSessionId: string, deps: EscalateDeps) => {
   deps.setEscalating(true)
@@ -268,9 +274,9 @@ const confirmEscalate = async (targetSessionId: string, deps: EscalateDeps) => {
     deps.setCurrentSession((prev) =>
       prev?.id === targetSessionId ? { ...prev, status: 'escalated' } : prev,
     )
-    message.success('已转接人工客服')
+    deps.message.success('已转接人工客服')
   } catch {
-    message.error('转接失败，请稍后重试')
+    deps.message.error('转接失败，请稍后重试')
   } finally {
     deps.setEscalating(false)
   }
@@ -352,6 +358,7 @@ function renderModelDropdown(menu: React.ReactElement, refreshing: boolean, onRe
 }
 
 export default function ChatbotPage() {
+  const { message, modal } = App.useApp()
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSession, setCurrentSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -457,6 +464,10 @@ export default function ChatbotPage() {
   )
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
+  // 持久化错误态：接口失败不能只弹一条会消失的 toast，更不能把消息失败伪装成引导页
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [messagesError, setMessagesError] = useState<string | null>(null)
+  const [messagesReloadKey, setMessagesReloadKey] = useState(0)
   // M2：会话搜索 + 收藏过滤
   const [searchKeyword, setSearchKeyword] = useState('')
   const [favoriteOnly, setFavoriteOnly] = useState(false)
@@ -490,6 +501,10 @@ export default function ChatbotPage() {
   const userMsgSentRef = useRef(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  // 记录用户是否仍停留在消息底部。必须在 DOM 追加前记录：
+  // 若等新消息渲染后再算“离底部距离”，新增内容已把 scrollHeight 撑大，
+  // 原本贴底的用户会被误判为“正在翻历史”，导致新回答停在视口外。
+  const keepMessagesAtBottomRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const { isStreaming, sendMessage, cancel } = useSSEChat()
   // T02891 裁决 A：对话助手整体纳入 AI 总开关（后端 /api/chatbot/chat 关闭时返回 403）。
@@ -587,9 +602,17 @@ export default function ChatbotPage() {
     }
     // 捕获当前会话 ID，避免 onOk 闭包在用户切换会话后更新错误的会话
     const targetSessionId = currentSession.id
-    Modal.confirm({
+    modal.confirm({
       title: '转接人工客服',
-      content: '将转接至人工客服，当前会话状态会变更为"已转人工"。是否继续？',
+      width: 480,
+      content: (
+        <div className="cb-confirm-copy">
+          <p><strong>动作：</strong>将当前会话转接至人工客服。</p>
+          <p><strong>影响范围：</strong>本会话 AI 自动回复停止，后续消息不再由 AI 处理。</p>
+          <p><strong>数量：</strong>当前会话 1 个。</p>
+          <p><strong>恢复成本：</strong>转人工为终态，无法切回 AI；如需继续自动问答，请新建会话。</p>
+        </div>
+      ),
       okText: '确认转接',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -598,6 +621,7 @@ export default function ChatbotPage() {
           setEscalating,
           setSessions,
           setCurrentSession,
+          message,
         }),
     })
   }
@@ -609,6 +633,7 @@ export default function ChatbotPage() {
   // 加载会话列表（M2：支持关键词搜索 + 收藏过滤）
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true)
+    setSessionsError(null)
     try {
       const { items } = await chatbotApi.listSessions(1, 50, searchKeyword || undefined, favoriteOnly)
       setSessions(items)
@@ -622,7 +647,7 @@ export default function ChatbotPage() {
         addSessionHistory(searchKeyword.trim())
       }
     } catch {
-      message.error('加载会话列表失败')
+      setSessionsError('会话列表暂时无法加载，请检查网络或稍后重试。')
     } finally {
       setLoadingSessions(false)
     }
@@ -638,19 +663,20 @@ export default function ChatbotPage() {
   // 切换会话时加载消息
   useEffect(() => {
     if (!currentSession) return
+    setMessagesError(null)
     const loadMessages = async () => {
       setLoadingMessages(true)
       try {
         const { items } = await chatbotApi.listMessages(currentSession.id, 50)
         setMessages(items)
       } catch {
-        message.error('加载消息失败')
+        setMessagesError('这段会话的消息暂时无法加载，请重试。')
       } finally {
         setLoadingMessages(false)
       }
     }
     loadMessages()
-  }, [currentSession])
+  }, [currentSession, messagesReloadKey])
 
   // 自动滚动到底部
   // 修复：scrollIntoView 会沿 DOM 祖先链向上找所有可滚动容器。
@@ -658,24 +684,30 @@ export default function ChatbotPage() {
   // 最终滚动到外层 MainLayout.Content（overflow: auto），把整页（连同 Header）一起向下
   // 移动，导致顶部内容被截断、用户无法滚回顶部。
   // 改为显式定位到最近的消息容器 .cb-messages，调用其 scrollTo，避免影响外层滚动。
-  // 同时增加"用户已接近底部"判断：仅在接近底部时自动滚动，
-  // 用户主动上滑查看历史消息时不会被强制拉回底部。
+  // 用户在本轮追加前已离开底部（正在翻历史）时才不打扰；判断必须在追加前完成。
   useEffect(() => {
-    const endEl = messagesEndRef.current
-    if (!endEl) return
-    const scrollContainer = endEl.closest<HTMLDivElement>('.cb-messages')
+    keepMessagesAtBottomRef.current = true
+    const scrollContainer = messagesEndRef.current?.closest<HTMLDivElement>('.cb-messages')
     if (!scrollContainer) return
-    // 距离底部 < 80px 视为"在底部"；首次加载（scrollTop === 0）也强制滚到底部
-    const distanceToBottom =
-      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
-    if (distanceToBottom < 80) {
-      // 首次加载用 auto 避免动画卡顿；后续用 smooth
-      const isInitialLoad = scrollContainer.scrollTop === 0
-      scrollContainer.scrollTo({
-        top: scrollContainer.scrollHeight,
-        behavior: isInitialLoad ? 'auto' : 'smooth',
-      })
+    const handleScroll = () => {
+      const distanceToBottom =
+        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+      // 距离底部 < 80px 视为"在底部"
+      keepMessagesAtBottomRef.current = distanceToBottom < 80
     }
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
+    return () => scrollContainer.removeEventListener('scroll', handleScroll)
+  }, [currentSession?.id, loadingMessages])
+
+  useEffect(() => {
+    const scrollContainer = messagesEndRef.current?.closest<HTMLDivElement>('.cb-messages')
+    if (!scrollContainer || !keepMessagesAtBottomRef.current) return
+    // 首次加载用 auto 避免动画卡顿；后续用 smooth
+    const isInitialLoad = scrollContainer.scrollTop === 0
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: isInitialLoad ? 'auto' : 'smooth',
+    })
   }, [messages, streamingContent])
 
   const handleCreateSession = async () => {
@@ -740,9 +772,10 @@ export default function ChatbotPage() {
         setStreamingContent,
         setStreamingSources,
         setStreamingToolCalls,
+        message,
       })
     },
-    [],
+    [message],
   )
 
   const handleSend = async (overrideText?: string) => {
@@ -794,7 +827,7 @@ export default function ChatbotPage() {
       model: modelList.selectedModel,
       onEvent: handleSSEEvent,
       // S2004 修复：onError/onComplete 提取到模块级工厂，消除 sendMessage 选项内的多层嵌套
-      onError: createSendErrorHandler(tempId, { setMessages }),
+      onError: createSendErrorHandler(tempId, { setMessages, message }),
       onComplete: createSendCompleteHandler({
         refs: {
           streamingContentRef,
@@ -885,26 +918,48 @@ export default function ChatbotPage() {
     }
   }, [])
 
-  // 计算主内容区：用函数封装判断逻辑，主组件内只剩函数调用
-  const mainContentBody = getMainContentBody({
-    currentSession,
-    onboardingDismissed,
-    messages,
-    loadingMessages,
-    isStreaming,
-    streamingContent,
-    streamingSources,
-    streamingToolCalls,
-    messagesEndRef,
-    onQuestionClickNoSession: handleOnboardingQuestionNoSession,
-    onQuestionClickWithSession: setInputValue,
-    onDismiss: handleOnboardingDismiss,
-  })
+  // 计算主内容区：接口失败时优先展示可持续可见的错误态，而不是引导页/空白页
+  let mainContentBody: ReactNode
+  if (sessionsError && !currentSession) {
+    mainContentBody = (
+      <ContentErrorState
+        title="会话列表加载失败"
+        description={sessionsError}
+        onRetry={() => { void loadSessions() }}
+        retrying={loadingSessions}
+      />
+    )
+  } else if (messagesError) {
+    mainContentBody = (
+      <ContentErrorState
+        title="消息加载失败"
+        description={messagesError}
+        onRetry={() => setMessagesReloadKey((key) => key + 1)}
+        retrying={loadingMessages}
+      />
+    )
+  } else {
+    mainContentBody = getMainContentBody({
+      currentSession,
+      onboardingDismissed,
+      messages,
+      loadingMessages,
+      isStreaming,
+      streamingContent,
+      streamingSources,
+      streamingToolCalls,
+      messagesEndRef,
+      onQuestionClickNoSession: handleOnboardingQuestionNoSession,
+      onQuestionClickWithSession: setInputValue,
+      onDismiss: handleOnboardingDismiss,
+    })
+  }
 
   return (
-    <Layout className="cb-root">
+    <Layout className="cb-root" data-testid="chatbot-page">
+      <h1 className="cb-sr-only">智能客服</h1>
       <Sider
-        width={260}
+        width={280}
         theme="light"
         className={`cb-sider ${siderOpen ? 'cb-sider-open' : ''}`}
       >
@@ -922,6 +977,7 @@ export default function ChatbotPage() {
           <div className="cb-search-bar">
             <Input
               allowClear
+              aria-label="搜索会话标题或内容"
               placeholder="搜索会话标题或内容"
               prefix={<SearchOutlined style={{ color: 'var(--cb-text-tertiary)' }} />}
               value={searchKeyword}
@@ -936,6 +992,7 @@ export default function ChatbotPage() {
               onClick={() => setFavoriteOnly((prev) => !prev)}
               className={`cb-fav-filter-btn ${favoriteOnly ? 'cb-fav-filter-active' : ''}`}
               title={favoriteOnly ? '显示全部会话' : '仅看收藏'}
+              aria-label={favoriteOnly ? '显示全部会话' : '仅看收藏'}
             />
             </div>
             {/* 搜索历史小药丸：点击复用历史关键词，避免重复输入 */}
@@ -1011,12 +1068,27 @@ export default function ChatbotPage() {
             {currentSession ? (currentSession.title || '新会话') : '智能客服'}
           </span>
         </div>
+        {sessionsError && currentSession && (
+          <Alert
+            className="cb-inline-alert"
+            type="error"
+            showIcon
+            message="会话列表刷新失败"
+            description={sessionsError}
+            action={(
+              <TipButton size="small" tip="重新加载会话列表" onClick={() => { void loadSessions() }} loading={loadingSessions}>
+                重新加载
+              </TipButton>
+            )}
+          />
+        )}
         {/* 模型选择器：下拉展示可用模型 + 随时切换 + 自动刷新 + 错误提示（需求 2/3/4/5/6） */}
         {currentSession && (
           <div className="cb-model-bar">
             <span className="cb-model-bar-label">问答模型</span>
             <Select
               size="small"
+              aria-label="问答模型"
               className="cb-model-select"
               value={modelList.selectedModel}
               onChange={modelList.selectModel}
@@ -1109,7 +1181,6 @@ function SessionListItem({
   return (
     <List.Item
       className={`cb-session-item ${isActive ? 'cb-session-item-active' : ''}`}
-      onClick={onSelect}
       actions={[
         <button
           key="fav"
@@ -1133,27 +1204,36 @@ function SessionListItem({
           cancelText="取消"
           okButtonProps={{ danger: true }}
         >
-          <DeleteOutlined className="cb-delete-icon" onClick={(e) => e.stopPropagation()} />
+          <button
+            type="button"
+            className="cb-delete-icon"
+            aria-label={`删除会话：${session.title || '新会话'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DeleteOutlined />
+          </button>
         </Popconfirm>,
       ]}
     >
-      <List.Item.Meta
-        title={
-          <Typography.Text ellipsis className="cb-session-title">
-            {session.is_favorite ? '★ ' : ''}{session.title || '新会话'}
-          </Typography.Text>
-        }
-        description={
-          <span className="cb-session-meta">
-            <Tag className={statusInfo.className}>
-              {statusInfo.label}
-            </Tag>
-            <span className="cb-session-count">
-              {session.message_count} 条
-            </span>
+      <button
+        type="button"
+        className="cb-session-select"
+        aria-current={isActive ? 'true' : undefined}
+        aria-label={`打开会话：${session.title || '新会话'}`}
+        onClick={onSelect}
+      >
+        <span className="cb-session-title-line">
+          <span className="cb-session-title">{session.title || '新会话'}</span>
+        </span>
+        <span className="cb-session-meta">
+          <Tag className={statusInfo.className}>
+            {statusInfo.label}
+          </Tag>
+          <span className="cb-session-count">
+            {session.message_count} 条
           </span>
-        }
-      />
+        </span>
+      </button>
     </List.Item>
   )
 }
@@ -1280,6 +1360,38 @@ type MainContentParams = {
   readonly onDismiss: () => void
 }
 
+// 内容区错误态：持续可见并提供重试入口，避免把接口失败误读为“没有数据”
+function ContentErrorState({
+  title,
+  description,
+  onRetry,
+  retrying,
+}: {
+  readonly title: string
+  readonly description: string
+  readonly onRetry: () => void
+  readonly retrying: boolean
+}) {
+  return (
+    <div className="cb-error-state" role="alert">
+      <div className="cb-error-icon"><WarningOutlined /></div>
+      <h2 className="cb-error-title">{title}</h2>
+      <p className="cb-error-desc">{description}</p>
+      <TipButton
+        type="primary"
+        tip="重新加载当前内容"
+        icon={<ReloadOutlined />}
+        loading={retrying}
+        onClick={onRetry}
+        className="cb-error-retry"
+      >
+        重新加载
+      </TipButton>
+      <p className="cb-error-hint">若多次失败，请检查网络或稍后再试。</p>
+    </div>
+  )
+}
+
 // 主内容区渲染函数：从主组件抽出，降低主组件复杂度
 function getMainContentBody(params: MainContentParams): React.ReactNode {
   const {
@@ -1377,7 +1489,7 @@ function ChatInputArea({
   const isEscalated = currentSession.status === 'escalated'
   const placeholder = isEscalated
     ? '当前会话已转人工，请创建新会话继续咨询'
-    : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴/拖拽图片'
+    : '输入消息，Enter 发送 / Shift+Enter 换行'
 
   return (
     <div /* NOSONAR - 拖放容器非交互元素 */
@@ -1425,6 +1537,7 @@ function ChatInputArea({
             disabled={isStreaming || pendingImages.length >= 4}
             className="cb-upload-btn"
             title={pendingImages.length >= 4 ? '最多 4 张' : '上传图片'}
+            aria-label="上传图片"
           />
         </Upload>
         <TextArea
@@ -1432,6 +1545,7 @@ function ChatInputArea({
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          aria-label="输入消息"
           placeholder={placeholder}
           autoSize={{ minRows: 2, maxRows: 6 }}
           className="cb-textarea"
@@ -1532,13 +1646,13 @@ function MessageBubble({ message: msg, sessionId }: { readonly message: Message;
                 <TipButton
                   size="small"
                   type="link"
-                  tip="重新发送该消息"
+                  tip="把这条消息放回输入框，修改后再发送"
                   danger
                   icon={<SyncOutlined />}
                   onClick={handleRetry}
                   className="cb-msg-retry-btn"
                 >
-                  发送失败 · 重试
+                  发送失败 · 重新编辑
                 </TipButton>
               )}
               {/* M4：已送达消息显示撤回按钮（2 分钟内） */}

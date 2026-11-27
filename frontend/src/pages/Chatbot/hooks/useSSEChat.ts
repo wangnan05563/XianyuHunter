@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef } from 'react'
-import { message } from 'antd'
 import type { SSEEvent } from '../types'
 import { API_BASE } from '../../../utils/apiBase'
 
@@ -126,7 +125,6 @@ export function useSSEChat() {
         if (isAbortError(e)) return
         const err = normalizeError(e)
         opts.onError(err)
-        message.error('对话失败: ' + err.message)
       } finally {
         setIsStreaming(false)
         abortControllerRef.current = null

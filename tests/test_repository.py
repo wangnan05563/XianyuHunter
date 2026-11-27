@@ -58,6 +58,41 @@ def test_task_crud(tmp_repo: Repository) -> None:
     assert len(tasks) == 1
 
 
+def test_task_keyword_search(tmp_repo: Repository) -> None:
+    """列表搜索 q：任务名 / 关键词 / 任务 ID 三列命中，且与状态过滤叠加
+
+    2026-11-20 UI 走查：任务数到 334 条时列表只能翻页找，补了 SQL 层 q 过滤；
+    这里钉住「跨列命中 + 与 status 叠加 + count 与 list 口径一致」。
+    """
+    rows = [
+        {"id": "t1", "name": "索尼 A7M4 套机", "keyword": "索尼 a7m4", "mode": "auto", "status": "running"},
+        {"id": "t2", "name": "暂停任务", "keyword": "暂停任务", "mode": "auto", "status": "paused"},
+        {"id": "t3", "name": "备用机", "keyword": "iphone 15", "mode": "auto", "status": "paused"},
+    ]
+    for row in rows:
+        tmp_repo.upsert_task(row)
+
+    # 三列分别命中
+    assert [t["id"] for t in tmp_repo.list_tasks(q="A7M4")] == ["t1"]        # 任务名
+    assert [t["id"] for t in tmp_repo.list_tasks(q="iphone")] == ["t3"]      # 关键词
+    assert [t["id"] for t in tmp_repo.list_tasks(q="t2")] == ["t2"]          # 任务 ID
+
+    # 与状态过滤叠加
+    assert len(tmp_repo.list_tasks(status="paused")) == 2
+    assert [t["id"] for t in tmp_repo.list_tasks(status="paused", q="暂停")] == ["t2"]
+
+    # 无命中 / 空搜索词
+    assert tmp_repo.list_tasks(q="不存在的任务") == []
+    assert len(tmp_repo.list_tasks(q=None)) == 3
+    assert len(tmp_repo.list_tasks(q="")) == 3
+
+    # count_tasks 与 list_tasks 口径一致（分页总数不能各自算一套）
+    assert tmp_repo.count_tasks(q="iphone") == 1
+    assert tmp_repo.count_tasks(status="paused", q="iphone") == 1
+    assert tmp_repo.count_tasks(status="running", q="iphone") == 0
+    assert tmp_repo.count_tasks(q=None) == 3
+
+
 def test_item_dedup(tmp_repo: Repository) -> None:
     """批量查存在的商品 ID"""
     ids = [f"item_{i}" for i in range(5)]

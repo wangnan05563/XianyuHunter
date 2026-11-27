@@ -43,6 +43,7 @@ export default function CollapsibleRail({ onExpand }: CollapsibleRailProps) {
       <Tooltip title="展开分析面板">
         <button
           onClick={onExpand}
+          aria-label="展开分析面板"
           style={{
             border: 'none',
             background: 'transparent',
@@ -69,6 +70,7 @@ export default function CollapsibleRail({ onExpand }: CollapsibleRailProps) {
           <Tooltip key={key} title={label}>
             <button
               onClick={onExpand}
+              aria-label={`展开分析面板：${label}`}
               style={{
                 border: 'none',
                 background: 'transparent',

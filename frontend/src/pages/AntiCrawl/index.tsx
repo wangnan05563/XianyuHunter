@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { TipButton } from '@/components/TipButton'
 import { confirmDanger } from '@/components/DangerSummary'
 import {
+  App,
   Card,
   Row,
   Col,
   Space,
-  message,
   Tag,
   Typography,
   Statistic,
@@ -44,7 +44,13 @@ import type {
   HealthReport,
 } from '../../api'
 
-const { Text, Paragraph } = Typography
+const { Text, Paragraph, Title } = Typography
+
+// App.useApp() 返回值在模块级函数里复用：message/modal 必须来自 AntdApp 上下文，
+// 否则暗色主题不生效，并会触发「Static function can not consume context」告警。
+type AntiCrawlAppApi = ReturnType<typeof App.useApp>
+type AntiCrawlMessageApi = AntiCrawlAppApi['message']
+type AntiCrawlModalApi = AntiCrawlAppApi['modal']
 
 // 策略中文标签映射
 const STRATEGY_LABELS: Record<string, string> = {
@@ -84,6 +90,13 @@ const LAYER_LABELS_CN: Record<string, string> = {
 export const layerLabelCn = (layer: string): string => {
   const cn = LAYER_LABELS_CN[layer]
   return cn ? `${cn}（${layer}）` : layer
+}
+
+// 卡片内空间窄：中文名与英文枚举分开两行，避免 1280/1024 下逐字换行。
+// 确认框仍用 layerLabelCn（带括号），保持「中文名 + 审计枚举」的完整语义。
+export function splitLayerLabel(layer: string): { name: string; code: string | null } {
+  const cn = LAYER_LABELS_CN[layer]
+  return cn ? { name: cn, code: layer } : { name: layer, code: null }
 }
 
 export type InvalidateLayerState = { valid?: boolean; cookie_count?: number }
@@ -140,7 +153,7 @@ export function buildAnticrawlErrorBanner(
   return {
     failedLabels,
     text: `${failedLabels.length} 项数据未能加载：${failedLabels.join('、')}。`
-      + '下方对应卡片显示为空白并不代表「没有数据」，请先点「重试失败项」。',
+      + '下方对应卡片会标注失败原因，并不代表「没有数据」，请先点「重试失败项」。',
   }
 }
 
@@ -176,34 +189,74 @@ function SectionLoadError(props: {
   readonly onRetry: () => void
 }) {
   const { label, error, loading, hasData, onRetry } = props
-  const showEmpty = !error && !loading && !hasData
-  if (!error && !showEmpty) return null
-  const isError = Boolean(error)
-  return (
-    <Alert
-      type={isError ? 'error' : 'warning'}
-      showIcon
-      style={{ marginBottom: 12 }}
-      message={isError ? `${label}未能加载` : `暂无${label}数据`}
-      description={
-        <Space direction="vertical" size={4}>
-          <Text style={{ fontSize: 12 }}>
-            {isError
-              ? `${error}——下方空白不代表真的没有数据`
-              : '接口没有返回内容，通常是所属模块尚未初始化或该项确实为空'}
-          </Text>
-          <TipButton
-            size="small"
-            icon={<ReloadOutlined />}
-            tip={`重新加载${label}`}
-            onClick={onRetry}
-          >
-            重试
-          </TipButton>
+
+  // 先处理错误：错误可能伴随上一轮成功数据，仍要明确告知本轮失败原因。
+  if (error) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message={`${label}未能加载`}
+        description={
+          <Space direction="vertical" size={4}>
+            <Text style={{ fontSize: 12 }}>
+              {error}——下方空白不代表真的没有数据
+            </Text>
+            <TipButton
+              size="small"
+              icon={<ReloadOutlined />}
+              tip={`重新加载${label}`}
+              onClick={onRetry}
+            >
+              重试
+            </TipButton>
+          </Space>
+        }
+      />
+    )
+  }
+
+  // 初始/重试加载中：不再让卡片空白，也不把「尚未返回」说成「暂无数据」。
+  if (loading && !hasData) {
+    return (
+      <div data-testid="anticrawl-section-loading" style={{ padding: '12px 0' }}>
+        <Space size={8}>
+          <Spin size="small" />
+          <Text type="secondary" style={{ fontSize: 12 }}>正在加载{label}…</Text>
         </Space>
-      }
-    />
-  )
+      </div>
+    )
+  }
+
+  // 请求已完成且确实没有数据，才显示空态。
+  if (!loading && !hasData) {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message={`暂无${label}数据`}
+        description={
+          <Space direction="vertical" size={4}>
+            <Text style={{ fontSize: 12 }}>
+              接口没有返回内容，通常是所属模块尚未初始化或该项确实为空
+            </Text>
+            <TipButton
+              size="small"
+              icon={<ReloadOutlined />}
+              tip={`重新加载${label}`}
+              onClick={onRetry}
+            >
+              重试
+            </TipButton>
+          </Space>
+        }
+      />
+    )
+  }
+
+  return null
 }
 
 // 把 cookie 字符串解析为对象：支持分号/换行分隔，值中可含 = 号
@@ -257,15 +310,16 @@ const ensureHealthCheckerReady = async (
 // if(result.ok){success+reload} else {error} 模式，每处贡献 +2 复杂度点
 const handleAsyncResult = (
   result: { ok: boolean; message?: string; error?: string },
+  messageApi: AntiCrawlMessageApi,
   successMsg: string,
   errorMsg: string,
   onSuccess?: () => void,
 ) => {
   if (result.ok) {
-    message.success(result.message || successMsg)
+    messageApi.success(result.message || successMsg)
     onSuccess?.()
   } else {
-    message.error(result.error || errorMsg)
+    messageApi.error(result.error || errorMsg)
   }
 }
 
@@ -283,16 +337,16 @@ const showStartSessionResult = (result: {
   already_active?: boolean
   message?: string
   error?: string
-}) => {
+}, messageApi: AntiCrawlMessageApi) => {
   if (!result.ok) {
-    message.error(result.error || '启动会话失败')
+    messageApi.error(result.error || '启动会话失败')
     return
   }
   // 幂等场景：会话已被 trigger_session_start() 自动启动时后端返回 already_active
   if (result.already_active) {
-    message.info(result.message || '会话已是活跃状态')
+    messageApi.info(result.message || '会话已是活跃状态')
   } else {
-    message.success(result.message || '会话管理已启动')
+    messageApi.success(result.message || '会话管理已启动')
   }
 }
 
@@ -308,16 +362,16 @@ const validateCookieInput = (input: string): { cookies: Record<string, string>; 
 // S3776 修复：健康检查结果消息显示提取为模块级函数
 // 原 handleHealthCheck 内 if (result.ok) → if (result.is_healthy) → else 嵌套 2 层，复杂度 +5
 // 提取后用早返回拉平嵌套，主函数仅剩单行调用
-const showHealthCheckResult = (result: HealthReport) => {
+const showHealthCheckResult = (result: HealthReport, messageApi: AntiCrawlMessageApi) => {
   if (!result.ok) {
-    message.warning(result.error || '未配置健康检查器')
+    messageApi.warning(result.error || '未配置健康检查器')
     return
   }
   if (result.is_healthy) {
-    message.success(`健康检查通过（score=${result.score}）`)
+    messageApi.success(`健康检查通过（score=${result.score}）`)
     return
   }
-  message.warning(
+  messageApi.warning(
     `健康检查发现问题（score=${result.score}，建议：${ACTION_LABELS[result.action] || result.action}）`,
   )
 }
@@ -340,8 +394,11 @@ const cookieLayerStateText = (state: { valid: boolean; cookie_count: number }): 
 
 // S3776 修复：「从浏览器导入」失败分支处理提取为模块级函数
 // 原 handleImportFromBrowser 内 else 分支嵌套 if (result.error_detail)，复杂度 +2
-const logImportPreviewFailure = (result: { error?: string; hint?: string; error_detail?: string }) => {
-  message.error(formatImportPreviewError(result))
+const logImportPreviewFailure = (
+  result: { error?: string; hint?: string; error_detail?: string },
+  messageApi: AntiCrawlMessageApi,
+) => {
+  messageApi.error(formatImportPreviewError(result))
   if (result.error_detail) {
     console.error('import error detail:', result.error_detail)
   }
@@ -357,16 +414,17 @@ type AntiCrawlSetters = {
   setFreqStats: (s: FreqStats | null) => void
   setCookieLayers: (s: CookieLayersResult | null) => void
   setHealth: (s: HealthReport | null) => void
-  setLoadingStrategy: (b: boolean) => void
-  setLoadingLayers: (b: boolean) => void
+  // 每个区块独立门闩：StrictMode 双挂载、轮询与手动重试撞车时都只保留一个在途请求。
+  beginSection: (k: AntiCrawlSectionKey) => boolean
+  endSection: (k: AntiCrawlSectionKey) => void
   // T02579 / 4.5-3：失败原因必须可见，成功时清掉旧错误，避免「重试成功后仍挂着红条」
   setLoadError: (k: AntiCrawlSectionKey, msg: string | null) => void
 }
 
 // S3776 修复：5 个数据加载函数全部移出主组件，主组件仅保留 useCallback 薄壳
 const fetchStrategy = async (setters: AntiCrawlSetters) => {
+  if (!setters.beginSection('strategy')) return
   try {
-    setters.setLoadingStrategy(true)
     const data = await anticrawlApi.getStrategy()
     setters.setStrategy(data)
     setters.setLoadError('strategy', null)
@@ -374,11 +432,12 @@ const fetchStrategy = async (setters: AntiCrawlSetters) => {
     setters.setLoadError('strategy', describeAnticrawlError(error))
     console.error('加载策略失败', error)
   } finally {
-    setters.setLoadingStrategy(false)
+    setters.endSection('strategy')
   }
 }
 
 const fetchSession = async (setters: AntiCrawlSetters) => {
+  if (!setters.beginSection('session')) return
   try {
     const data = await anticrawlApi.getSessionStatus()
     setters.setSession(data)
@@ -386,10 +445,13 @@ const fetchSession = async (setters: AntiCrawlSetters) => {
   } catch (error) {
     setters.setLoadError('session', describeAnticrawlError(error))
     console.error('加载会话状态失败', error)
+  } finally {
+    setters.endSection('session')
   }
 }
 
 const fetchFingerprint = async (setters: AntiCrawlSetters) => {
+  if (!setters.beginSection('fingerprint')) return
   try {
     const data = await anticrawlApi.getFingerprint()
     setters.setFingerprint(data)
@@ -397,10 +459,13 @@ const fetchFingerprint = async (setters: AntiCrawlSetters) => {
   } catch (error) {
     setters.setLoadError('fingerprint', describeAnticrawlError(error))
     console.error('加载指纹信息失败', error)
+  } finally {
+    setters.endSection('fingerprint')
   }
 }
 
 const fetchFreqStats = async (setters: AntiCrawlSetters) => {
+  if (!setters.beginSection('freqStats')) return
   try {
     const data = await anticrawlApi.getFreqStats()
     setters.setFreqStats(data)
@@ -408,12 +473,14 @@ const fetchFreqStats = async (setters: AntiCrawlSetters) => {
   } catch (error) {
     setters.setLoadError('freqStats', describeAnticrawlError(error))
     console.error('加载频率统计失败', error)
+  } finally {
+    setters.endSection('freqStats')
   }
 }
 
 const fetchCookieLayers = async (setters: AntiCrawlSetters) => {
+  if (!setters.beginSection('cookieLayers')) return
   try {
-    setters.setLoadingLayers(true)
     const data = await anticrawlApi.getCookieLayers()
     setters.setCookieLayers(data)
     setters.setLoadError('cookieLayers', null)
@@ -421,7 +488,7 @@ const fetchCookieLayers = async (setters: AntiCrawlSetters) => {
     setters.setLoadError('cookieLayers', describeAnticrawlError(error))
     console.error('加载 Cookie 层状态失败', error)
   } finally {
-    setters.setLoadingLayers(false)
+    setters.endSection('cookieLayers')
   }
 }
 
@@ -449,6 +516,8 @@ const SECTION_FETCHERS: Record<AntiCrawlSectionKey, (s: AntiCrawlSetters) => Pro
 // 8 个 handle* 函数各含 try/catch/finally + 条件分支，每函数 +3~5 复杂度
 type AntiCrawlActionsParams = {
   setters: AntiCrawlSetters
+  message: AntiCrawlMessageApi
+  modal: AntiCrawlModalApi
   useCdp: boolean
   importBrowser: string
   cookieInput: string
@@ -470,9 +539,9 @@ const runInitialize = async (params: AntiCrawlActionsParams) => {
   try {
     params.setLoadingInit(true)
     const result = await anticrawlApi.initialize(params.useCdp)
-    handleAsyncResult(result, `协调器已初始化（${result.mode} 模式）`, '初始化失败', () => fetchAll(params.setters))
+    handleAsyncResult(result, params.message, `协调器已初始化（${result.mode} 模式）`, '初始化失败', () => fetchAll(params.setters))
   } catch (error) {
-    message.error('初始化失败')
+    params.message.error('初始化失败')
     console.error(error)
   } finally {
     params.setLoadingInit(false)
@@ -483,10 +552,10 @@ const runStartSession = async (params: AntiCrawlActionsParams) => {
   try {
     params.setLoadingSession(true)
     const result = await anticrawlApi.startSession()
-    showStartSessionResult(result)
+    showStartSessionResult(result, params.message)
     await fetchSession(params.setters)
   } catch (error) {
-    message.error('启动会话失败')
+    params.message.error('启动会话失败')
     console.error(error)
     await fetchSession(params.setters)
   } finally {
@@ -498,9 +567,9 @@ const runStopSession = async (params: AntiCrawlActionsParams) => {
   try {
     params.setLoadingSession(true)
     const result = await anticrawlApi.stopSession()
-    handleAsyncResult(result, '会话管理已停止', '停止会话失败', () => fetchSession(params.setters))
+    handleAsyncResult(result, params.message, '会话管理已停止', '停止会话失败', () => fetchSession(params.setters))
   } catch (error) {
-    message.error('停止会话失败')
+    params.message.error('停止会话失败')
     console.error(error)
   } finally {
     params.setLoadingSession(false)
@@ -513,9 +582,9 @@ const runHealthCheck = async (params: AntiCrawlActionsParams) => {
     const initial = await anticrawlApi.checkHealth()
     const result = await ensureHealthCheckerReady(initial, params.useCdp, () => fetchAll(params.setters))
     params.setHealth(result)
-    showHealthCheckResult(result)
+    showHealthCheckResult(result, params.message)
   } catch (error) {
-    message.error('健康检查失败')
+    params.message.error('健康检查失败')
     console.error(error)
   } finally {
     params.setLoadingHealth(false)
@@ -526,14 +595,14 @@ const runInvalidateLayer = (layer: string, params: AntiCrawlActionsParams, state
   // T02579 / 4.5-4：原来标题是「确认失效 session 层？」这种英文层名，content 只对 identity
   // 说一句级联，最关键的后遗症（manual_invalidate 会被自动同步跳过＝不会自愈）完全没写。
   const copy = buildInvalidateLayerCopy(layer, state)
-  void confirmDanger(copy).then(async (ok: boolean) => {
+  void confirmDanger(copy, params.modal).then(async (ok: boolean) => {
     if (!ok) return
     try {
       const result = await anticrawlApi.invalidateLayer(layer)
-      handleAsyncResult(result, `${LAYER_LABELS_CN[layer] || layer}已标记失效`, '操作失败',
+      handleAsyncResult(result, params.message, `${LAYER_LABELS_CN[layer] || layer}已标记失效`, '操作失败',
         () => fetchCookieLayers(params.setters))
     } catch (error) {
-      message.error('操作失败')
+      params.message.error('操作失败')
       console.error(error)
     }
   })
@@ -563,7 +632,7 @@ const runImportFromBrowser = async (params: AntiCrawlActionsParams) => {
     params.setLoadingImport(true)
     const result = await anticrawlApi.importFromBrowserPreview(params.importBrowser, false)
     if (!result.ok || !result.cookies) {
-      logImportPreviewFailure(result)
+      logImportPreviewFailure(result, params.message)
       return
     }
     const incomingCount = result.imported_count ?? Object.keys(result.cookies).length
@@ -571,7 +640,7 @@ const runImportFromBrowser = async (params: AntiCrawlActionsParams) => {
     // 直接覆盖等于静默丢弃他的输入——必须先确认，并把两边真实条数摆出来。
     if (params.cookieInputDirty) {
       const currentCount = Object.keys(parseCookieInput(params.cookieInput)).length
-      const ok = await confirmDanger(buildImportOverrideCopy(currentCount, incomingCount))
+      const ok = await confirmDanger(buildImportOverrideCopy(currentCount, incomingCount), params.modal)
       if (!ok) return
     }
     params.setCookieInput(cookiesToString(result.cookies))
@@ -579,9 +648,9 @@ const runImportFromBrowser = async (params: AntiCrawlActionsParams) => {
     params.setPrefillHint(
       `从 ${params.importBrowser === 'edge' ? 'Edge' : 'Chrome'} 导入 ${incomingCount} 个 Cookie，可直接点「更新」`,
     )
-    message.success(result.message || '已导入到文本框')
+    params.message.success(result.message || '已导入到文本框')
   } catch (error) {
-    message.error('从浏览器导入失败')
+    params.message.error('从浏览器导入失败')
     console.error(error)
   } finally {
     params.setLoadingImport(false)
@@ -591,23 +660,23 @@ const runImportFromBrowser = async (params: AntiCrawlActionsParams) => {
 const runUpdateCookies = async (params: AntiCrawlActionsParams) => {
   const { cookies, error } = validateCookieInput(params.cookieInput)
   if (error) {
-    message.warning(error)
+    params.message.warning(error)
     return
   }
   try {
     params.setLoadingUpdate(true)
     const result = await anticrawlApi.updateCookies(cookies)
     if (result.ok) {
-      message.success(result.message || `已更新 ${result.written} 个 Cookie`)
+      params.message.success(result.message || `已更新 ${result.written} 个 Cookie`)
       params.setCookieModalOpen(false)
       params.setCookieInput('')
       params.setCookieInputDirty(false)
       await fetchCookieLayers(params.setters)
     } else {
-      message.error(result.error || '更新失败')
+      params.message.error(result.error || '更新失败')
     }
   } catch (error) {
-    message.error('更新 Cookie 失败')
+    params.message.error('更新 Cookie 失败')
     console.error(error)
   } finally {
     params.setLoadingUpdate(false)
@@ -615,6 +684,9 @@ const runUpdateCookies = async (params: AntiCrawlActionsParams) => {
 }
 
 export default function AntiCrawl() {
+  // 静态 message/Modal.confirm 不消费 AntdApp 上下文：暗色主题会掉色，还会触发静态方法告警。
+  const { message, modal } = App.useApp()
+
   // 数据状态
   const [strategy, setStrategy] = useState<StrategyEvaluation | null>(null)
   const [session, setSession] = useState<SessionStatus | null>(null)
@@ -623,12 +695,24 @@ export default function AntiCrawl() {
   const [cookieLayers, setCookieLayers] = useState<CookieLayersResult | null>(null)
   const [health, setHealth] = useState<HealthReport | null>(null)
 
-  // 加载状态
-  const [loadingStrategy, setLoadingStrategy] = useState(false)
+  // 加载状态：loadingAll 控制顶部「刷新」，loadingSections 控制各卡片初始骨架。
+  const [loadingAll, setLoadingAll] = useState(false)
+  // 初始即视为加载中，避免首帧先闪一下「暂无数据」再被 effect 改成加载中。
+  const [loadingSections, setLoadingSections] = useState<Partial<Record<AntiCrawlSectionKey, boolean>>>({
+    strategy: true,
+    session: true,
+    fingerprint: true,
+    freqStats: true,
+    cookieLayers: true,
+  })
   const [loadingInit, setLoadingInit] = useState(false)
   const [loadingSession, setLoadingSession] = useState(false)
   const [loadingHealth, setLoadingHealth] = useState(false)
-  const [loadingLayers, setLoadingLayers] = useState(false)
+  const [loadingUpdate, setLoadingUpdate] = useState(false)
+
+  // StrictMode 双挂载 / 轮询 / 手动重试共用同一把门闩，避免同一块数据并发重复请求。
+  const allInFlightRef = useRef(false)
+  const sectionInFlightRef = useRef<Partial<Record<AntiCrawlSectionKey, boolean>>>({})
 
   // T02579 / 4.5-3：每块数据各自的失败原因（成功即清）；页面不再靠「空白」表达失败
   const [loadErrors, setLoadErrors] = useState<Partial<Record<AntiCrawlSectionKey, string>>>({})
@@ -645,6 +729,23 @@ export default function AntiCrawl() {
     })
   }, [])
 
+  const beginSection = useCallback((k: AntiCrawlSectionKey) => {
+    if (sectionInFlightRef.current[k]) return false
+    sectionInFlightRef.current[k] = true
+    setLoadingSections((prev) => (prev[k] ? prev : { ...prev, [k]: true }))
+    return true
+  }, [])
+
+  const endSection = useCallback((k: AntiCrawlSectionKey) => {
+    sectionInFlightRef.current[k] = false
+    setLoadingSections((prev) => {
+      if (!prev[k]) return prev
+      const next = { ...prev }
+      delete next[k]
+      return next
+    })
+  }, [])
+
   // CDP 模式开关（持久化：刷新后保持上次设置）
   const [useCdp, setUseCdp] = usePersistentState<boolean>('xh.anticrawl.useCdp', false, {
     validator: (v): v is boolean => typeof v === 'boolean',
@@ -656,7 +757,6 @@ export default function AntiCrawl() {
   // T02579 / 4.5-6：只有用户真的编辑过文本框才算脏——预填与导入写回都不算，
   // 否则每次导入都会自我确认一次
   const [cookieInputDirty, setCookieInputDirty] = useState(false)
-  const [loadingUpdate, setLoadingUpdate] = useState(false)
   // 弹窗预填：从后端读 cookie 写入文本框的过程状态
   const [loadingPrefill, setLoadingPrefill] = useState(false)
   const [prefillHint, setPrefillHint] = useState('')
@@ -670,15 +770,26 @@ export default function AntiCrawl() {
   // setters 对象一次性构造，避免每个 load 都重新创建闭包
   const setters: AntiCrawlSetters = {
     setStrategy, setSession, setFingerprint, setFreqStats, setCookieLayers, setHealth,
-    setLoadingStrategy, setLoadingLayers, setLoadError,
+    beginSection, endSection, setLoadError,
   }
 
   // S1854：load* 保留 useCallback 薄壳。loadStrategy/loadFingerprint 已无任何引用
   // （各卡片重试与顶部重试统一走 SECTION_FETCHERS），故不再声明这两个赋值
-  const loadSession = useCallback(() => fetchSession(setters), [])
-  const loadFreqStats = useCallback(() => fetchFreqStats(setters), [])
-  const loadCookieLayers = useCallback(() => fetchCookieLayers(setters), [])
-  const loadAll = useCallback(() => fetchAll(setters), [])
+  const loadSession = useCallback(() => { void fetchSession(setters) }, [])
+  const loadFreqStats = useCallback(() => { void fetchFreqStats(setters) }, [])
+  const loadCookieLayers = useCallback(() => { void fetchCookieLayers(setters) }, [])
+  const loadAll = useCallback(async () => {
+    // 首屏 StrictMode 第二次 effect 会撞上第一次的在途请求；顶部手动刷新也会走这里。
+    if (allInFlightRef.current) return
+    allInFlightRef.current = true
+    setLoadingAll(true)
+    try {
+      await fetchAll(setters)
+    } finally {
+      allInFlightRef.current = false
+      setLoadingAll(false)
+    }
+  }, [])
 
   // 4.5-3：单卡片重试 + 顶部「重试失败项」（只重拉失败的那几块）
   const retrySection = useCallback((k: AntiCrawlSectionKey) => {
@@ -691,7 +802,7 @@ export default function AntiCrawl() {
   }, [loadErrors])
 
   useEffect(() => {
-    loadAll()
+    void loadAll()
     // 会话活跃时每 10 秒刷新状态
     const sessionInterval = setInterval(loadSession, 10000)
     // 频率伪装统计每 10 秒刷新：业务模块持续调用 apply_freq_delay/record_freq_request，
@@ -713,6 +824,8 @@ export default function AntiCrawl() {
   // actionsParams 集中装配所有依赖，避免每个 handle 函数重复传参
   const actionsParams: AntiCrawlActionsParams = {
     setters,
+    message,
+    modal,
     useCdp,
     importBrowser,
     cookieInput,
@@ -745,9 +858,33 @@ export default function AntiCrawl() {
   const errorBanner = buildAnticrawlErrorBanner(loadErrors)
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="page-container" data-testid="anticrawl-page" style={{ marginRight: 80 }}>
+      <header
+        data-testid="anticrawl-header"
+        style={{
+          marginBottom: 16,
+          padding: '18px 20px',
+          borderRadius: 10,
+          border: '1px solid var(--xh-border-color)',
+          background: 'var(--xh-bg-container)',
+        }}
+      >
+        <Title level={1} style={{ margin: 0, fontSize: 24, lineHeight: 1.35 }}>
+          反爬登录管理
+        </Title>
+        <Text type="secondary" style={{ display: 'inline-block', marginTop: 6, fontSize: 13 }}>
+          统一管理登录策略、Token 续期会话、Cookie 分层、浏览器指纹与频率伪装
+        </Text>
+      </header>
+
       <Space style={{ marginBottom: 16 }}>
-        <TipButton tip="刷新全部数据" icon={<ReloadOutlined />} onClick={loadAll} loading={loadingStrategy}>
+        <TipButton
+          tip="刷新全部数据"
+          icon={<ReloadOutlined />}
+          onClick={() => { void loadAll() }}
+          loading={loadingAll}
+          disabled={loadingAll}
+        >
           刷新
         </TipButton>
       </Space>
@@ -778,7 +915,7 @@ export default function AntiCrawl() {
 
       <Row gutter={[16, 16]}>
         {/* ============== 策略评估 ============== */}
-        <Col xs={24} lg={12}>
+        <Col xs={24} xl={12}>
           <Card
             title={
               <Space>
@@ -789,14 +926,19 @@ export default function AntiCrawl() {
             extra={
               <Space>
                 <Text type="secondary">CDP 模式</Text>
-                <Switch checked={useCdp} onChange={setUseCdp} size="small" />
+                <Switch
+                  aria-label="CDP 模式"
+                  checked={useCdp}
+                  onChange={setUseCdp}
+                  size="small"
+                />
               </Space>
             }
           >
             <SectionLoadError
               label="登录策略评估"
               error={loadErrors.strategy}
-              loading={loadingStrategy}
+              loading={Boolean(loadingSections.strategy)}
               hasData={Boolean(strategy)}
               onRetry={() => retrySection('strategy')}
             />
@@ -850,7 +992,9 @@ export default function AntiCrawl() {
         <SessionCardCol
           session={session}
           loadingSession={loadingSession}
+          loadingData={Boolean(loadingSections.session)}
           sessionError={loadErrors.session}
+          modalApi={modal}
           onRetrySession={() => retrySection('session')}
           onStart={handleStartSession}
           onStop={handleStopSession}
@@ -865,7 +1009,7 @@ export default function AntiCrawl() {
         />
 
         {/* ============== Cookie 分层管理 ============== */}
-        <Col xs={24} lg={12}>
+        <Col xs={24} xl={12}>
           <Card
             title={
               <Space>
@@ -883,11 +1027,12 @@ export default function AntiCrawl() {
                   更新 Cookie
                 </TipButton>
                 <TipButton
+                  aria-label="刷新 Cookie 层状态"
                   tip="刷新 Cookie 层状态"
                   icon={<ReloadOutlined />}
                   size="small"
                   onClick={loadCookieLayers}
-                  loading={loadingLayers}
+                  loading={Boolean(loadingSections.cookieLayers)}
                 />
               </Space>
             }
@@ -895,47 +1040,58 @@ export default function AntiCrawl() {
             <SectionLoadError
               label="Cookie 层状态"
               error={loadErrors.cookieLayers}
-              loading={loadingLayers}
+              loading={Boolean(loadingSections.cookieLayers)}
               hasData={Object.keys(cookieLayers?.layers ?? {}).length > 0}
               onRetry={() => retrySection('cookieLayers')}
             />
             {cookieLayers && (
               <Row gutter={[16, 16]}>
-                {Object.entries(cookieLayers.layers).map(([layer, state]) => (
-                  <Col span={8} key={layer}>
-                    <Card size="small" style={{ textAlign: 'center' }}>
-                      <Badge
-                        status={state.valid ? 'success' : 'default'}
-                        text={
-                          <Text strong style={{ fontSize: 14 }}>
-                            {/* 4.5-4：层名中文化（保留英文枚举名，审计日志与接口字段用的是它） */}
-                            {layerLabelCn(layer)}
+                {Object.entries(cookieLayers.layers).map(([layer, state]) => {
+                  const parts = splitLayerLabel(layer)
+                  return (
+                    <Col span={8} key={layer}>
+                      <Card
+                        size="small"
+                        data-testid={`layer-${layer}`}
+                        style={{ textAlign: 'center', height: '100%' }}
+                      >
+                        <Badge
+                          status={state.valid ? 'success' : 'default'}
+                          text={
+                            <div style={{ lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+                              <Text strong style={{ fontSize: 14 }}>{parts.name}</Text>
+                              {parts.code && (
+                                <div>
+                                  <Text type="secondary" style={{ fontSize: 10 }}>{parts.code}</Text>
+                                </div>
+                              )}
+                            </div>
+                          }
+                        />
+                        <div style={{ marginTop: 8 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {/* valid 但 cookie_count=0 是 force_restore 强制恢复的，
+                                显示"已恢复"避免误以为有有效 cookie；逻辑提取为模块级 cookieLayerStateText */}
+                            {cookieLayerStateText(state)}
                           </Text>
-                        }
-                      />
-                      <div style={{ marginTop: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {/* valid 但 cookie_count=0 是 force_restore 强制恢复的，
-                              显示"已恢复"避免误以为有有效 cookie；逻辑提取为模块级 cookieLayerStateText */}
-                          {cookieLayerStateText(state)}
-                        </Text>
-                      </div>
-                      {state.valid && (
-                        <TipButton
-                          tip="主动失效该 Cookie 层"
-                          size="small"
-                          danger
-                          type="link"
-                          icon={<StopOutlined />}
-                          onClick={() => handleInvalidateLayer(layer, state)}
-                          style={{ padding: '4px 0', fontSize: 12 }}
-                        >
-                          主动失效
-                        </TipButton>
-                      )}
-                    </Card>
-                  </Col>
-                ))}
+                        </div>
+                        {state.valid && (
+                          <TipButton
+                            tip="主动失效该 Cookie 层"
+                            size="small"
+                            danger
+                            type="link"
+                            icon={<StopOutlined />}
+                            onClick={() => handleInvalidateLayer(layer, state)}
+                            style={{ padding: '4px 0', fontSize: 12 }}
+                          >
+                            主动失效
+                          </TipButton>
+                        )}
+                      </Card>
+                    </Col>
+                  )
+                })}
               </Row>
             )}
             <Alert
@@ -955,7 +1111,7 @@ export default function AntiCrawl() {
         </Col>
 
         {/* ============== 指纹信息 ============== */}
-        <Col xs={24} lg={12}>
+        <Col xs={24} xl={12}>
           <Card
             title={
               <Space>
@@ -967,12 +1123,18 @@ export default function AntiCrawl() {
             <SectionLoadError
               label="指纹信息"
               error={loadErrors.fingerprint}
-              loading={false}
+              loading={Boolean(loadingSections.fingerprint)}
               hasData={Boolean(fingerprint)}
               onRetry={() => retrySection('fingerprint')}
             />
             {fingerprint?.profile ? (
-              <Descriptions column={2} size="small" bordered>
+              <Descriptions
+                column={2}
+                size="small"
+                bordered
+                labelStyle={{ whiteSpace: 'nowrap' }}
+                contentStyle={{ fontSize: 12, wordBreak: 'break-word' }}
+              >
                 <Descriptions.Item label="Profile" span={2}>
                   <Tag color="orange">{fingerprint.profile.name}</Tag>
                 </Descriptions.Item>
@@ -1007,18 +1169,22 @@ export default function AntiCrawl() {
                 </Descriptions.Item>
               </Descriptions>
             ) : (
-              <Alert
-                type="info"
-                showIcon
-                message="CDP 模式或未初始化"
-                description="CDP 模式使用真实浏览器，无需指纹注入。点击上方「初始化协调器」生成 launch 模式指纹。"
-              />
+              !loadingSections.fingerprint
+              && !loadErrors.fingerprint
+              && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="CDP 模式或未初始化"
+                  description="CDP 模式使用真实浏览器，无需指纹注入。点击上方「初始化协调器」生成 launch 模式指纹。"
+                />
+              )
             )}
           </Card>
         </Col>
 
         {/* ============== 频率伪装统计 ============== */}
-        <Col xs={24} lg={12}>
+        <Col xs={24} xl={24}>
           <Card
             title={
               <Space>
@@ -1028,17 +1194,19 @@ export default function AntiCrawl() {
             }
             extra={
               <TipButton
+                aria-label="刷新频率伪装统计"
                 tip="刷新频率伪装统计"
                 icon={<ReloadOutlined />}
                 size="small"
                 onClick={loadFreqStats}
+                loading={Boolean(loadingSections.freqStats)}
               />
             }
           >
             <SectionLoadError
               label="频率统计"
               error={loadErrors.freqStats}
-              loading={false}
+              loading={Boolean(loadingSections.freqStats)}
               hasData={Boolean(freqStats)}
               onRetry={() => retrySection('freqStats')}
             />
@@ -1119,6 +1287,11 @@ export default function AntiCrawl() {
         confirmLoading={loadingUpdate}
         okText="更新"
         cancelText="取消"
+        okButtonProps={{
+          autoInsertSpace: false,
+          disabled: loadingPrefill || loadingUpdate || !cookieInput.trim(),
+        }}
+        cancelButtonProps={{ autoInsertSpace: false }}
         width={640}
       >
         <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
@@ -1132,6 +1305,7 @@ export default function AntiCrawl() {
         {/* 浏览器导入工具栏 */}
         <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
           <Select
+            aria-label="选择导入 Cookie 的浏览器"
             value={importBrowser}
             onChange={setImportBrowser}
             style={{ width: 120 }}
@@ -1153,6 +1327,7 @@ export default function AntiCrawl() {
 
         <Spin spinning={loadingPrefill} tip="正在读取当前 Cookie...">
           <Input.TextArea
+            aria-label="Cookie 文本"
             value={cookieInput}
             onChange={(e) => {
               setCookieInput(e.target.value)
@@ -1190,14 +1365,32 @@ function formatTokenUsageCount(session: SessionStatus): string | null {
 function SessionCardCol(props: {
   readonly session: SessionStatus | null
   readonly loadingSession: boolean
+  readonly loadingData: boolean
   readonly sessionError?: string
+  readonly modalApi: AntiCrawlModalApi
   readonly onRetrySession: () => void
   readonly onStart: () => void
   readonly onStop: () => void
 }) {
-  const { session, loadingSession, sessionError, onRetrySession, onStart, onStop } = props
+  const { session, loadingSession, loadingData, sessionError, modalApi, onRetrySession, onStart, onStop } = props
+  const statusStat = session && (
+    <Statistic
+      title="会话状态"
+      value={session.active ? '活跃' : '未启动'}
+      valueStyle={{ color: session.active ? '#52c41a' : '#8c8c8c' }}
+    />
+  )
+  const tokenAgeStat = session && (
+    <Statistic
+      title="Token 年龄"
+      value={formatDuration(session.token_age_sec)}
+      valueStyle={{
+        color: session.token_expired ? '#ff4d4f' : '#52c41a',
+      }}
+    />
+  )
   return (
-    <Col xs={24} lg={12}>
+    <Col xs={24} xl={12}>
       <Card
         title={
           <Space>
@@ -1212,7 +1405,7 @@ function SessionCardCol(props: {
         <SectionLoadError
           label="会话状态"
           error={sessionError}
-          loading={loadingSession}
+          loading={loadingData}
           hasData={Boolean(session)}
           onRetry={onRetrySession}
         />
@@ -1226,30 +1419,27 @@ function SessionCardCol(props: {
           />
         )}
         {session && (
-          <Row gutter={[16, 16]}>
-            <Col span={8}>
-              <Statistic
-                title="会话状态"
-                value={session.active ? '活跃' : '未启动'}
-                valueStyle={{ color: session.active ? '#52c41a' : '#8c8c8c' }}
-              />
-            </Col>
-            <Col span={8}>
+          session.active ? (
+            <>
+              <Row gutter={[16, 16]}>
+                <Col span={12}>{statusStat}</Col>
+                <Col span={12}>{tokenAgeStat}</Col>
+              </Row>
               <Statistic
                 title="运行时间"
-                value={session.active ? `${Math.floor(session.uptime_sec)}s` : '-'}
+                value={formatDuration(session.uptime_sec, { withSeconds: true })}
+                style={{ marginTop: 12 }}
               />
-            </Col>
-            <Col span={8}>
-              <Statistic
-                title="Token 年龄"
-                value={formatDuration(session.token_age_sec)}
-                valueStyle={{
-                  color: session.token_expired ? '#ff4d4f' : '#52c41a',
-                }}
-              />
-            </Col>
-          </Row>
+            </>
+          ) : (
+            <Row gutter={[16, 16]}>
+              <Col span={8}>{statusStat}</Col>
+              <Col span={8}>
+                <Statistic title="运行时间" value="-" />
+              </Col>
+              <Col span={8}>{tokenAgeStat}</Col>
+            </Row>
+          )
         )}
         <Divider style={{ margin: '12px 0' }} />
         <Space>
@@ -1259,7 +1449,7 @@ function SessionCardCol(props: {
             icon={<PlayCircleOutlined />}
             onClick={onStart}
             loading={loadingSession}
-            disabled={session?.active}
+            disabled={!session || session.active || Boolean(sessionError)}
           >
             启动会话
           </TipButton>
@@ -1280,10 +1470,10 @@ function SessionCardCol(props: {
                 count: formatTokenUsageCount(session),
                 recovery: '点「启动会话」即可恢复自动续期；若期间 Token 过期，'
                   + '接口会命中风控并需要重新走一次登录流程',
-              }).then((ok: boolean) => { if (ok) onStop() })
+              }, modalApi).then((ok: boolean) => { if (ok) onStop() })
             }}
             loading={loadingSession}
-            disabled={!session?.active}
+            disabled={!session?.active || Boolean(sessionError)}
           >
             停止会话
           </TipButton>
@@ -1304,7 +1494,7 @@ function HealthCardCol(props: {
 }) {
   const { health, loadingHealth, onCheck } = props
   return (
-    <Col xs={24} lg={12}>
+    <Col xs={24} xl={24}>
       <Card
         title={
           <Space>

@@ -43,7 +43,10 @@ param(
     [switch]$BundleBrowser,
     # 步骤 7 的体积回归门禁：任一顶层组件较上次落盘基线 +50MB 或 +5%（先到为准）即非零退出。
     # 默认只打印 WARN 不阻断，避免归因报表本身把一次正常构建打成失败。
-    [switch]$FailOnSizeRegression
+    [switch]$FailOnSizeRegression,
+    # 断点续跑：复用 release\xianyu-hunter 现有 PyInstaller 产物，从 [5/7] 外置资源开始。
+    # 仅在 PyInstaller 已成功、后续步骤失败时使用；正式发布会重新全量构建。
+    [switch]$SkipPyInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,6 +89,22 @@ $sizeReportDir = "$cacheDir\size-report"
 $buildVenv = ".venv-build"
 $buildPython = "$buildVenv\Scripts\python.exe"
 $buildVenvReadyMarker = "$buildVenv\.xh-build-ready"
+
+function Get-BuildVersion {
+    # 版本唯一来源：pyproject.toml（与发布器/运行时 __init__.py 对齐）。
+    # 回退到 __init__.py，兼容极旧分支没有 pyproject 的场景。
+    $pj = Join-Path $repoRoot "pyproject.toml"
+    if (Test-Path -LiteralPath $pj -PathType Leaf) {
+        $c = Get-Content -Raw -Encoding UTF8 $pj
+        if ($c -match '(?m)^version\s*=\s*"([^"]+)"') { return $matches[1] }
+    }
+    $init = Join-Path $repoRoot "backend\xianyu_hunter\__init__.py"
+    if (Test-Path -LiteralPath $init -PathType Leaf) {
+        $line = Get-Content $init | Where-Object { $_ -match '__version__' } | Select-Object -First 1
+        if ($line -match '"([^"]+)"') { return $matches[1] }
+    }
+    return $null
+}
 
 function New-BuildVenv {
     if (Test-Path $buildVenv) {
@@ -398,6 +417,13 @@ if ($SkipSPA -and (Test-Path $spaIndex)) {
 
 # ============== 4. PyInstaller 打包 ==============
 Assert-BuildDiskSpace
+if ($SkipPyInstaller) {
+    Write-Host "`n[4/7] 跳过 PyInstaller（-SkipPyInstaller，复用现有 release\xianyu-hunter）..." -ForegroundColor Yellow
+    if (-not (Test-Path "release\xianyu-hunter\xianyu-hunter.exe" -PathType Leaf)) {
+        throw "-SkipPyInstaller 需要现有的 release\xianyu-hunter\xianyu-hunter.exe，但文件不存在；请先完整构建一次。"
+    }
+    Write-Host "  复用现有 PyInstaller 产物：release\xianyu-hunter" -ForegroundColor DarkGray
+} else {
 Write-Host "`n[4/7] 运行 PyInstaller 打包..." -ForegroundColor Yellow
 Write-Host "  预计耗时：约 1-3 分钟" -ForegroundColor DarkGray
 # 清理旧产物（dist 每次重建，但缓存独立在 .cache/ 不受影响）
@@ -439,6 +465,7 @@ if ($EmbeddingEngine -eq "onnx") {
         --pyz-toc "$pyiWorkDir\xianyu-hunter\PYZ-00.toc"
     if ($LASTEXITCODE -ne 0) { Write-Host "  [ERROR] sentence_transformers 完整性检查未通过（PYZ 未收录或路径参数不对），本地 embedding 引擎在打包版会失效" -ForegroundColor Red }
     else { Write-Host "  sentence_transformers 完整性检查通过" -ForegroundColor Green }
+}
 }
 
 # ============== 5. 复制外置资源 ==============
@@ -500,24 +527,203 @@ $pwTarget = "release\xianyu-hunter\playwright_browsers"
 # chromium_headless_shell-* 不算（那是 headless-shell，Full 包会剔除）。
 # 关键：不能只认 chrome-win，也不能用 `chromium-*` 通配——否则新版内核明明完整却被判为缺失，
 # 或缓存只剩 headless_shell 时误判为“有”、复制后剔除 → 发出空壳 Full 包（T05717 复现根因）。
-function Test-FullChromium($base) {
-    if (-not (Test-Path -LiteralPath $base)) { return $false }
+function Test-ChromiumComplete($exe) {
+    # 与 backend/xianyu_hunter/infra/browser_kernel.py 的 _complete_chromium_exe 同口径：
+    # chrome.exe 必须非空，且同目录 chrome.dll / resources.pak / icudtl.dat 非空。
+    # 只认 chrome.exe 会被杀软隔离 chrome.dll 或 0 字节残留骗过，发出“能装不能跑”的 Full 包。
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $false }
+    if ((Get-Item -LiteralPath $exe).Length -lt 1024) { return $false }
+    $required = if ((Split-Path -Leaf $exe) -eq 'chrome.exe') {
+        @('chrome.dll', 'resources.pak', 'icudtl.dat')
+    } else {
+        @('resources.pak', 'icudtl.dat')
+    }
+    $dir = Split-Path -Parent $exe
+    foreach ($name in $required) {
+        $f = Join-Path $dir $name
+        if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { return $false }
+        if ((Get-Item -LiteralPath $f).Length -lt 1024) { return $false }
+    }
+    return $true
+}
+
+function Get-FullChromiumExe($base) {
+    # 返回完整内核的 chrome.exe/chrome 绝对路径；无则 $null。
+    # 布局口径与运行时一致：先 chrome-win64 / chrome-win（新版/旧版 Playwright），
+    # 再跨平台，最后 glob 兜底未来改名的子目录。
+    if (-not (Test-Path -LiteralPath $base -PathType Container)) { return $null }
     $fullDirs = Get-ChildItem -LiteralPath $base -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike 'chromium_headless_shell-*' }
     foreach ($d in $fullDirs) {
         foreach ($rel in @('chrome-win64\chrome.exe', 'chrome-win\chrome.exe',
                            'chrome-linux64\chrome', 'chrome-linux\chrome')) {
-            if (Test-Path -LiteralPath (Join-Path $d.FullName $rel)) { return $true }
+            $exe = Join-Path $d.FullName $rel
+            if (Test-ChromiumComplete $exe) { return $exe }
         }
-        # 兜底：未来 Playwright 再改目录名时，扫一层子目录里的 chrome.exe / chrome
         $fallback = Get-ChildItem -LiteralPath $d.FullName -Directory -ErrorAction SilentlyContinue |
-            Where-Object {
-                (Test-Path -LiteralPath (Join-Path $_.FullName 'chrome.exe')) -or
-                (Test-Path -LiteralPath (Join-Path $_.FullName 'chrome'))
-            } | Select-Object -First 1
-        if ($fallback) { return $true }
+            Where-Object { Test-ChromiumComplete (Join-Path $_.FullName 'chrome.exe') -or
+                           Test-ChromiumComplete (Join-Path $_.FullName 'chrome') } |
+            Select-Object -First 1
+        if ($fallback) {
+            if (Test-ChromiumComplete (Join-Path $fallback.FullName 'chrome.exe')) {
+                return (Join-Path $fallback.FullName 'chrome.exe')
+            }
+            return (Join-Path $fallback.FullName 'chrome')
+        }
     }
-    return $false
+    return $null
+}
+
+function Test-FullChromium($base) {
+    return (Get-FullChromiumExe $base) -ne $null
+}
+
+function Invoke-ChromiumSmoke($exe) {
+    # 构建期真实启动一次：文件齐全不等于能跑（缺 DLL/架构不匹配/被杀软拦截都会在
+    # 首次登录才暴露）。用 headless 模式跑 --version，必须有版本输出且退出码 0。
+    #
+    # 不能只用 Start-Process -PassThru + WaitForExit(int)：实测在 Windows PowerShell
+    # 下会返回 ExitCode=$null（进程已退出但退出码没落到 Process 对象），把一次成功启动
+    # 误判成失败（2026-11-27 构建卡在 [5.4]）。这里直接用 .NET Process 同步读输出，
+    # 5.1 / 7 行为一致。
+    $tag = [guid]::NewGuid().ToString('N')
+    $outFile = Join-Path $env:TEMP "xh-chrome-smoke-$tag.out"
+    $errFile = Join-Path $env:TEMP "xh-chrome-smoke-$tag.err"
+    $profile = Join-Path $env:TEMP "xh-chrome-smoke-$tag-profile"
+    $proc = $null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.Arguments = "--headless=new --disable-gpu --no-first-run --user-data-dir=`"$profile`" --version"
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        if (-not $proc.Start()) { throw "Chromium smoke 启动失败：$exe" }
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit(45000)) {
+            try { $proc.Kill() } catch { }
+            throw "Chromium smoke 超时（45s）：$exe"
+        }
+        $proc.WaitForExit()
+        $text = (($outTask.Result + "`n" + $errTask.Result) -replace "`r?`n", "`n").Trim()
+        if ($proc.ExitCode -ne 0) {
+            throw "Chromium smoke 退出码 $($proc.ExitCode)：$exe；输出：$text"
+        }
+        if (-not $text) { throw "Chromium smoke 无版本输出：$exe" }
+        Write-Host "  Chromium smoke 通过：$text" -ForegroundColor Green
+        return $text
+    } finally {
+        if ($proc) { try { $proc.Dispose() } catch { } }
+        foreach ($f in @($outFile, $errFile)) {
+            if (Test-Path -LiteralPath $f -PathType Leaf) { Remove-Item -Force -LiteralPath $f -ErrorAction SilentlyContinue }
+        }
+        if (Test-Path -LiteralPath $profile) { Remove-Item -Recurse -Force -LiteralPath $profile -ErrorAction SilentlyContinue }
+    }
+}
+
+function Invoke-PlaywrightSmoke($exe) {
+    # M6：chrome.exe --version 只能证明二进制能启动，不能证明 Playwright 驱动能连上。
+    # 本次 1255 与 Playwright 默认 1223 不同，必须在构建期用真实 driver 起一次
+    # Chromium（headless）并打开页面，否则要等用户首次离线登录才暴露兼容性问题。
+    $py = Join-Path $repoRoot ".venv-build\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $py -PathType Leaf)) {
+        throw "Playwright 兼容性 smoke 失败：构建 venv 不存在 $py"
+    }
+    $tag = [guid]::NewGuid().ToString('N')
+    $script = Join-Path $env:TEMP "xh-playwright-smoke-$tag.py"
+    $out = Join-Path $env:TEMP "xh-playwright-smoke-$tag.out"
+    $err = Join-Path $env:TEMP "xh-playwright-smoke-$tag.err"
+    $code = @'
+import sys
+from playwright.sync_api import sync_playwright
+
+exe = sys.argv[1]
+with sync_playwright() as p:
+    browser = p.chromium.launch(executable_path=exe, headless=True, args=["--no-first-run"])
+    page = browser.new_page()
+    page.set_content("<title>ok</title><h1>ok</h1>")
+    title = page.title()
+    browser.close()
+print("playwright_title=" + title)
+raise SystemExit(0 if title == "ok" else 2)
+'@
+    try {
+        [System.IO.File]::WriteAllText($script, $code, (New-Object System.Text.UTF8Encoding($false)))
+        & $py $script $exe 1> $out 2> $err
+        $rc = $LASTEXITCODE
+        $text = ""
+        foreach ($f in @($out, $err)) {
+            if (Test-Path -LiteralPath $f -PathType Leaf) { $text += (Get-Content -Raw $f) }
+        }
+        if ($rc -ne 0) {
+            throw "Playwright 兼容性 smoke 失败（exit $rc）：$text"
+        }
+        if ($text -notmatch 'playwright_title=ok') {
+            throw "Playwright 兼容性 smoke 未返回预期页面标题：$text"
+        }
+        Write-Host "  Playwright 兼容性 smoke 通过（driver + bundled chromium）" -ForegroundColor Green
+    } finally {
+        foreach ($f in @($script, $out, $err)) {
+            if (Test-Path -LiteralPath $f -PathType Leaf) { Remove-Item -Force -LiteralPath $f -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+function Write-BundleManifest($bundleBrowser, $distDir, $chromeExe = $null, $chromeVersion = $null) {
+    # Full/Lite 身份清单放在应用根目录：浏览器目录被整体删除时，运行时仍能识别 Full，
+    # 报“安装包不完整”而不是误判 Lite 去下载。chromium 段供发布门禁复核构建产物。
+    $ver = Get-BuildVersion
+    if (-not $ver) { throw "无法读取版本号（pyproject.toml / __init__.py），不能写 bundle-manifest.json" }
+    $distAbs = Join-Path $repoRoot $distDir
+    if (-not (Test-Path -LiteralPath $distAbs -PathType Container)) {
+        throw "写 bundle-manifest 失败：dist 不存在 $distAbs"
+    }
+    $chromium = $null
+    if ($bundleBrowser) {
+        if (-not $chromeExe -or -not (Test-ChromiumComplete $chromeExe)) {
+            throw "写 bundle-manifest 失败：Full 形态没有完整 Chromium"
+        }
+        $distAbs = (Resolve-Path -LiteralPath $distAbs).Path
+        $chromeAbs = (Resolve-Path -LiteralPath $chromeExe).Path
+        if (-not $chromeAbs.StartsWith($distAbs, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "写 bundle-manifest 失败：Chromium 不在 dist 内 $chromeAbs"
+        }
+        $exeRel = ($chromeAbs.Substring($distAbs.Length).TrimStart('\', '/')) -replace '\\', '/'
+        $exeDir = Split-Path -Parent $chromeAbs
+        $files = @()
+        foreach ($name in @('chrome.exe', 'chrome', 'chrome.dll', 'resources.pak', 'icudtl.dat')) {
+            $f = Join-Path $exeDir $name
+            if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+            $fi = Get-Item -LiteralPath $f
+            $files += [ordered]@{
+                name = $name
+                size = [int64]$fi.Length
+                sha256 = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        }
+        $chromium = [ordered]@{
+            dir = ((Split-Path -Parent $exeRel) -replace '\\', '/')
+            executable = $exeRel
+            version = "$chromeVersion".Trim()
+            files = $files
+        }
+    }
+    $obj = [ordered]@{
+        schema = 1
+        version = $ver
+        bundle_browser = [bool]$bundleBrowser
+        build_mode = $(if ($bundleBrowser) { "full" } else { "lite" })
+        built_at = (Get-Date).ToString("o")
+        chromium = $chromium
+    }
+    $json = $obj | ConvertTo-Json -Depth 8
+    $path = Join-Path $distAbs "bundle-manifest.json"
+    [System.IO.File]::WriteAllText($path, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  [OK] 已写入 bundle-manifest.json（bundle_browser=$bundleBrowser）: $path" -ForegroundColor Green
 }
 if (-not $BundleBrowser) {
     # Lite 形态：不随包 Chromium（-415.85MB）。运行时由 infra/browser_kernel.py 依次
@@ -538,7 +744,7 @@ if (-not $BundleBrowser) {
     & .venv-build\Scripts\playwright install chromium
     Remove-Item Env:\PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
     if (-not (Test-FullChromium $pwCacheDir)) {
-        throw "Playwright Chromium 完整内核下载失败（缺少 chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe）。" +
+        throw "Playwright Chromium 完整内核下载失败（chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe，且 chrome.dll/resources.pak/icudtl.dat 非空）。" +
               "请检查网络或 .venv-build 的 playwright 版本，Full 安装包不能发出空壳 Chromium。"
     }
     if (Test-Path $pwTarget) { Remove-Item -Recurse -Force $pwTarget -ErrorAction SilentlyContinue }
@@ -553,7 +759,7 @@ if ($BundleBrowser) {
         ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
     # 复制并剔除后再次确认完整内核存在，防止发出空壳 Full 包（T05717）
     if (-not (Test-FullChromium $pwTarget)) {
-        throw "打包目录 $pwTarget 缺少完整 Chromium（chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe）。" +
+        throw "打包目录 $pwTarget 缺少完整 Chromium（chromium-*/chrome-win64/chrome.exe 或 chrome-win/chrome.exe，且 chrome.dll/resources.pak/icudtl.dat 非空）。" +
               "Full 安装包不完整，终止构建以免发出无法离线登录的安装程序。"
     }
     $fullList = (Get-ChildItem $pwTarget -Directory |
@@ -568,6 +774,18 @@ if ($BundleBrowser) {
         (New-Object System.Text.UTF8Encoding($false))
     )
     Write-Host "  [OK] 已确认 $pwTarget 含完整 Chromium（$fullList），已写入 Full 标记" -ForegroundColor Green
+
+    # 构建期 smoke：文件齐全不等于能启动（缺 DLL / 架构不匹配 / 被杀软拦截）。
+    $chromeExe = Get-FullChromiumExe $pwTarget
+    if (-not $chromeExe) {
+        throw "打包目录 $pwTarget 没有完整 Chromium，无法执行构建期 smoke。"
+    }
+    $chromeVersion = Invoke-ChromiumSmoke $chromeExe
+    Invoke-PlaywrightSmoke $chromeExe
+    Write-BundleManifest $true "release\xianyu-hunter" $chromeExe $chromeVersion
+} else {
+    # Lite 形态也要写清单：运行时据此选择 %APPDATA% 下载目录，而不是误判 Full。
+    Write-BundleManifest $false "release\xianyu-hunter"
 }
 
 # 5.5 embedding 工件（按引擎分支）
@@ -813,9 +1031,16 @@ Filename: "{app}\xianyu-hunter.exe"; Description: "Launch XianyuHunter"; Flags: 
 }
 
 # 6.4 编译安装包
+# 安装包是发布流水线的唯一主资产（config.publish.json 的 asset.glob 只认
+# XianyuHunter-Setup-v*.exe）。历史缺陷：Inno Setup 缺失 / ISCC 编译失败时这里只打
+# [WARN] 就继续往下走，脚本照样打印「构建完成！」并以 exit 0 收尾，一键发布于是拿着
+# 残缺 release 目录去发布 —— 表现为「脚本跑完了，但没有安装包、也没真正发出去」。
+# 现在把安装包视为硬产物：任一环节拿不到可用的 Setup exe 就抛出，构建失败。
 if (-not $iscc) {
-    Write-Host "  [WARN] Inno Setup 不可用，跳过安装包制作" -ForegroundColor Red
-    Write-Host "  手动安装：https://jrsoftware.org/isdl.php" -ForegroundColor DarkGray
+    Write-Host "  [FAIL] Inno Setup 不可用（未找到 ISCC.exe），无法生成安装包" -ForegroundColor Red
+    Write-Host "  已尝试 winget / 官方安装包自动安装仍未成功。请手动安装后重试：" -ForegroundColor Yellow
+    Write-Host "    https://jrsoftware.org/isdl.php  （或 winget install JRSoftware.InnoSetup）" -ForegroundColor DarkGray
+    throw "Inno Setup(ISCC) 不可用，安装包未生成，构建中止"
 } else {
     # 从 __init__.py 读取版本号
     $initFile = "backend\xianyu_hunter\__init__.py"
@@ -828,29 +1053,84 @@ if (-not $iscc) {
     Write-Host "  编译安装包..."
     & $iscc /DMyAppVersion=$version installer.iss
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [WARN] 安装包编译失败" -ForegroundColor Red
+        throw "安装包编译失败（ISCC exit $LASTEXITCODE），构建中止：installer.iss / 版本 $version"
     } else {
         $setupExe = "release\XianyuHunter-Setup-v$version.exe"
-        Write-Host "  安装包已生成：$setupExe" -ForegroundColor Green
+        # 只信「文件真的在、且有体积」：ISCC 偶发 0 字节产物或残留旧文件时，
+        # 仅看退出码会让发布几步之后才炸在别的环节。
+        if (-not (Test-Path -LiteralPath $setupExe)) {
+            throw "安装包编译返回成功但产物不存在：$setupExe"
+        }
+        $setupInfo = Get-Item -LiteralPath $setupExe
+        if ($setupInfo.Length -le 0) {
+            throw "安装包产物为 0 字节：$setupExe"
+        }
+        Write-Host ("  安装包已生成：{0}（{1:N1} MB）" -f $setupExe, ($setupInfo.Length / 1MB)) -ForegroundColor Green
 
         # 6.5 -BundleBrowser 时同一次构建再出一个 Lite 安装包：
-        # 同一份 dist，仅在 [Files] 层排除 playwright_browsers（无需二次 PyInstaller 构建）。
-        # Inno Setup 的 Excludes 是「空格分隔」的 wildcard 列表（逗号会被当作模式的一部分，
-        # 导致整串匹配不上），这里统一写成空格分隔。
+        # 同一份 dist，用一份「已剔除 playwright_browsers」的暂存目录作为 Source
+        # （不再依赖 Inno 的 Excludes 通配 —— 实测 `Excludes: "playwright_browsers\*"`
+        #  对嵌套内核文件不生效，Lite 与 Full 打出来字节数只差 20，等于把 412MB 的
+        #  Chromium 又塞进了「精简包」。以实际大小校验兜底。）
         if ($BundleBrowser) {
+            $liteStage = "release\lite-dist"
+            if (Test-Path -LiteralPath $liteStage -PathType Container) {
+                try {
+                    Remove-Item -Recurse -Force -LiteralPath $liteStage -ErrorAction Stop
+                } catch {
+                    throw "无法清理 Lite 暂存目录 $liteStage（可能有进程占用/权限不足）：$($_.Exception.Message)"
+                }
+            }
+            Write-Host "  准备 Lite 暂存目录（排除 playwright_browsers）..."
+            # /MIR 而不是 /E：镜像会删除暂存目录里上一次构建遗留、而源目录已不存在的文件。
+            # 只用 /E 时 robocopy 不会清理旧文件，增量构建可能把上一版 Chromium 残留打进 Lite。
+            # 退出码 0-7 都算成功（1=有复制、2=有额外文件、3=二者兼有…），>=8 才是失败。
+            & robocopy "release\xianyu-hunter" $liteStage /MIR /XD "playwright_browsers" /NFL /NDL /NJH /NJS /NP | Out-Null
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "Lite 暂存目录复制失败（robocopy exit $rc）" }
+            if (Test-Path -LiteralPath (Join-Path $liteStage "playwright_browsers") -PathType Container) {
+                throw "Lite 暂存目录仍包含 playwright_browsers（/XD 未生效），拒绝编译含 Chromium 的 Lite 包"
+            }
+            # 复制来的 bundle-manifest.json 是 Full 的（bundle_browser=true），
+            # 必须改写为 false，否则 Lite 安装后运行时会误判 Full 并报内核不完整。
+            Write-BundleManifest $false $liteStage
+
             $liteIss = "installer-lite.iss"
             $liteSrc = Get-Content "installer.iss" -Raw
             $liteSrc = $liteSrc -replace '(?m)^(OutputBaseFilename=.+)$', '$1-Lite'
-            $liteSrc = $liteSrc -replace '(?m)Excludes:\s*"[^"]*"', 'Excludes: "*.log data\* .env .secrets.json .env.local playwright_browsers\*"'
+            # Source 指向暂存目录（不含 chromium）
+            $liteSrc = $liteSrc -replace 'Source:\s*"release\\xianyu-hunter\\\*"', 'Source: "release\lite-dist\*"'
+            if ($liteSrc -notmatch 'Source:\s*"release\\lite-dist\\\*"') {
+                throw "installer-lite.iss 生成失败：Source 未替换为 release\lite-dist\*（installer.iss 的 Source 行已变化？）"
+            }
+            if ($liteSrc -notmatch '(?m)^OutputBaseFilename=.+-Lite\s*$') {
+                throw "installer-lite.iss 生成失败：OutputBaseFilename 未加上 -Lite 后缀"
+            }
             [System.IO.File]::WriteAllText(
                 (Join-Path $repoRoot $liteIss), $liteSrc, (New-Object System.Text.UTF8Encoding($true))
             )
             Write-Host "  编译 Lite 安装包（不含 Chromium）..."
             & $iscc /DMyAppVersion=$version $liteIss
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "  [WARN] Lite 安装包编译失败" -ForegroundColor Red
+                throw "Lite 安装包编译失败（ISCC exit $LASTEXITCODE），构建中止"
             } else {
-                Write-Host "  Lite 安装包已生成：release\XianyuHunter-Setup-v$version-Lite.exe" -ForegroundColor Green
+                $liteExe = "release\XianyuHunter-Setup-v$version-Lite.exe"
+                if (-not (Test-Path -LiteralPath $liteExe -PathType Leaf)) {
+                    throw "Lite 安装包编译返回成功但产物不存在：$liteExe"
+                }
+                $liteLen = (Get-Item -LiteralPath $liteExe).Length
+                if ($liteLen -le 0) { throw "Lite 安装包产物为 0 字节：$liteExe" }
+                # 体积下限校验：Lite 必须明显小于 Full。Chromium 压缩后约 150-200MB，
+                # 若两者差距不到 15%，说明 chromium 实际仍被打进了 Lite。
+                $fullLen = (Get-Item -LiteralPath $setupExe).Length
+                if ($liteLen -gt ($fullLen * 0.85)) {
+                    throw ((("Lite 安装包体积异常：{0:N1} MB，Full 为 {1:N1} MB（差距 <15%），" +
+                              "说明 playwright_browsers 未被真正排除，Lite 包不可用") -f ($liteLen / 1MB), ($fullLen / 1MB)))
+                }
+                Write-Host ("  Lite 安装包已生成：{0}（{1:N1} MB）" -f $liteExe, ($liteLen / 1MB)) -ForegroundColor Green
+            }
+            if (Test-Path -LiteralPath $liteStage) {
+                Remove-Item -Recurse -Force -LiteralPath $liteStage -ErrorAction SilentlyContinue
             }
         }
     }
@@ -911,10 +1191,90 @@ if ($sizeExit -eq 2) {
 # ============== 完成 ==============
 $distDir = "release\xianyu-hunter"
 $size = (Get-ChildItem -Recurse $distDir | Measure-Object -Property Length -Sum).Sum / 1MB
+# 收尾自检：安装包是本脚本的对外产物，缺了就不能算「构建完成」
+$finalVersion = "0.0.0.0"
+if (Test-Path $versionFile) {
+    $fvLine = Get-Content $versionFile | Where-Object { $_ -match '__version__' } | Select-Object -First 1
+    if ($fvLine -match '"([^"]+)"') { $finalVersion = $matches[1] }
+}
+$finalSetup = "release\XianyuHunter-Setup-v$finalVersion.exe"
+if (-not (Test-Path -LiteralPath $finalSetup -PathType Leaf) -or (Get-Item -LiteralPath $finalSetup).Length -le 0) {
+    throw "构建收尾自检失败：未找到可用的安装包 $finalSetup"
+}
+$pyprojectVersion = Get-BuildVersion
+if ($pyprojectVersion -and $pyprojectVersion -ne $finalVersion) {
+    throw "构建收尾自检失败：pyproject 版本 $pyprojectVersion 与 __init__.py 版本 $finalVersion 不一致，安装包/侧车会对不上"
+}
+$finalLite = "release\XianyuHunter-Setup-v$finalVersion-Lite.exe"
+if ($BundleBrowser -and (-not (Test-Path -LiteralPath $finalLite -PathType Leaf) -or
+                          (Get-Item -LiteralPath $finalLite).Length -le 0)) {
+    throw "构建收尾自检失败：-BundleBrowser 模式缺少 Lite 安装包 $finalLite"
+}
+
+# 构建侧车（build sidecar）：把「这次构建到底产出了什么」落盘成机器可校验的事实。
+# 发布脚本 -SkipBuild 复跑时不再依赖“目录里最新文件”猜测，而是逐项比对
+# 版本 / 名称 / 字节数 / SHA256 / Full-Lite 形态；资产被替换或过期会直接失败。
+$manifestPath = Join-Path $distDir "bundle-manifest.json"
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "构建收尾自检失败：缺少 bundle-manifest.json：$manifestPath"
+}
+$distManifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
+if ([bool]$distManifest.bundle_browser -ne [bool]$BundleBrowser) {
+    throw ("构建收尾自检失败：bundle-manifest.json 的 bundle_browser={0} 与构建参数 {1} 不一致" -f `
+           $distManifest.bundle_browser, [bool]$BundleBrowser)
+}
+$sidecarAssets = @()
+$assetSpecs = @(
+    @{ Path = $finalSetup; Kind = "full" }
+)
+if ($BundleBrowser) {
+    $assetSpecs += @{ Path = "release\XianyuHunter-Setup-v$finalVersion-Lite.exe"; Kind = "lite" }
+}
+foreach ($spec in $assetSpecs) {
+    if (-not (Test-Path -LiteralPath $spec.Path -PathType Leaf)) { continue }
+    $fi = Get-Item -LiteralPath $spec.Path
+    if ($fi.Length -le 0) { throw "构建收尾自检失败：资产为 0 字节 $($spec.Path)" }
+    $sidecarAssets += [ordered]@{
+        name = $fi.Name
+        path = $spec.Path
+        size = [int64]$fi.Length
+        sha256 = (Get-FileHash -LiteralPath $spec.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        kind = $spec.Kind
+    }
+}
+$sidecar = [ordered]@{
+    schema = 1
+    version = $finalVersion
+    built_at = (Get-Date).ToString("o")
+    embedding_engine = $EmbeddingEngine
+    bundle_browser = [bool]$BundleBrowser
+    dist = $distDir
+    manifest = [ordered]@{
+        path = $manifestPath
+        sha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        bundle_browser = [bool]$distManifest.bundle_browser
+        version = $distManifest.version
+    }
+    assets = $sidecarAssets
+}
+$sidecarPath = "release\XianyuHunter-Setup-v$finalVersion.build.json"
+[System.IO.File]::WriteAllText(
+    (Join-Path $repoRoot $sidecarPath),
+    (($sidecar | ConvertTo-Json -Depth 10) + "`n"),
+    (New-Object System.Text.UTF8Encoding($false))
+)
+Write-Host "  构建侧车: $sidecarPath" -ForegroundColor DarkGray
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "  构建完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  产物目录: $distDir"
 Write-Host ("  产物大小: {0:N1} MB" -f $size)
 Write-Host "  EXE 路径: $distDir\xianyu-hunter.exe"
+Write-Host ("  安装包  : {0}（{1:N1} MB）" -f $finalSetup, ((Get-Item -LiteralPath $finalSetup).Length / 1MB))
+if ($BundleBrowser) {
+    $finalLite = "release\XianyuHunter-Setup-v$finalVersion-Lite.exe"
+    if (Test-Path -LiteralPath $finalLite) {
+        Write-Host ("  Lite    : {0}（{1:N1} MB）" -f $finalLite, ((Get-Item -LiteralPath $finalLite).Length / 1MB))
+    }
+}
 Write-Host "========================================" -ForegroundColor Green

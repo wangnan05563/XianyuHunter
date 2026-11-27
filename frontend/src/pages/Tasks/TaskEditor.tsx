@@ -507,7 +507,7 @@ export default function TaskEditor() {
   const showStepErrors = (errors: StepError[]) => {
     setStepErrors(Object.fromEntries(errors.map((e) => [e.field, e.message])))
     const first = errors[0]
-    message.warning(`${STEP_TITLES[first.step]}：${first.message}`)
+    message.warning({ content: `${STEP_TITLES[first.step]}：${first.message}`, key: 'task-step-error' })
     const anchor = FIELD_ANCHORS[first.field]
     if (anchor) {
       // 跳步被拦时把用户带回第一个出错的步骤，并滚动到该字段

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import os
 import re
 import runpy
@@ -98,12 +99,30 @@ def _setup_env() -> None:
     sys.path.insert(0, str(Path(sys.executable).resolve().parent / "_internal"))
     from xianyu_hunter.paths import get_app_dir
     app_dir = get_app_dir()
-    # Playwright 浏览器路径：Full 包随安装包分发；Lite 包没有该目录，
-    # 此时指向可写的用户目录，让「首启下载兜底」装得进 %APPDATA%（安装目录只读）
+    # Playwright 浏览器路径：Full 包随安装包分发；Lite 包指向可写的用户目录，
+    # 让「首启下载兜底」装得进 %APPDATA%（安装目录只读）。
+    # 关键：不能用「playwright_browsers 目录是否存在」判断 Full。Full 的内核目录
+    # 可能被安全软件整个隔离，此时仍必须指向应用目录，让运行时报“安装包不完整”，
+    # 而不是把它当 Lite 静默下载。Full/Lite 身份以应用根目录 bundle-manifest.json 为准。
     _pw_dir = app_dir / "playwright_browsers"
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
-        str(_pw_dir) if _pw_dir.exists() else str(_appdata / "playwright_browsers")
-    )
+    _manifest = app_dir / "bundle-manifest.json"
+    _bundle_state: bool | None = None
+    try:
+        _data = json.loads(_manifest.read_text(encoding="utf-8"))
+        if isinstance(_data, dict) and isinstance(_data.get("bundle_browser"), bool):
+            _bundle_state = _data["bundle_browser"]
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        _bundle_state = None
+
+    if _bundle_state is True:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_pw_dir)
+    elif _bundle_state is False:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_appdata / "playwright_browsers")
+    else:
+        # 旧包没有 manifest：沿用旧行为，目录存在就认为随包/已下载路径。
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
+            str(_pw_dir) if _pw_dir.exists() else str(_appdata / "playwright_browsers")
+        )
     # sentence-transformers 模型路径：预置到 models/，避免首次运行联网下载
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(app_dir / "models")
     # 启用调度器：Web + 浏览器 + 任务引擎同进程

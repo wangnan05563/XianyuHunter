@@ -20,7 +20,7 @@ describe('首屏骨架屏（T02560）', () => {
 
   it('骨架屏声明为 status 区域，读屏能播报等待状态', () => {
     render(<FirstScreenSkeleton stage="login" />)
-    expect(document.querySelector('[role="status"]')).toBeTruthy()
+    expect(document.querySelector('[aria-live="polite"]')).toBeTruthy()
     expect(screen.getByText('正在跳转登录页…')).toBeTruthy()
   })
 

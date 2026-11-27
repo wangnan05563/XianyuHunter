@@ -4,6 +4,11 @@ import { TipButton } from '@/components/TipButton'
 import type { AppConfig } from '../../../../api'
 import type { ChannelDef } from '../constants'
 import { pricingMeta } from '../constants'
+import {
+  getCredentialDisplayValue,
+  getCredentialPlaceholder,
+  isRedactedCredential,
+} from '../notifierModel'
 
 interface ChannelCardProps {
   // 标记 readonly 以表达「父级传入后子组件不应修改」的契约（SonarQube S6759）
@@ -28,70 +33,100 @@ export default function ChannelCard({
   onTest,
 }: ChannelCardProps) {
   const meta = pricingMeta[ch.pricing]
+  const root = config as unknown as Record<string, unknown>
 
   return (
     <Card
       size="small"
-      // 反转条件避免否定式，提升可读性（SonarQube S7735）
-      className={`channel-card ${ch.enabled ? '' : 'channel-card-disabled'}`}
-      style={{ border: ch.enabled ? '1px solid #1677ff' : '1px solid #d9d9d9' }}
+      className="channel-card notifier-channel-card"
+      data-enabled={ch.enabled ? 'true' : 'false'}
+      data-testid={`channel-card-${ch.key}`}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="notifier-channel-head">
         <Space align="start">
-          <span style={{ fontSize: 20, lineHeight: '24px' }}>{ch.icon}</span>
+          <span className="notifier-channel-icon" aria-hidden="true">{ch.icon}</span>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600 }}>{ch.name}</span>
-              <Tag color={meta.color} style={{ fontSize: 10, margin: 0, lineHeight: '18px' }}>
+            <div className="notifier-channel-title">
+              <span className="notifier-channel-name">{ch.name}</span>
+              <Tag color={meta.color} className="notifier-mini-tag">
                 {meta.label}
               </Tag>
               {ch.recommended && (
                 <Tooltip title="免费且无每日限制的微信推送渠道，推荐优先使用">
-                  <Tag color="gold" icon={<StarFilled />} style={{ fontSize: 10, margin: 0, lineHeight: '18px' }}>
+                  <Tag color="gold" icon={<StarFilled />} className="notifier-mini-tag">
                     推荐
                   </Tag>
                 </Tooltip>
               )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--xh-text-tertiary)', marginTop: 2 }}>
+            <div className="notifier-channel-desc">
               {ch.desc}
               {ch.limits && (
-                <span style={{ marginLeft: 4, color: 'var(--xh-text-secondary)' }}>· {ch.limits}</span>
+                <span className="notifier-channel-limits">· {ch.limits}</span>
               )}
             </div>
           </div>
         </Space>
-        <Switch checked={ch.enabled} onChange={(v) => onToggle(ch.key, v)} />
+        <Switch
+          checked={ch.enabled}
+          onChange={(v) => onToggle(ch.key, v)}
+          aria-label={`${ch.name}启用状态`}
+          data-testid={`channel-switch-${ch.key}`}
+        />
       </div>
 
       {ch.obtainUrl && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+        <div className="notifier-channel-obtain">
           <Typography.Link
             href={ch.obtainUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontSize: 12 }}
           >
-            获取 <LinkOutlined />
+            获取凭据 <LinkOutlined />
           </Typography.Link>
         </div>
       )}
 
       {ch.enabled && (
-        <div style={{ marginTop: 12 }}>
-          {ch.fields.map((field) => (
-            <div key={field.key} style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--xh-text-secondary)', marginBottom: 4 }}>{field.label}</div>
-              <Input.Password
-                placeholder={field.placeholder}
-                value={(config as unknown as Record<string, unknown>)[field.key] as string}
-                onChange={(e) => onFieldChange(ch.key, field.key, e.target.value)}
-                size="small"
-              />
-            </div>
-          ))}
+        <div className="notifier-channel-fields">
+          {ch.fields.map((field) => {
+            const raw = typeof root[field.key] === 'string' ? root[field.key] as string : ''
+            const displayValue = getCredentialDisplayValue(raw)
+            const redacted = isRedactedCredential(raw)
+            const inputId = `notifier-field-${field.key}`
+            return (
+              <div key={field.key} className="notifier-field">
+                <label htmlFor={inputId} className="notifier-field-label">
+                  {field.label}
+                  {field.optional && <span className="notifier-field-optional">（可选）</span>}
+                </label>
+                {field.secret ? (
+                  <Input.Password
+                    id={inputId}
+                    size="middle"
+                    placeholder={getCredentialPlaceholder(field, raw)}
+                    value={displayValue}
+                    onChange={(e) => onFieldChange(ch.key, field.key, e.target.value)}
+                    autoComplete="new-password"
+                  />
+                ) : (
+                  <Input
+                    id={inputId}
+                    size="middle"
+                    placeholder={getCredentialPlaceholder(field, raw)}
+                    value={displayValue}
+                    onChange={(e) => onFieldChange(ch.key, field.key, e.target.value)}
+                    autoComplete="off"
+                  />
+                )}
+                {redacted && (
+                  <div className="notifier-field-hint">服务端已脱敏；留空测试会使用已保存凭据</div>
+                )}
+              </div>
+            )
+          })}
           <TipButton
-            tip="向该渠道发送测试推送消息"
+            tip="向该渠道发送一条测试推送；未填写字段会使用已保存凭据"
             size="small"
             type="dashed"
             icon={<SendOutlined />}
@@ -99,6 +134,8 @@ export default function ChannelCard({
             block
             loading={testing}
             disabled={anyTesting && !testing}
+            aria-label={`${ch.name}发送测试`}
+            data-testid={`test-channel-${ch.key}`}
           >
             {testing ? '发送中...' : '发送测试'}
           </TipButton>

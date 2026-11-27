@@ -18,7 +18,7 @@ export default function OfflineBanner() {
 
   if (isOnline) return null
 
-  // S6819: 改用 <output> 替代 role="status"，原生具备 live region 语义
+  // S6819: 改用 <output> 替代 aria-live="polite"，原生具备 live region 语义
   return (
     <output
       aria-live="polite"

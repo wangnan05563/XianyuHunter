@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,18 +18,35 @@ def _fake_chromium(root: Path, rev: int = 1223, layout: str = "chrome-win64") ->
     """造一个 chromium-<rev> 目录。默认用新版 Playwright 的 chrome-win64 布局
     （实测 .cache/playwright_browsers/chromium-1223/chrome-win64/chrome.exe）。
     layout="chrome-win" 模拟旧版，用于兼容回归。
+
+    chrome.dll / resources.pak / icudtl.dat 必须同时存在且非空：运行时的完整
+    性判据已经不再是“只认 chrome.exe”。
     """
     d = root / f"chromium-{rev}"
-    (d / layout).mkdir(parents=True, exist_ok=True)
-    (d / layout / "chrome.exe").write_bytes(b"")
+    layout_dir = d / layout
+    layout_dir.mkdir(parents=True, exist_ok=True)
+    exe_name = "chrome.exe" if layout.startswith("chrome-win") else "chrome"
+    for name in (exe_name, "chrome.dll", "resources.pak", "icudtl.dat"):
+        if name == "chrome.dll" and exe_name == "chrome":
+            continue
+        (layout_dir / name).write_bytes(b"x" * 4096)
     return d
 
 
 def _make_full_build_marker(app_dir: Path) -> None:
-    """模拟 build-exe.ps1 5.4 节写入的 Full 包标记。"""
+    """模拟旧版 build-exe.ps1 写在 playwright_browsers 内部的 Full 标记。"""
     pw = app_dir / "playwright_browsers"
     pw.mkdir(parents=True, exist_ok=True)
-    (pw / bk._BUNDLE_MARKER).write_text("test marker", encoding="utf-8")
+    (pw / bk._LEGACY_BUNDLE_MARKER).write_text("test marker", encoding="utf-8")
+
+
+def _make_bundle_manifest(app_dir: Path, bundle_browser: bool) -> None:
+    """模拟新版 build-exe.ps1 写在应用根目录的 Full/Lite 身份清单。"""
+    app_dir.mkdir(parents=True, exist_ok=True)
+    (app_dir / bk._BUNDLE_MANIFEST).write_text(
+        json.dumps({"bundle_browser": bundle_browser}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 @pytest.fixture
@@ -218,13 +236,18 @@ def test_is_bundled_build(monkeypatch, tmp_path):
 
     monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
 
-    # Full 构建（新包）：构建期显式标记 → True
+    # Full 构建（新包）：根目录 bundle-manifest.json → True
+    app_manifest = tmp_path / "app_manifest"
+    _make_bundle_manifest(app_manifest, True)
+    assert bk.is_bundled_build(app_manifest) is True
+
+    # Full 构建（旧包）：playwright_browsers 内部标记 → True
     app_dir = tmp_path / "app"
     _make_full_build_marker(app_dir)
     monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
     assert bk.is_bundled_build() is True
 
-    # Full 构建（旧包，无标记）：存在 chromium-* 完整内核子目录 → True
+    # 旧包无标记：存在 chromium-* 完整内核子目录 → True
     app_old = tmp_path / "app_old"
     _fake_chromium(app_old / "playwright_browsers")
     assert bk.is_bundled_build(app_old) is True
@@ -240,10 +263,21 @@ def test_is_bundled_build(monkeypatch, tmp_path):
     (app_dir3 / "playwright_browsers").mkdir(parents=True)
     assert bk.is_bundled_build(app_dir3) is False
 
+    # 更隐蔽的残留：playwright_browsers 下有空 chromium-* 子目录，但没有可用内核
+    app_dir_empty_child = tmp_path / "app_empty_child"
+    (app_dir_empty_child / "playwright_browsers" / "chromium-1223").mkdir(parents=True)
+    assert bk.is_bundled_build(app_dir_empty_child) is False
+
     # 只有 headless_shell 也不算随包完整内核
     app_dir4 = tmp_path / "app4"
     (app_dir4 / "playwright_browsers" / "chromium_headless_shell-1223").mkdir(parents=True)
     assert bk.is_bundled_build(app_dir4) is False
+
+    # Lite manifest 必须压过旧包残留的完整目录/旧标记
+    app_lite_manifest = tmp_path / "app_lite_manifest"
+    _make_bundle_manifest(app_lite_manifest, False)
+    _fake_chromium(app_lite_manifest / "playwright_browsers")
+    assert bk.is_bundled_build(app_lite_manifest) is False
 
     # 显式 root 可测，不依赖全局状态
     assert bk.is_bundled_build(tmp_path / "x") is False
@@ -271,6 +305,26 @@ def test_full_build_missing_chromium_reports_integrity_not_download(system_brows
     assert "安装包" in msg and ("完整性" in msg or "不完整" in msg)
     assert str(app_dir / "playwright_browsers") in msg
     # T05717 回归：报错必须自带目录内容，便于用户不重装即可自查
+    assert "实际目录内容" in msg
+
+
+def test_full_manifest_survives_whole_kernel_dir_removed(system_browsers, monkeypatch, tmp_path):
+    """整个 playwright_browsers 被删/隔离时，根 manifest 仍能识别 Full 并拒绝下载。"""
+    system_browsers["msedge"] = system_browsers["chrome"] = None
+    app_dir = tmp_path / "app"
+    _make_bundle_manifest(app_dir, True)  # 只有根清单，没有 playwright_browsers
+    monkeypatch.setattr(bk.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("xianyu_hunter.paths.get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(bk, "bundled_chromium_dir", lambda root=None: None)
+    monkeypatch.setattr(bk, "browsers_dir", lambda: app_dir / "playwright_browsers")
+    calls = []
+    monkeypatch.setattr(bk, "_install_chromium", lambda dest: calls.append(dest))
+
+    with pytest.raises(bk.BrowserKernelUnavailable) as ei:
+        bk.resolve_kernel("auto", allow_download=True)
+    assert not calls, "Full manifest 存在时绝不能因目录被删而转下载"
+    msg = str(ei.value)
+    assert str(app_dir / "playwright_browsers") in msg
     assert "实际目录内容" in msg
 
 
@@ -342,10 +396,8 @@ def test_real_cache_layout_chrome_win64_is_resolved(system_browsers, monkeypatch
     """复现用户场景：按 .cache/playwright_browsers 真实结构造目录，必须解析出随包内核。"""
     system_browsers["msedge"] = system_browsers["chrome"] = None
     pw = tmp_path / "playwright_browsers"
-    # 完整内核：新版布局
-    full = pw / "chromium-1223"
-    (full / "chrome-win64").mkdir(parents=True)
-    (full / "chrome-win64" / "chrome.exe").write_bytes(b"")
+    # 完整内核：新版布局（helper 会同时造 chrome.dll / resources.pak / icudtl.dat）
+    full = _fake_chromium(pw, rev=1223, layout="chrome-win64")
     (full / "INSTALLATION_COMPLETE").write_bytes(b"")
     # headless_shell 同目录共存（Full 包构建时会剔除，但即便残留也不能被误认）
     shell = pw / "chromium_headless_shell-1223"
@@ -376,10 +428,26 @@ def test_chromium_executable_supports_both_layouts(tmp_path):
 def test_chromium_executable_fallback_for_unknown_future_layout(tmp_path):
     """未来 Playwright 再改目录名时，glob 兜底仍能找到 chrome.exe。"""
     d = tmp_path / "chromium-9999"
-    (d / "chrome-future-win").mkdir(parents=True)
-    (d / "chrome-future-win" / "chrome.exe").write_bytes(b"")
-    assert bk.chromium_executable(d) == d / "chrome-future-win" / "chrome.exe"
+    future = d / "chrome-future-win"
+    future.mkdir(parents=True)
+    for name in ("chrome.exe", "chrome.dll", "resources.pak", "icudtl.dat"):
+        (future / name).write_bytes(b"x" * 4096)
+    assert bk.chromium_executable(d) == future / "chrome.exe"
     assert bk.bundled_chromium_dir(tmp_path) == d
+
+
+def test_chromium_executable_rejects_empty_exe_and_missing_dll(tmp_path):
+    """0 字节 exe、缺 chrome.dll 的“空壳内核”不能被判定为可用。"""
+    d = tmp_path / "chromium-1223"
+    (d / "chrome-win64").mkdir(parents=True)
+    (d / "chrome-win64" / "chrome.exe").write_bytes(b"")
+    assert bk.chromium_executable(d) is None
+
+    (d / "chrome-win64" / "chrome.exe").write_bytes(b"x" * 4096)
+    (d / "chrome-win64" / "resources.pak").write_bytes(b"x" * 4096)
+    (d / "chrome-win64" / "icudtl.dat").write_bytes(b"x" * 4096)
+    # chrome.dll 仍缺失
+    assert bk.chromium_executable(d) is None
 
 
 def test_bundled_dir_ignores_headless_shell_only(tmp_path):

@@ -20,7 +20,7 @@ export const FIRST_SCREEN_STAGE_LABELS: Record<FirstScreenStage, string> = {
  */
 export default function FirstScreenSkeleton({ stage }: { readonly stage: FirstScreenStage }) {
   return (
-    <Layout style={{ minHeight: '100vh' }} role="status" aria-live="polite">
+    <Layout style={{ minHeight: '100vh' }} aria-live="polite">
       <Header style={{ height: 56, lineHeight: '56px', padding: '0 24px', background: '#fff' }}>
         <Skeleton active title={{ width: 180 }} paragraph={false} />
       </Header>

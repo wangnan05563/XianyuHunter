@@ -14,7 +14,11 @@ function read(rel: string): string {
   return readFileSync(p, 'utf-8')
 }
 
-const page = () => read('frontend/src/pages/Config/BuyerStrategy.tsx')
+// 页面文案已随重构收进 buyerStrategyModel（页面直接渲染模型里的说明/状态文案），
+// 因此两处口径同时读页面与模型文件，避免仅因搬家就判失败。
+const page = () =>
+  read('frontend/src/pages/Config/BuyerStrategy.tsx') +
+  read('frontend/src/pages/Config/buyerStrategyModel.ts')
 const buyer = () => read('backend/xianyu_hunter/modules/buyer.py')
 const yamlConfig = () => read('backend/xianyu_hunter/infra/yaml_config.py')
 

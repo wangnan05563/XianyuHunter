@@ -1032,7 +1032,7 @@ export default function TaskList() {
 
       {loadError && (
         <Alert
-          type="error"
+          type={TASK_STATUS.ERROR}
           showIcon
           style={{ marginBottom: 16 }}
           message="任务列表加载失败"

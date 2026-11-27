@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { message } from 'antd'
 import dayjs from 'dayjs'
 import { evalApi, type EvalItem } from '../../../api'
 import type { ResultCategory } from './useEvalFilters'
@@ -15,6 +14,7 @@ export interface EvalListState {
   items: EvalItem[]
   total: number
   loading: boolean
+  loadError: string | null
   page: number
   pageSize: number
   setPage: (v: number) => void
@@ -41,6 +41,7 @@ export function useEvalList(
   const [items, setItems] = useState<EvalItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistentState<number>('xh.evals.pageSize', 20, {
@@ -50,8 +51,15 @@ export function useEvalList(
   const filtersRef = useRef(filters)
   filtersRef.current = filters
 
+  // 请求序号：深链落地会在首帧后再触发一次带 item_id 的查询，
+  // 若首帧那次「无筛选」请求后返回，会把正确结果覆盖成全量列表（实测 40 vs 1）。
+  // 只接受最后一次请求的响应，避免任何旧响应回写。
+  const requestSeq = useRef(0)
+
   const load = useCallback(() => {
+    const seq = ++requestSeq.current
     setLoading(true)
+    setLoadError(null)
     const f = filtersRef.current
     const params: Record<string, unknown> = {
       page_num: page,
@@ -73,6 +81,7 @@ export function useEvalList(
 
     evalApi.list(params)
       .then((res) => {
+        if (seq !== requestSeq.current) return
         const items = (res.items || []).map(it => ({
           ...it,
           payload: it.payload ?? ({ score: 0 } as EvalItem['payload']),
@@ -80,8 +89,16 @@ export function useEvalList(
         setItems(items)
         setTotal(res.total || res.count || 0)
       })
-      .catch(() => message.error('加载评估列表失败'))
-      .finally(() => setLoading(false))
+      .catch(() => {
+        if (seq === requestSeq.current) {
+          setLoadError('加载评估列表失败，请点击重试')
+          setItems([])
+          setTotal(0)
+        }
+      })
+      .finally(() => {
+        if (seq === requestSeq.current) setLoading(false)
+      })
   }, [page, pageSize])
 
   useEffect(() => { load() }, [load])
@@ -90,6 +107,7 @@ export function useEvalList(
     items,
     total,
     loading,
+    loadError,
     page,
     pageSize,
     setPage,

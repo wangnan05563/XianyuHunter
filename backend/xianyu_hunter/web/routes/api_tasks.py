@@ -141,35 +141,40 @@ class TaskUpdate(BaseModel):
 def list_tasks(
     request: Request,
     status: str | None = None,
+    q: str | None = None,
     limit: int = 50,
     offset: int = 0,
     container: Container = Depends(get_container),
 ) -> dict[str, Any]:
-    """列出任务；支持 status 过滤 + limit/offset 分页。
+    """列出任务；支持 status 过滤、关键词搜索、limit/offset 分页。
 
     - 默认 limit=50：百级任务列表一次性够用，避免前端渲染 1k+ 节点
     - 客户端渲染器会自己再细分页（前端 pageSize=20）
     - 同时返回 total 字段，前端用来算总页数
     - 多用户隔离：按 request.state.user_id 过滤当前账号任务
+    - q：任务名 / 关键词 / 任务 ID 模糊匹配（走 SQL，保证跨页搜索命中）
     """
     # 防滥用：限制 limit 上限，避免一次性拉 1w 行拖垮 sqlite
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    # 搜索词做长度与空白裁剪，避免超长 LIKE 串拖慢查询
+    keyword = (q or "").strip()[:64] or None
     # repo 层已默认排除 deleted 任务，统一由 SQL 层过滤以保证 limit/offset 准确性
     effective_status = status
     # 与 _check_task_ownership 保持一致：用 "default" 兜底，避免 user_id=None 时
     # list_tasks_with_last_seen / count_tasks 不附加 WHERE user_id 过滤导致跨用户泄露
     user_id = getattr(request.state, "user_id", "default")
     rows = container.repo.list_tasks_with_last_seen(
-        status=effective_status, limit=limit, offset=offset, user_id=user_id,
+        status=effective_status, limit=limit, offset=offset, user_id=user_id, q=keyword,
     )
-    total = container.repo.count_tasks(status=effective_status, user_id=user_id)
+    total = container.repo.count_tasks(status=effective_status, user_id=user_id, q=keyword)
     return {
         "items": rows,
         "count": len(rows),
         "total": total,
         "limit": limit,
         "offset": offset,
+        "q": keyword,
     }
 
 

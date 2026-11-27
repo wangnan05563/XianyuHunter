@@ -13,8 +13,8 @@ import {
   Switch,
   Radio,
   Steps,
-  message,
   Spin,
+  App,
 } from 'antd'
 import {
   PlayCircleOutlined,
@@ -31,7 +31,13 @@ import { TUNNEL_PROVIDERS, TUNNEL_PROVIDER_OPTIONS } from './tunnelProviders'
 import { TipButton } from '@/components/TipButton'
 import { confirmDanger } from '@/components/DangerSummary'
 
-const { Text, Paragraph } = Typography
+const { Text, Title, Paragraph } = Typography
+
+interface TunnelMessageApi {
+  success: (content: string) => void
+  error: (content: string) => void
+  warning: (content: string) => void
+}
 
 // Named Tunnel 向导步骤定义
 const WIZARD_STEPS = [
@@ -45,16 +51,16 @@ async function pollCloudflareLogin(callbacks: {
   onStop: () => void
   onConfigChanged: () => void
   onAuthUrl: (url: string) => void
-}) {
+}, messageApi: TunnelMessageApi) {
   try {
     const result = await tunnelApi.cloudflareLoginStatus()
     if (result.status === 'success') {
       callbacks.onStop()
-      message.success(result.message || '授权成功')
+      messageApi.success(result.message || '授权成功')
       callbacks.onConfigChanged()
     } else if (result.status === 'failed') {
       callbacks.onStop()
-      message.error(result.message || '登录失败')
+      messageApi.error(result.message || '登录失败')
       if (result.output) {
         console.error('cloudflared login 输出:', result.output)
       }
@@ -64,14 +70,14 @@ async function pollCloudflareLogin(callbacks: {
     } else if (result.status === 'idle') {
       // provider 被重置（服务重启等），停止轮询
       callbacks.onStop()
-      message.warning('登录会话已失效，请重新点击执行登录')
+      messageApi.warning('登录会话已失效，请重新点击执行登录')
     } else if (result.auth_url) {
       // waiting：更新授权 URL（start 时可能未拿到，轮询时才拿到）
       callbacks.onAuthUrl(result.auth_url)
     }
   } catch (error: any) {
     callbacks.onStop()
-    message.error(error?.response?.data?.detail || '轮询登录状态失败')
+    messageApi.error(error?.response?.data?.detail || '轮询登录状态失败')
   }
 }
 
@@ -166,12 +172,14 @@ export function wizardLockedTips(config: TunnelConfig): { create: string; dns: s
 }
 
 /** 停止隧道的确认四要素文案（4.6-5：停止是破坏性操作，且地址会变） */
-export function buildTunnelStopCopy(provider: string, publicUrl: string | null) {
+export function buildTunnelStopCopy(provider: string, publicUrl: string | null, localPort?: number) {
+  const portText = typeof localPort === 'number' && localPort > 0 ? String(localPort) : '（未读取到）'
+  const providerLabel = TUNNEL_PROVIDERS[provider]?.label || provider
   return {
     title: '停止当前隧道？',
     action: '停掉正在运行的隧道进程',
-    scope: `公网地址 ${publicUrl || '（未获取到）'}，本地端口转发到已保存的 local_port`,
-    count: '正在运行的隧道 1 条（' + provider + '）',
+    scope: `公网地址 ${publicUrl || '（未获取到）'}，本地端口 ${portText} 转发到公网`,
+    count: `正在运行的隧道 1 条（${providerLabel}，本地端口 ${portText}）`,
     recovery: publicUrl
       ? '隧道停止后该地址立即无法访问；重新启动会拿到新的随机地址（快速模式），已分享出去的链接需要重新提供。固定域名模式重启后地址不变。'
       : '重新启动后需重新复制新的公网地址。',
@@ -187,14 +195,14 @@ async function doCloudflareLogin(handlers: {
   onSetAuthUrl: (url: string) => void
   onStartPoll: () => void
   onEndLoading: () => void
-}) {
+}, messageApi: TunnelMessageApi) {
   handlers.onStartLoading()
   handlers.onResetAuthUrl()
   handlers.onStopPoll()
   try {
     const result = await tunnelApi.cloudflareLoginStart()
     if (result.status === 'failed') {
-      message.error(result.message || '登录启动失败')
+      messageApi.error(result.message || '登录启动失败')
       if (result.output) {
         console.error('cloudflared login 输出:', result.output)
       }
@@ -206,7 +214,7 @@ async function doCloudflareLogin(handlers: {
     }
     handlers.onStartPoll()
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || '登录启动失败')
+    messageApi.error(error?.response?.data?.detail || '登录启动失败')
   } finally {
     handlers.onEndLoading()
   }
@@ -221,6 +229,7 @@ function NamedTunnelWizard({
   readonly config: TunnelConfig
   readonly onConfigChanged: () => void
 }) {
+  const { message: messageApi } = App.useApp()
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginAuthUrl, setLoginAuthUrl] = useState<string | null>(null)
   const [loginPolling, setLoginPolling] = useState(false)
@@ -260,8 +269,8 @@ function NamedTunnelWizard({
       onStop: stopLoginPoll,
       onConfigChanged,
       onAuthUrl: handleAuthUrl,
-    }), 2500)
-  }, [stopLoginPoll, onConfigChanged, handleAuthUrl])
+    }, messageApi), 2500)
+  }, [stopLoginPoll, onConfigChanged, handleAuthUrl, messageApi])
 
   const handleLogin = () => doCloudflareLogin({
     onStartLoading: () => setLoginLoading(true),
@@ -270,20 +279,20 @@ function NamedTunnelWizard({
     onSetAuthUrl: setLoginAuthUrl,
     onStartPoll: startLoginPoll,
     onEndLoading: () => setLoginLoading(false),
-  })
+  }, messageApi)
 
   const handleCreate = async () => {
     if (!createName.trim()) {
-      message.warning('请输入隧道名称')
+      messageApi.warning('请输入隧道名称')
       return
     }
     setCreateLoading(true)
     try {
       const result = await tunnelApi.cloudflareCreate({ tunnel_name: createName.trim() })
-      message.success(result.message)
+      messageApi.success(result.message)
       onConfigChanged()
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || '创建隧道失败')
+      messageApi.error(error?.response?.data?.detail || '创建隧道失败')
     } finally {
       setCreateLoading(false)
     }
@@ -291,7 +300,7 @@ function NamedTunnelWizard({
 
   const handleRouteDns = async () => {
     if (!dnsHostname.trim()) {
-      message.warning('请输入固定域名')
+      messageApi.warning('请输入固定域名')
       return
     }
     setDnsLoading(true)
@@ -300,10 +309,10 @@ function NamedTunnelWizard({
         tunnel_name_or_id: config.tunnel_name || config.tunnel_id,
         hostname: dnsHostname.trim(),
       })
-      message.success(result.message)
+      messageApi.success(result.message)
       onConfigChanged()
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'DNS 路由配置失败')
+      messageApi.error(error?.response?.data?.detail || 'DNS 路由配置失败')
     } finally {
       setDnsLoading(false)
     }
@@ -416,6 +425,7 @@ function NamedTunnelWizard({
           <Row gutter={8}>
             <Col flex="auto">
               <Input
+                aria-label="隧道名称"
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder="隧道名称（英文 + 连字符）"
@@ -457,6 +467,7 @@ function NamedTunnelWizard({
           <Row gutter={8}>
             <Col flex="auto">
               <Input
+                aria-label="固定域名"
                 value={dnsHostname}
                 onChange={(e) => setDnsHostname(e.target.value)}
                 placeholder="固定域名（如 app.example.com）"
@@ -494,7 +505,37 @@ function resolveSaveButtonTip(config: TunnelConfig | null, isRunning: boolean): 
   return '保存隧道配置（下次启动生效）'
 }
 
-export default function Tunnel() {
+// S3358：启动按钮提示改用 if/else，避免嵌套三元
+function resolveStartButtonTip(isRunning: boolean, statusUnavailable: boolean): string {
+  if (isRunning) return '启动隧道建立公网连接'
+  if (statusUnavailable) return '状态或配置未加载成功，暂无法启动隧道'
+  return '启动隧道建立公网连接'
+}
+
+function TunnelHeader() {
+  return (
+    <header
+      data-testid="tunnel-header"
+      style={{
+        marginBottom: 16,
+        padding: '18px 20px',
+        borderRadius: 10,
+        border: '1px solid var(--xh-border-color)',
+        background: 'var(--xh-bg-container)',
+      }}
+    >
+      <Title level={1} style={{ margin: 0, fontSize: 24, lineHeight: 1.35 }}>
+        内网穿透
+      </Title>
+      <Text type="secondary" style={{ display: 'inline-block', marginTop: 6, fontSize: 13 }}>
+        把本地控制台暴露到公网，支持 Cloudflare Tunnel、cpolar 与 Tailscale Funnel
+      </Text>
+    </header>
+  )
+}
+
+export default function Tunnel() { // NOSONAR S3776：页面级容器组件，主体为组合式子组件与条件渲染；再拆分需跨组件传参与状态提升，回归风险大于收益
+  const { message: messageApi, modal: modalApi } = App.useApp()
   const [status, setStatus] = useState<TunnelStatus | null>(null)
   const [config, setConfig] = useState<TunnelConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -613,19 +654,19 @@ export default function Tunnel() {
     try {
       const data = await tunnelApi.start()
       setStatus(data)
-      message.success('隧道已启动')
+      messageApi.success('隧道已启动')
     } catch (error: any) {
       // 检查是否为下载失败错误
       const errData = error?.response?.data
       if (errData?.error_type === 'binary_download_failed') {
         setDownloadError(errData)
-        message.error('二进制下载失败，请按提示手动放置')
+        messageApi.error('二进制下载失败，请按提示手动放置')
       } else if (errData?.error_type === 'tailscale_funnel_auth') {
         // Tailscale 首次启用 Funnel 需用户在浏览器完成授权
         setTailscaleAuthError(errData)
-        message.error('需要在 Tailscale 管理后台完成授权')
+        messageApi.error('需要在 Tailscale 管理后台完成授权')
       } else {
-        message.error(errData?.detail || '隧道启动失败')
+        messageApi.error(errData?.detail || '隧道启动失败')
       }
     } finally {
       setStarting(false)
@@ -637,22 +678,22 @@ export default function Tunnel() {
   // 旧实现一键直接断，用户是在「试一下」的心态下把现网连接掐掉的。
   const handleStop = async () => {
     // 运行中的 provider 以后端 status 为准，表单值只是草稿
-    const copy = buildTunnelStopCopy(status?.provider || formProvider, status?.public_url ?? null)
+    const copy = buildTunnelStopCopy(status?.provider || formProvider, status?.public_url ?? null, config?.local_port)
     const confirmed = await confirmDanger({
       title: copy.title,
       action: copy.action,
       scope: copy.scope,
       count: copy.count,
       recovery: copy.recovery,
-    })
+    }, modalApi)
     if (!confirmed) return
     setStopping(true)
     try {
       const data = await tunnelApi.stop()
       setStatus(data)
-      message.success('隧道已关闭，公网地址已失效')
+      messageApi.success('隧道已关闭，公网地址已失效')
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || '停止失败')
+      messageApi.error(error?.response?.data?.detail || '停止失败')
     } finally {
       setStopping(false)
     }
@@ -682,14 +723,14 @@ export default function Tunnel() {
       const wasRunning = status?.status === 'running'
       const copy = buildTunnelSaveCopy(result, autoStart, wasRunning)
       if (copy.level === 'warning') {
-        message.warning(copy.text)
+        messageApi.warning(copy.text)
       } else {
-        message.success(copy.text)
+        messageApi.success(copy.text)
       }
       await loadConfig()
       return true
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || '配置保存失败')
+      messageApi.error(error?.response?.data?.detail || '配置保存失败')
       return false
     } finally {
       setSavingConfig(false)
@@ -710,7 +751,7 @@ export default function Tunnel() {
         count: `正在运行的隧道 1 条（${formProvider}，本地端口 ${formPort}）`,
         recovery: '需手动点「启动隧道」重新拉起；未配置固定 named tunnel 时，重启后的公网地址会与当前地址不同，'
           + '已分享出去的链接需要重新提供',
-      })
+      }, modalApi)
       if (!ok) return
     }
     await handleSaveConfig()
@@ -718,8 +759,11 @@ export default function Tunnel() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
-        <Spin size="large" />
+      <div className="page-container" data-testid="tunnel-page" style={{ marginRight: 80 }}>
+        <TunnelHeader />
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
+          <Spin size="large" />
+        </div>
       </div>
     )
   }
@@ -733,7 +777,9 @@ export default function Tunnel() {
   const saveButtonTip = resolveSaveButtonTip(config, isRunning)
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <div className="page-container" data-testid="tunnel-page" style={{ marginRight: 80 }}>
+      <TunnelHeader />
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       {/* 4.6-3：加载失败如实渲染并可重试，而不是让页面继续显示一个编出来的「已停止」 */}
       {(loadErrors.status || loadErrors.config) && (
         <Alert
@@ -799,11 +845,11 @@ export default function Tunnel() {
           <Col>
             <Space>
               <TipButton
-                tip="启动隧道建立公网连接"
+                tip={resolveStartButtonTip(isRunning, loadErrors.status != null || config == null)}
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 loading={starting}
-                disabled={isRunning}
+                disabled={isRunning || loadErrors.status != null || config == null}
                 onClick={handleStart}
               >
                 启动隧道
@@ -918,6 +964,7 @@ export default function Tunnel() {
           <div>
             <Text strong>穿透服务</Text>
             <Select
+              aria-label="穿透服务"
               value={formProvider}
               onChange={setFormProvider}
               style={{ width: '100%', marginTop: 4 }}
@@ -933,6 +980,7 @@ export default function Tunnel() {
             <div>
               <Text strong>隧道模式</Text>
               <Radio.Group
+                aria-label="隧道模式"
                 value={formTunnelMode}
                 onChange={(e) => setFormTunnelMode(e.target.value)}
                 style={{ marginTop: 4, display: 'block' }}
@@ -981,6 +1029,7 @@ export default function Tunnel() {
                 <Tag color="blue" style={{ marginLeft: 8 }}>已配置（{config.cpolar_authtoken_masked}）</Tag>
               )}
               <Input.Password
+                aria-label="cpolar Authtoken"
                 value={formAuthtoken}
                 onChange={(e) => setFormAuthtoken(e.target.value)}
                 placeholder={config?.cpolar_authtoken_configured ? '已配置，留空表示不修改' : '请输入 cpolar authtoken'}
@@ -1000,6 +1049,7 @@ export default function Tunnel() {
             <Col span={12}>
               <Text strong>本地端口</Text>
               <InputNumber
+                aria-label="本地端口"
                 value={formPort}
                 onChange={(v) => setFormPort(v || 0)}
                 min={0}
@@ -1011,6 +1061,7 @@ export default function Tunnel() {
             <Col span={12}>
               <Text strong>二进制路径（可选）</Text>
               <Input
+                aria-label="二进制路径（可选）"
                 value={formBinaryPath}
                 onChange={(e) => setFormBinaryPath(e.target.value)}
                 placeholder={isTailscale
@@ -1025,6 +1076,7 @@ export default function Tunnel() {
             <Col>
               <Space>
                 <Switch
+                  aria-label="开机自启动"
                   checked={formAutoStart}
                   onChange={setFormAutoStart}
                 />
@@ -1046,8 +1098,9 @@ export default function Tunnel() {
               message={`有 ${dirtyFields.length} 项未保存的修改：${dirtyFields.join('、')}`}
               description={
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  当前运行中的隧道用的仍是已保存的配置。点「保存配置」立即落库；
-                  点「启动隧道」会先自动保存这些修改再启动。
+                  {isRunning
+                    ? '当前运行中的隧道用的仍是已保存的配置。点「保存配置」会立即重建隧道并断开当前连接；点「启动隧道」会先自动保存这些修改。'
+                    : '当前已保存的配置尚未更新。点「保存配置」立即落库；点「启动隧道」会先自动保存这些修改再启动。'}
                 </Text>
               }
             />
@@ -1090,6 +1143,7 @@ export default function Tunnel() {
           </Space>
         }
       />
-    </Space>
+      </Space>
+    </div>
   )
 }

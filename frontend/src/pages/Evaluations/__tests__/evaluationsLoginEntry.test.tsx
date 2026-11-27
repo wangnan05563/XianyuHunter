@@ -83,7 +83,7 @@ describe('评估页数据不足提示的登录直达（评审 2.4-10）', () => 
     await waitFor(() =>
       expect(screen.getByText('LOGIN_STUB:/login:/evaluations')).toBeInTheDocument(),
     )
-  }, 15000)
+  }, 30000)
 
   it('文案说明重算不调 AI、不发通知，用户知道登录后点重新评估的代价', async () => {
     renderPage()

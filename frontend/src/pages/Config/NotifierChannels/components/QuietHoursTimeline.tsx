@@ -1,50 +1,41 @@
+import { getQuietHoursSlots } from '../notifierModel'
+
 interface QuietHoursTimelineProps {
-  // 标记 readonly 以表达「父级传入后子组件不应修改」的契约（SonarQube S6759）
   readonly start: string
   readonly end: string
 }
 
 export default function QuietHoursTimeline({ start, end }: QuietHoursTimelineProps) {
-  const startHour = Number.parseInt(start.split(':')[0])
-  const endHour = Number.parseInt(end.split(':')[0])
-  // 起始小时 > 结束小时表示跨午夜（如 23:00-07:00）
-  const isCrossMidnight = startHour > endHour
-
-  // 生成 24 小时时间轴，逐小时判断是否处于静默时段
-  const hours = Array.from({ length: 24 }, (_, i) => i)
-  const isQuiet = (hour: number) => {
-    if (isCrossMidnight) {
-      return hour >= startHour || hour < endHour
-    }
-    return hour >= startHour && hour < endHour
-  }
+  const slots = getQuietHoursSlots(start, end)
+  const quietCount = slots.filter((slot) => slot.quiet).length
 
   return (
     <div>
-      <div style={{ display: 'flex', height: 24, borderRadius: 4, overflow: 'hidden' }}>
-        {hours.map((h) => (
-          <div
-            key={h}
-            style={{
-              flex: 1,
-              background: isQuiet(h) ? '#ff4d4f' : '#52c41a',
-              opacity: isQuiet(h) ? 0.7 : 0.5,
-            }}
-            title={`${h}:00 - ${h + 1}:00 ${isQuiet(h) ? '（静默）' : '（推送）'}`}
+      <figure
+        className="notifier-timeline-bar"
+        aria-label={`免打扰时段时间轴：${start} 至 ${end}，静默 ${quietCount} 个半小时格`}
+        style={{ margin: 0 }}
+      >
+        {slots.map((slot) => (
+          <span
+            key={slot.index}
+            className={slot.quiet ? 'quiet' : 'active'}
+            title={slot.title}
+            data-testid={`quiet-slot-${slot.index}`}
+            aria-hidden="true"
           />
         ))}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--xh-text-tertiary)', marginTop: 4 }}>
+      </figure>
+      <div className="notifier-timeline-axis" aria-hidden="true">
         <span>00:00</span>
         <span>06:00</span>
         <span>12:00</span>
         <span>18:00</span>
         <span>24:00</span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--xh-text-tertiary)', marginTop: 4 }}>
-        {/* 用显式 {' '} 替代 &nbsp; 避免歧义空格（SonarQube S6772） */}
-        <span style={{ color: '#ff4d4f' }}>■</span>{' '}静默时段{' '}
-        <span style={{ color: '#52c41a' }}>■</span>{' '}推送时段
+      <div className="notifier-timeline-legend">
+        <span><span className="quiet-dot" aria-hidden="true" />静默时段</span>
+        <span><span className="active-dot" aria-hidden="true" />推送时段</span>
       </div>
     </div>
   )

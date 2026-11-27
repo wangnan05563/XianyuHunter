@@ -1,5 +1,5 @@
 import client from './client'
-import type { BargainEval, SoldPriceRange } from './types'
+import type { BargainEval, HistogramData, SoldPriceRange } from './types'
 
 // 单品类价格统计：count/min/max/mean/median/p10/p25/p75/p90
 export interface CategoryStat {
@@ -32,8 +32,10 @@ export type CategoryComparisonSortBy =
 
 // 价格 API：提供价格分布直方图、类目统计与 AI 分析
 export const priceApi = {
-  histogram: (params: { task_id?: string; range_hours?: number; bins?: number }) =>
-    client.get('/api/prices/histogram', { params }).then((r) => r.data),
+  // 后端契约：bins 为 [{min,max,count}] 对象数组，summary/scope/mode 同响应返回。
+  // 这里必须按 HistogramData 取值，不能再假设旧版字符串 bins + counts 数组。
+  histogram: (params: { task_id?: string; bins?: number }) =>
+    client.get<HistogramData>('/api/prices/histogram', { params }).then((r) => r.data),
 
   categoryStats: (params: { task_id?: string; range_hours?: number }) =>
     client.get<{ categories: CategoryStat[]; total_count: number }>(

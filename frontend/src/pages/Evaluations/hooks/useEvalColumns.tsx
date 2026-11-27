@@ -43,6 +43,7 @@ function FeedbackButton({
   return (
     <TipButton
       tip={title}
+      aria-label={`评估反馈：${title}`}
       size="small"
       type={active ? 'primary' : 'text'}
       ghost={active}
@@ -151,18 +152,21 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     {
       title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 120,
       ellipsis: true,
-      responsive: ['sm'] as ('sm' | 'md')[],
+      responsive: ['xxl'] as ('xxl')[],
       render: (v: string) => <Tooltip title={v}>{v?.slice(0, 10)}...</Tooltip>,
     },
     {
-      title: '图片', key: 'thumb', width: 70,
+      title: '图片', key: 'thumb', width: 70, fixed: 'left' as const,
+      responsive: ['xl'] as ('xl')[],
       render: (_: unknown, r: EvalItem) => {
         const url = r.payload?.thumb_url as string | undefined
         return <ThumbCell url={url} title={r.payload?.item_title} />
       },
     },
     {
-      title: '标题', key: 'title', width: 200, ellipsis: true,
+      // 19 列表格在 1280 下横向可视区只有 ~870px（面板收起后），标题固定左侧，
+      // 横向滚动查看评分/风险时仍能确认自己在看哪个商品
+      title: '标题', key: 'title', width: 200, ellipsis: true, fixed: 'left' as const,
       render: (_: unknown, r: EvalItem) => {
         const title = r.payload?.item_title || '—'
         const url = `https://www.goofish.com/item?id=${r.item_id}`
@@ -192,6 +196,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
       // 数据来源：后端 _enrich_bargain_and_profit 注入到 payload
       // 三态语义：正数=绿色（盈利，当前价低于均价）/ 负数=红色（亏损，当前价高于均价）/ null=灰色（无均价数据或当前价缺失）
       title: '预估盈利', key: 'estimated_profit', width: 110,
+      responsive: ['xxl'] as ('xxl')[],
       sorter: (a: EvalItem, b: EvalItem) => {
         // payload 字段为 unknown，需显式断言为 number | null | undefined
         const va = a.payload?.estimated_profit as number | null | undefined
@@ -229,6 +234,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '卖家', key: 'seller', width: 170, ellipsis: true,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const nick = r.payload?.seller_nick
         const id = r.payload?.seller_id
@@ -258,6 +264,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '地区', key: 'region', width: 90,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const region = r.payload?.region as string | undefined
         if (region) {
@@ -273,6 +280,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '品牌', key: 'brand', width: 90, ellipsis: true,
+      responsive: ['xl'] as ('xl')[],
       render: (_: unknown, r: EvalItem) => {
         const brand = r.payload?.brand
         if (brand) {
@@ -283,6 +291,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '想要', key: 'want', width: 60,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const w = r.payload?.want_cnt as number | undefined
         return w == null ? <span style={{ color: 'var(--xh-text-quaternary)' }}>—</span> : <span>{w}</span>
@@ -290,6 +299,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '浏览', key: 'view', width: 60,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const v = r.payload?.view_cnt as number | undefined
         return v == null ? <span style={{ color: 'var(--xh-text-quaternary)' }}>—</span> : <span>{v}</span>
@@ -297,7 +307,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '发布时间', key: 'publish', width: 160,
-      responsive: ['md'] as ('sm' | 'md')[],
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const formatted = formatPublishTime(r.payload?.publish_time as string | undefined)
         if (formatted) {
@@ -326,6 +336,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '成色', key: 'condition', width: 110,
+      responsive: ['xxl'] as ('xxl')[],
       filters: [
         { text: '全新', value: '全新' },
         { text: '近全新', value: '近全新' },
@@ -368,6 +379,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '成色标签', key: 'condition_tags', width: 150,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const tags = r.condition_tags || []
         if (tags.length === 0) return '—'
@@ -413,6 +425,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '风险', key: 'risk', width: 70,
+      responsive: ['xl'] as ('xl')[],
       render: (_: unknown, r: EvalItem) => {
         const level = r.payload?.risk_level || 'unknown'
         const cfg = RISK_LEVEL_CONFIG[level] || RISK_LEVEL_CONFIG.unknown
@@ -421,10 +434,12 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: 'AI', key: 'ai', width: 110,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => (
         <Space size={4}>
           <TipButton
             tip={aiOff ? AI_GATE_OFF_TIP : 'AI 成色评估'}
+            aria-label="AI 成色评估"
             size="small"
             icon={<RobotOutlined />}
             onClick={() => onAIEval(r.item_id)}
@@ -432,6 +447,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
           />
           <TipButton
             tip={aiOff ? AI_GATE_OFF_TIP : '深度鉴伪（盗图/损坏/一致性/模板）'}
+            aria-label="深度鉴伪"
             size="small"
             icon={<ThunderboltOutlined />}
             onClick={() => onDeepAnalyze(r.item_id)}
@@ -442,9 +458,11 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '官方采集', key: 'collect', width: 90,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => (
         <TipButton
           tip="访问闲鱼官方页面采集完整数据并重新评估"
+          aria-label="官方采集"
           size="small"
           type="default"
           icon={<CloudDownloadOutlined />}
@@ -455,6 +473,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '反馈', key: 'feedback', width: 110,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const current = r.payload?.feedback as 'accurate' | 'inaccurate' | 'partial' | undefined
         const submitting = feedbackSubmitting[r.item_id]
@@ -469,6 +488,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
     },
     {
       title: '订单', key: 'order_status', width: 90,
+      responsive: ['xxl'] as ('xxl')[],
       render: (_: unknown, r: EvalItem) => {
         const status = r.payload?.order_status
         if (status) {
@@ -493,6 +513,7 @@ export function useEvalColumns(params: UseEvalColumnsParams) {
         return (
           <TipButton
             tip={`手动抢单（评分 ${score.toFixed(0)} ≥ ${autoBuyScore}），点击后需二次确认`}
+            aria-label="手动抢单"
             size="small"
             type="primary"
             ghost

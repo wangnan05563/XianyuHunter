@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Typography, Tag, Tooltip, Progress, Collapse, Modal, Input, Alert, Rate, Select, message } from 'antd'
+import { App, Typography, Tag, Tooltip, Progress, Collapse, Modal, Input, Alert, Rate, Select } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import type { Message, Source } from '../types'
 import { chatbotApi } from '../api'
@@ -14,6 +14,7 @@ interface Props {
 
 // 助手消息组件：渲染 Markdown 内容 + 引用来源 + 工具调用标记 + 1-5 星评分 + 转人工告警 + 后续问题推荐
 export function AssistantMessage({ message: msg, sessionId, onFeedbackDone }: Props) {
+  const { message } = App.useApp()
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
   const [starRating, setStarRating] = useState(0)
   const [feedbackCategory, setFeedbackCategory] = useState<string | undefined>(undefined)

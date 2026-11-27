@@ -1,9 +1,10 @@
-import { Card, Tag, Modal, Progress, message, Typography } from 'antd'
+import { App as AntdApp, Card, Tag, Progress, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import type { KBStatus } from '../types'
 import { TipButton } from '@/components/TipButton'
 import { extractApiError } from '@/utils/apiError'
+import { confirmDanger } from '@/components/DangerSummary'
 
 interface Props {
   readonly status: KBStatus
@@ -12,27 +13,30 @@ interface Props {
 
 // 知识库状态卡片：展示当前版本、片段数、构建时间，支持手动重建
 export function KBStatusCard({ status, onRebuild }: Props) {
+  const { message, modal } = AntdApp.useApp()
   const [building, setBuilding] = useState(false)
 
-  const handleRebuild = () => {
-    Modal.confirm({
-      title: '重建知识库',
-      content: '重建期间对话功能将使用旧版本知识库，确定继续？',
-      onOk: async () => {
-        setBuilding(true)
-        try {
-          await onRebuild(false)
-          message.success('知识库重建已启动')
-        } catch (err) {
-          // T02891 裁决 A：远程 embedding 且总开关关闭时后端返回带 code 的 403。
-          // 写死「重建启动失败」会把「去开开关」这个可执行动作降级成一次普通故障，
-          // 所以优先转述后端 detail（extractApiError 内部已处理 ai_disabled 兜底文案）。
-          message.error(extractApiError(err, '重建启动失败'))
-        } finally {
-          setBuilding(false)
-        }
-      },
-    })
+  const handleRebuild = async () => {
+    const confirmed = await confirmDanger({
+      title: '重建知识库？',
+      action: '用当前文档重新生成全部索引',
+      scope: `当前版本 ${status.current_version?.slice(0, 8) || '（未构建）'} 的 ${status.chunk_count} 个片段会被重新构建；重建期间对话继续使用旧版本`,
+      count: status.chunk_count,
+      recovery: '重建会生成新版本，旧版本仍保留在版本列表，可回滚；重建期间对话不中断',
+    }, modal)
+    if (!confirmed) return
+    setBuilding(true)
+    try {
+      await onRebuild(false)
+      message.success('知识库重建已启动')
+    } catch (err) {
+      // T02891 裁决 A：远程 embedding 且总开关关闭时后端返回带 code 的 403。
+      // 写死「重建启动失败」会把「去开开关」这个可执行动作降级成一次普通故障，
+      // 所以优先转述后端 detail（extractApiError 内部已处理 ai_disabled 兜底文案）。
+      message.error(extractApiError(err, '重建启动失败'))
+    } finally {
+      setBuilding(false)
+    }
   }
 
   const isBuilding = building || status.building
@@ -72,6 +76,7 @@ export function KBStatusCard({ status, onRebuild }: Props) {
       {isBuilding && progress && (
         <div style={{ marginTop: 12 }}>
           <Progress
+            aria-label="知识库构建进度"
             percent={progress.percent}
             status={progressStatus}
           />

@@ -99,6 +99,8 @@ export default function StatCardsSection({ overview, sparklines, failed, onNavig
     <Row gutter={[16, 16]}>
       {cards.map(c => {
         const sparkFailed = !!failed?.[`spark:${c.metric}`]
+        const suffixText = c.suffix ? ' ' + c.suffix : ''
+        const targetName = c.path === '/tasks' ? '任务管理' : '抢单记录'
         return (
           <Col xs={12} sm={12} md={12} lg={6} key={c.key}>
             <Card
@@ -106,7 +108,7 @@ export default function StatCardsSection({ overview, sparklines, failed, onNavig
               hoverable
               role="button"
               tabIndex={0}
-              aria-label={`${c.title}：${c.value}${c.suffix ? ` ${c.suffix}` : ''}，打开${c.path === '/tasks' ? '任务管理' : '抢单记录'}`}
+              aria-label={`${c.title}：${c.value}${suffixText}，打开${targetName}`}
               onClick={() => onNavigate(c.path)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {

@@ -12,6 +12,7 @@ import {
   buildInvalidateLayerCopy,
   describeAnticrawlError,
   layerLabelCn,
+  splitLayerLabel,
 } from '../index'
 
 describe('4.5-4 层名中文化', () => {
@@ -23,6 +24,16 @@ describe('4.5-4 层名中文化', () => {
 
   it('未知层名原样透出，不编造中文', () => {
     expect(layerLabelCn('future_layer')).toBe('future_layer')
+  })
+
+  it('卡片标题拆成中文名与枚举码两行，窄屏不逐字换行', () => {
+    expect(splitLayerLabel('identity')).toEqual({ name: '身份层', code: 'identity' })
+    expect(splitLayerLabel('session')).toEqual({ name: '会话层', code: 'session' })
+    expect(splitLayerLabel('tracking')).toEqual({ name: '追踪层', code: 'tracking' })
+  })
+
+  it('未知层不伪造枚举码，只显示原名', () => {
+    expect(splitLayerLabel('future_layer')).toEqual({ name: 'future_layer', code: null })
   })
 })
 

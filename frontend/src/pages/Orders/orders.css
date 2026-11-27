@@ -1,0 +1,152 @@
+/* 抢单记录页壳：页头、统计卡、筛选分组与右侧悬浮工具安全区。 */
+.orders-page {
+  /* 右侧悬浮工具固定落在页面右缘；预留 56/72px，避免压住表格卡片与固定操作列 */
+  padding-right: 56px;
+}
+
+.orders-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.orders-page-heading h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--xh-text-primary);
+}
+
+.orders-page-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--xh-text-tertiary);
+}
+
+.orders-stats-row {
+  margin-bottom: 16px;
+}
+
+.orders-stats-row .ant-col {
+  display: flex;
+}
+
+.orders-stats-row .ant-card {
+  flex: 1;
+}
+
+.orders-stat-total {
+  font-size: 12px;
+  color: var(--xh-text-secondary);
+  white-space: nowrap;
+}
+
+.orders-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+
+.orders-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.orders-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.orders-filter-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.orders-filter-item > .ant-select {
+  min-width: 0;
+}
+
+.orders-list-card,
+.orders-list-card .ant-card-body {
+  min-width: 0;
+}
+
+.orders-list-card .ant-card-body {
+  overflow: hidden;
+}
+
+.orders-price-cell {
+  color: #f5222d;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.orders-table .ant-table-cell {
+  min-width: 0;
+}
+
+.orders-action-label {
+  display: inline;
+}
+
+@media (max-width: 1200px) {
+  .orders-page {
+    padding-right: 72px;
+  }
+
+  /* 1024/768 操作列只有图标；读屏名由 aria-label 提供，避免文字把列撑宽 */
+  .orders-action-label {
+    display: none;
+  }
+
+  .orders-row-action {
+    padding-inline: 4px;
+  }
+
+  .orders-table .ant-table-cell {
+    padding-inline: 6px;
+  }
+}
+
+@media (max-width: 900px) {
+  .orders-page-heading h1 {
+    font-size: 20px;
+  }
+
+  .orders-stats-row .ant-card-body {
+    padding: 10px;
+  }
+
+  .orders-stats-row .ant-statistic-title {
+    overflow: hidden;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .orders-stats-row .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  .orders-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+/* 暗色下卡片边界跟随主题 */
+[data-theme='dark'] .orders-list-card,
+[data-theme='dark'] .orders-stats-row .ant-card {
+  border-color: var(--xh-border-color);
+}

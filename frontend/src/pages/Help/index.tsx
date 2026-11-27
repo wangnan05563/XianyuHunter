@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, isValidElement } from 'react'
 import { TipButton } from '@/components/TipButton'
-import { Layout, Typography, Anchor, Space, Tag, Alert, Card, Divider, theme, Input } from 'antd'
+import { Layout, Typography, Anchor, Space, Tag, Alert, Card, Divider, theme, Input, Drawer, Button } from 'antd'
 import {
   ApiOutlined,
   RocketOutlined,
@@ -29,12 +29,14 @@ import {
   InfoCircleOutlined,
   TeamOutlined,
   GlobalOutlined,
+  MenuOutlined,
 } from '@ant-design/icons'
 import type React from 'react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { API_BASE } from '../../utils/apiBase'
 import { TASK_MODE, TASK_MODE_VALUES, TASK_MODE_LABELS, TASK_MODE_HINTS } from '../../constants/taskStatus'
 import type { TaskModeValue } from '../../constants/taskStatus'
+import './help.css'
 
 const { Sider, Content } = Layout
 const { Title, Paragraph, Text } = Typography
@@ -74,13 +76,13 @@ const config = (title: string, rows: [string, string, string][]): DocBlock => ({
   type: 'config',
   title,
   content: (
-    <div style={{ overflowX: 'auto' }}>
+    <section className="xh-help-table-wrap" style={{ overflowX: 'auto' }} aria-label={`${title}参数表`}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ background: 'var(--xh-bg-spotlight)' }}>
-            <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)', width: '30%' }}>参数</th>
-            <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)', width: '20%' }}>示例</th>
-            <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)' }}>说明</th>
+            <th scope="col" style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)', width: '30%' }}>参数</th>
+            <th scope="col" style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)', width: '20%' }}>示例</th>
+            <th scope="col" style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid var(--xh-border)' }}>说明</th>
           </tr>
         </thead>
         <tbody>
@@ -94,7 +96,7 @@ const config = (title: string, rows: [string, string, string][]): DocBlock => ({
           ))}
         </tbody>
       </table>
-    </div>
+    </section>
   ),
 })
 const note = (title: string, content: React.ReactNode, type: 'info' | 'warning' = 'info'): DocBlock => ({
@@ -698,7 +700,7 @@ const DOC_SECTIONS: DocSection[] = [
     icon: <InfoCircleOutlined />,
     intro: '系统元信息、资源入口与开源许可清单。',
     blocks: [
-      feature('核心功能', '展示当前版本号、发布日期、Git SHA；一键检查 GitHub 最新版本；提供 7 项可见资源入口（开源软件声明、帮助文档、新手引导、API 文档、联系我们、官方社区、报告问题，其中帮助文档、新手引导为内部页面）；用户协议/隐私条款当前为占位地址，发布版自动隐藏；浏览 41 项前后端依赖的开源许可清单（前端 21 + 后端 20），支持按包名/许可证搜索。'),
+      feature('核心功能', '展示当前版本号、发布日期、Git SHA；一键检查 GitHub 最新版本；提供 6 项可见资源入口（开源软件声明、帮助文档、新手引导、API 文档、官方社区、报告问题，其中帮助文档、新手引导为内部页面）；用户协议/隐私条款/联系我们当前为占位地址，发布版自动隐藏；浏览 40 项前后端依赖的开源许可清单（前端 20 + 后端 20），支持按包名/许可证搜索。'),
       steps('操作步骤', [
         '点击侧边栏「其他」→「关于」，或在顶栏点击 ℹ️ 图标',
         '查看版本号、发布日期、Git SHA 等元信息',
@@ -730,6 +732,78 @@ const DOC_SECTIONS: DocSection[] = [
 ]
 
 // ============ 块渲染器 ============
+// 递归取出文档节点的可搜索文本：正文、表格、提示 Alert 都可被全文搜索命中
+function nodeText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join(' ')
+  if (isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode; message?: React.ReactNode; title?: React.ReactNode; description?: React.ReactNode }
+    return [nodeText(props.children), nodeText(props.message), nodeText(props.title), nodeText(props.description)].filter(Boolean).join(' ')
+  }
+  return ''
+}
+
+const SEARCH_INDEX = new Map<string, string>(
+  DOC_SECTIONS.map((section) => [
+    section.id,
+    [
+      section.title,
+      section.intro,
+      ...section.blocks.flatMap((block) => [block.title, nodeText(block.content)]),
+    ].join(' ').toLowerCase(),
+  ]),
+)
+
+function DocSidebar({
+  sections, search, onSearch, onNavigate,
+}: {
+  readonly sections: DocSection[]
+  readonly search: string
+  readonly onSearch: (value: string) => void
+  readonly onNavigate: (id: string) => void
+}) {
+  const anchorItems = sections.map((s) => ({
+    key: `#${s.id}`,
+    href: `#${s.id}`,
+    title: (
+      <span className="xh-help-anchor-title">
+        {s.icon}
+        <span>{s.title}</span>
+      </span>
+    ),
+  }))
+  return (
+    <nav className="xh-help-nav" aria-label="文档目录">
+      <div className="xh-help-sidebar-head">
+        <Text strong>文档目录</Text>
+      </div>
+      <div className="xh-help-search">
+        <Input
+          aria-label="搜索帮助文档章节"
+          placeholder="搜索章节..."
+          size="small"
+          allowClear
+          prefix={<SearchOutlined />}
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+        />
+        <Text type="secondary" className="xh-help-count">共 {sections.length} 章</Text>
+      </div>
+      <Anchor
+        affix={false}
+        items={anchorItems}
+        offsetTop={16}
+        onClick={(e, link) => {
+          e.preventDefault()
+          onNavigate(String(link.href).replace(/^#/, ''))
+        }}
+        style={{ padding: '0 16px' }}
+      />
+    </nav>
+  )
+}
+
 function renderBlock(block: DocBlock): React.ReactNode {
   const blockStyle = { marginBottom: 20 }
   const titleStyle: React.CSSProperties = {
@@ -782,36 +856,37 @@ function renderBlock(block: DocBlock): React.ReactNode {
 export default function Help() {
   const { isDark } = useTheme()
   const { token: themeToken } = theme.useToken()
-  const [collapsed, setCollapsed] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
 
-  // 搜索过滤：标题或简介包含关键词的章节保留
+  // 搜索过滤：标题、简介、操作步骤、参数表和提示都参与全文匹配
   const filteredSections = useMemo(() => {
-    if (!search.trim()) return DOC_SECTIONS
-    const kw = search.toLowerCase()
-    return DOC_SECTIONS.filter(
-      (s) => s.title.toLowerCase().includes(kw) || s.intro.toLowerCase().includes(kw),
-    )
+    const kw = search.trim().toLowerCase()
+    if (!kw) return DOC_SECTIONS
+    return DOC_SECTIONS.filter((s) => SEARCH_INDEX.get(s.id)?.includes(kw))
   }, [search])
 
-  // 锚点目录项
-  const anchorItems = filteredSections.map((s) => ({
-    key: `#${s.id}`,
-    href: `#${s.id}`,
-    title: (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {s.icon}
-        <span style={{ fontSize: 13 }}>{s.title}</span>
-      </span>
-    ),
-  }))
+  const scrollToSection = (id: string) => {
+    const target = document.getElementById(id)
+    if (!target) return
+    setDrawerOpen(false)
+    globalThis.history.replaceState(null, '', `#${id}`)
+    // 等 Drawer 关闭动画开始后再滚动，避免移动端关闭遮罩时抢走焦点/滚动
+    globalThis.setTimeout(() => target.scrollIntoView({ block: 'start' }), 180)
+  }
 
   // 嵌入 SheetWorkspace 内显示：不再渲染自有 Header/Layout 外壳，
   // 由 SheetWorkspace 的 sheet-content-area 提供滚动容器，标签栏提供关闭入口。
-  // 保留 Sider 用作章节锚点导航，breakpoint="lg" 在窄屏自动折叠避免遮挡内容。
+  // 桌面保留左侧锚点目录；窄屏改用顶部目录入口 + Drawer，避免 1024 内容被压窄。
   return (
-    <Layout style={{ minHeight: '100%', background: themeToken.colorBgLayout }}>
+    <Layout
+      className="page-container xh-help-page"
+      data-testid="help-page"
+      style={{ minHeight: '100%', background: themeToken.colorBgLayout }}
+    >
       <Sider
+        className="xh-help-sider"
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
@@ -828,40 +903,34 @@ export default function Help() {
         }}
         width={240}
       >
-        <div style={{ padding: '16px 16px 8px' }}>
-          <Text strong style={{ fontSize: 14 }}>文档目录</Text>
-        </div>
-        <div style={{ padding: '0 16px 12px' }}>
-          <Input
-            placeholder="搜索章节..."
-            size="small"
-            allowClear
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <Anchor
-          affix={false}
-          items={anchorItems}
-          offsetTop={16}
-          style={{ padding: '0 16px' }}
+        <DocSidebar
+          sections={filteredSections}
+          search={search}
+          onSearch={setSearch}
+          onNavigate={scrollToSection}
         />
       </Sider>
-      <Content style={{ background: themeToken.colorBgLayout, overflow: 'visible' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px 64px' }}>
+      <Content className="xh-help-content" style={{ background: themeToken.colorBgLayout, overflow: 'visible' }}>
+        <div className="xh-help-mobile-toolbar">
+          <Button type="text" icon={<MenuOutlined />} onClick={() => setDrawerOpen(true)} aria-label="打开文档目录">
+            文档目录
+          </Button>
+          <Text type="secondary" className="xh-help-mobile-count">共 {filteredSections.length} 章</Text>
+        </div>
+        <div className="xh-help-content-inner">
           {/* 文档头部简介 */}
-          <Card style={{ marginBottom: 24, background: 'linear-gradient(135deg, rgba(255,98,0,0.06), rgba(255,133,51,0.04))' }}>
+          <Card className="xh-help-hero" style={{ marginBottom: 24, background: 'linear-gradient(135deg, rgba(255,98,0,0.06), rgba(255,133,51,0.04))' }}>
             <Space align="start" size={16}>
               <RocketOutlined style={{ fontSize: 32, color: themeToken.colorPrimary }} />
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                  <Title level={3} style={{ margin: 0 }}>闲鱼猎人使用文档</Title>
+                  <Title level={1} className="xh-help-title">闲鱼猎人使用文档</Title>
                   <TipButton
                     tip="在新标签页打开 API 文档"
                     type="text"
                     icon={<ApiOutlined />}
-                    onClick={() => globalThis.open(`${API_BASE}api/docs`, '_blank')}
+                    aria-label="API 文档（新窗口打开）"
+                    onClick={() => globalThis.open(`${API_BASE}api/docs`, '_blank', 'noopener,noreferrer')}
                   >
                     API 文档
                   </TipButton>
@@ -879,11 +948,14 @@ export default function Help() {
             <Card
               key={section.id}
               id={section.id}
+              data-help-section
+              aria-labelledby={`${section.id}-title`}
+              className="xh-help-section-card"
               style={{ marginBottom: 24, scrollMarginTop: 16 }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 <span style={{ fontSize: 22, color: themeToken.colorPrimary }}>{section.icon}</span>
-                <Title level={4} style={{ margin: 0 }}>{section.title}</Title>
+                <Title level={2} id={`${section.id}-title`} className="xh-help-section-title">{section.title}</Title>
               </div>
               <Paragraph style={{ color: 'var(--xh-text-secondary)', marginBottom: 16 }}>
                 {section.intro}
@@ -897,7 +969,7 @@ export default function Help() {
           ))}
 
           {filteredSections.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 64, color: 'var(--xh-text-quaternary)' }}>
+            <div className="xh-help-empty" aria-live="polite">
               未找到匹配的章节
             </div>
           )}
@@ -909,6 +981,30 @@ export default function Help() {
           </div>
         </div>
       </Content>
+      <Drawer
+        title="帮助文档"
+        placement="left"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        width={320}
+        zIndex={1200}
+        className="xh-help-drawer"
+        styles={{ body: { padding: 0 } }}
+        afterOpenChange={(open) => {
+          if (!open) return
+          globalThis.setTimeout(() => {
+            const input = document.querySelector<HTMLInputElement>('.xh-help-drawer input')
+            input?.focus()
+          }, 80)
+        }}
+      >
+        <DocSidebar
+          sections={filteredSections}
+          search={search}
+          onSearch={setSearch}
+          onNavigate={scrollToSection}
+        />
+      </Drawer>
     </Layout>
   )
 }

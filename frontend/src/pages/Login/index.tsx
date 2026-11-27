@@ -217,6 +217,14 @@ const browserTagText = (status: { exists: boolean; has_goofish_cookie: boolean }
   return ' 未检测到闲鱼 Cookie'
 }
 
+// 导入按钮的悬浮提示：说明「为什么这个按钮是灰的 / 为什么不是主色」
+// 为什么提到模块级：Tag 文案已经说了状态，但按钮本身还需要一句可执行下一步
+const browserImportTip = (status?: { exists: boolean; has_goofish_cookie: boolean }): string => {
+  if (!status?.exists) return '未检测到该浏览器，无法导入'
+  if (!status.has_goofish_cookie) return '该浏览器未检测到闲鱼 Cookie：先在浏览器登录闲鱼，再点「刷新检测」'
+  return '从该浏览器导入闲鱼 Cookie 完成登录'
+}
+
 // S3776 修复：浏览器登录 Tab 提取为子组件
 // 原主函数 tabItems 内含 8 处条件判断（||/&&/?:/includes），提取后主函数复杂度降 ~8
 function BrowserLoginTab({
@@ -253,7 +261,7 @@ function BrowserLoginTab({
           icon={<LoginOutlined />}
           onClick={onStart}
           loading={startingBrowser}
-          style={{ background: '#FF6200', borderColor: '#FF6200', width: 'fit-content' }}
+          style={{ width: 'fit-content' }}
         >
           启动浏览器窗口登录
         </TipButton>
@@ -313,8 +321,7 @@ function BrowserLoginTab({
               - success：跳转失败的兜底（onLoginSuccess 未成功跳转时用户可手动重试） */}
           {isTerminal && (
             <TipButton type="primary" tip="重新启动浏览器窗口登录" icon={<ReloadOutlined />} onClick={onStart}
-              loading={startingBrowser}
-              style={{ background: '#FF6200', borderColor: '#FF6200' }}>
+              loading={startingBrowser}>
               重新登录
             </TipButton>
           )}
@@ -342,6 +349,7 @@ function CookieInjectTab({
   pasteText, parseResult, cookieInfo,
   cookieFailed, cookieSource, onRetryCookieState,
   onInject, onAutoFill, onClear, onParsePaste, onPaste, onFileUpload,
+  onGoBrowserLogin, onClearAutoFillResult,
 }: {
   readonly cookieFields: Record<string, string>
   readonly setCookieFields: React.Dispatch<React.SetStateAction<Record<string, string>>>
@@ -360,6 +368,8 @@ function CookieInjectTab({
   readonly onParsePaste: (text: string) => void
   readonly onPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
   readonly onFileUpload: (file: File) => boolean | Promise<boolean>
+  readonly onGoBrowserLogin: () => void
+  readonly onClearAutoFillResult: () => void
 }) {
   const { isDark } = useTheme()
   const { token: themeToken } = theme.useToken()
@@ -379,8 +389,8 @@ function CookieInjectTab({
         >
           {autoFilling ? '读取中…' : '从浏览器自动获取'}
         </TipButton>
-        {autoFillResult && (
-          <span style={{ fontSize: 12, color: autoFillResult.error ? themeToken.colorError : themeToken.colorSuccess }}>
+        {autoFillResult?.error === false && (
+          <span style={{ fontSize: 12, color: themeToken.colorSuccess }}>
             {autoFillResult.text}
           </span>
         )}
@@ -390,6 +400,48 @@ function CookieInjectTab({
           </TipButton>
         )}
       </div>
+
+      {/* 自动获取失败：后端原文含「v20 应用绑定加密 / CDP」这类技术细节，
+          挤在按钮旁边当内联红字既读不动也看不出下一步做什么。
+          这里升级成结构化 Alert，并给出可执行的一条路（切到浏览器登录）。 */}
+      {autoFillResult?.error === true && (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          message="没能自动获取到 Cookie"
+          description={(
+            <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>
+                Chrome/Edge 新版会把 Cookie 加密存储，或浏览器正占用 Cookie 数据库，因此读不到。可以改用「浏览器登录」扫码，或手动粘贴 Cookie。
+              </p>
+              <Collapse
+                ghost
+                size="small"
+                items={[{
+                  key: 'detail',
+                  label: <span style={{ fontSize: 11 }}>查看技术细节</span>,
+                  children: (
+                    <div style={{ fontSize: 11, color: themeToken.colorTextSecondary, whiteSpace: 'pre-line' }}>
+                      {autoFillResult.text}
+                    </div>
+                  ),
+                }]}
+              />
+            </div>
+          )}
+          action={(
+            <TipButton
+              tip="切换到「浏览器登录」，用弹出的 Playwright 窗口扫码，登录态会自动写入"
+              size="small"
+              onClick={onGoBrowserLogin}
+            >
+              改用浏览器登录
+            </TipButton>
+          )}
+          onClose={onClearAutoFillResult}
+        />
+      )}
 
       {cookieFailed && (
         <FetchFailedHint
@@ -429,13 +481,13 @@ function CookieInjectTab({
             <CopyOutlined style={{ marginRight: 4 }} />
             快速粘贴 Cookie
           </span>
-          <Text type="secondary" style={{ fontSize: 10 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
             支持格式：key=value; key=value 或换行分隔
           </Text>
         </div>
         <TextArea
           rows={3}
-          placeholder="从此处粘贴从浏览器复制的 Cookie，例如：&#10;_m_h5_tk=xxx; cookie2=xxx; sgcookie=xxx; unb=xxx"
+          placeholder={'从此处粘贴从浏览器复制的 Cookie，例如：\n_m_h5_tk=xxx; cookie2=xxx; sgcookie=xxx; unb=xxx'}
           value={pasteText}
           onChange={(e) => onParsePaste(e.target.value)}
           onPaste={onPaste}
@@ -447,7 +499,7 @@ function CookieInjectTab({
         />
         {/* 解析结果反馈 */}
         {parseResult && (
-          <div style={{ marginTop: 6, fontSize: 11 }}>
+          <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.6 }}>
             {parseResult.total > 0 ? (
               <Space size={4} wrap>
                 <span style={{ color: themeToken.colorTextSecondary }}>
@@ -466,7 +518,7 @@ function CookieInjectTab({
               </Space>
             ) : (
               <span style={{ color: themeToken.colorError }}>
-                未识别到有效的 Cookie 键值对，请检查格式
+                未识别到有效的 Cookie 键值对，请检查格式（下方字段仍是上一次填写的内容）
               </span>
             )}
           </div>
@@ -475,10 +527,10 @@ function CookieInjectTab({
 
       {/* 分字段输入（用于精细调整） */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
       }}>
         {COOKIE_KEYS.map((ck) => (
-          <div key={ck.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div key={ck.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Tag color="blue" style={{ fontSize: 11, fontFamily: 'monospace' }}>{ck.key}</Tag>
               <span style={{ fontSize: 11, color: themeToken.colorTextSecondary, fontWeight: 500 }}>{ck.label}</span>
@@ -493,12 +545,17 @@ function CookieInjectTab({
               name={`cookie-${ck.key}`}
               spellCheck={false}
             />
-            {ck.hint && (
-              <span style={{ fontSize: 10, color: themeToken.colorWarning, fontWeight: 500 }}>{ck.hint}</span>
-            )}
           </div>
         ))}
       </div>
+
+      {/* 字段说明：从字段下方移到网格之后。原先只有 _m_h5_tk 这一格多一行提示，
+          2×2 网格左右两列被撑成不同高度，视觉上不齐。 */}
+      {COOKIE_KEYS.filter((ck) => ck.hint).map((ck) => (
+        <div key={ck.key} style={{ fontSize: 11, color: themeToken.colorWarning, lineHeight: 1.6, marginTop: -4 }}>
+          提示：<code style={{ fontSize: 11 }}>{ck.key}</code>（{ck.label}）{ck.hint}
+        </div>
+      ))}
 
       {/* 操作按钮 */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -509,7 +566,6 @@ function CookieInjectTab({
           loading={injecting}
           onClick={onInject}
           disabled={!hasAnyCookie}
-          style={{ background: '#FF6200', borderColor: '#FF6200' }}
         >
           注入 Cookie 登录
         </TipButton>
@@ -536,7 +592,7 @@ function CookieInjectTab({
 // S3776 修复：浏览器导入 Tab 提取为子组件
 // 原主函数 tabItems 内含 2 处 IIFE + 多处条件判断，提取后用 browserTagColor/browserTagText 替代 IIFE
 function BrowserImportTab({
-  browserStatus, importing, importResult,
+  browserStatus, importing, importResult, importOk,
   statusFailed, statusSource,
   onImport, onOpenBrowser, onRefreshStatus, onClearImportResult,
 }: {
@@ -546,6 +602,8 @@ function BrowserImportTab({
   } | null
   readonly importing: boolean
   readonly importResult: string | null
+  // 成败由调用方的结果字段决定，不再用文案里是否出现「成功」二字来猜
+  readonly importOk: boolean | null
   readonly statusFailed: boolean
   readonly statusSource: string
   readonly onImport: (browser: 'edge' | 'chrome', autoClose?: boolean) => void
@@ -591,21 +649,22 @@ function BrowserImportTab({
         </div>
       )}
 
-      {/* 操作按钮 */}
+      {/* 操作按钮：只有该浏览器真的检测到闲鱼 Cookie 时才用主色，
+          否则高亮主按钮指向的是一次必然扑空的导入 */}
       <Space wrap>
         <TipButton
-          tip="从 Edge 浏览器导入 Cookie"
-          type="primary"
+          tip={browserImportTip(browserStatus?.edge)}
+          type={browserStatus?.edge?.has_goofish_cookie ? 'primary' : 'default'}
           icon={<ImportOutlined />}
           loading={importing}
           onClick={() => onImport('edge')}
           disabled={!browserStatus?.edge?.exists}
-          style={{ background: '#FF6200', borderColor: '#FF6200' }}
         >
           从 Edge 导入
         </TipButton>
         <TipButton
-          tip="从 Chrome 浏览器导入 Cookie"
+          tip={browserImportTip(browserStatus?.chrome)}
+          type={browserStatus?.chrome?.has_goofish_cookie ? 'primary' : 'default'}
           icon={<ImportOutlined />}
           loading={importing}
           onClick={() => onImport('chrome')}
@@ -618,52 +677,58 @@ function BrowserImportTab({
         </TipButton>
       </Space>
 
-      {/* 文件锁定时的解决方案 */}
-      <Alert
-        type="warning"
-        showIcon
-        message="遇到「文件被锁定」错误？"
-        description={
-          <div style={{ fontSize: 12, lineHeight: 1.8 }}>
-            <p style={{ margin: '4px 0' }}>Edge/Chrome 运行时会锁定 Cookie 文件。如果导入失败，请尝试：</p>
-            <ol style={{ margin: '4px 0 4px 20px', padding: 0 }}>
-              <li>点击下方「自动关闭浏览器并导入」按钮（会自动关闭浏览器进程后重试）</li>
-              <li>或手动完全关闭浏览器（包括任务栏托盘后台进程）后重试</li>
-              <li>或改用「Cookie 注入」标签页，从浏览器开发者工具复制 Cookie 后粘贴</li>
-            </ol>
-          </div>
-        }
-        style={{ marginBottom: 8 }}
+      {/* 排查手册：原先是常驻的黄色大 Alert + 两个红色按钮，
+          没遇到问题时也占掉半个面板、把主操作挤到折叠线以下。
+          收进 Collapse，默认折叠，遇到「文件被锁定」时再展开。 */}
+      <Collapse
+        ghost
+        size="small"
+        items={[{
+          key: 'lock-help',
+          label: (
+            <span style={{ fontSize: 12 }}>
+              <QuestionCircleOutlined /> 导入失败 / 提示「文件被锁定」？
+            </span>
+          ),
+          children: (
+            <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+              <p style={{ margin: '4px 0' }}>Edge/Chrome 运行时会锁定 Cookie 文件。如果导入失败，请尝试：</p>
+              <ol style={{ margin: '4px 0 8px 0', paddingLeft: 20 }}>
+                <li>点击下方「自动关闭浏览器并导入」按钮（会自动关闭浏览器进程后重试）</li>
+                <li>或手动完全关闭浏览器（包括任务栏托盘后台进程）后重试</li>
+                <li>或改用「Cookie 注入」标签页，从浏览器开发者工具复制 Cookie 后粘贴</li>
+              </ol>
+              <Space wrap>
+                <TipButton
+                  tip="自动关闭 Edge 后导入 Cookie"
+                  icon={<ThunderboltOutlined />}
+                  loading={importing}
+                  onClick={() => onImport('edge', true)}
+                  disabled={!browserStatus?.edge?.exists}
+                  danger
+                >
+                  自动关闭 Edge 并导入
+                </TipButton>
+                <TipButton
+                  tip="自动关闭 Chrome 后导入 Cookie"
+                  icon={<ThunderboltOutlined />}
+                  loading={importing}
+                  onClick={() => onImport('chrome', true)}
+                  disabled={!browserStatus?.chrome?.exists}
+                  danger
+                >
+                  自动关闭 Chrome 并导入
+                </TipButton>
+              </Space>
+            </div>
+          ),
+        }]}
       />
-
-      {/* 自动关闭浏览器并导入按钮 */}
-      <Space wrap>
-        <TipButton
-          tip="自动关闭 Edge 后导入 Cookie"
-          icon={<ThunderboltOutlined />}
-          loading={importing}
-          onClick={() => onImport('edge', true)}
-          disabled={!browserStatus?.edge?.exists}
-          danger
-        >
-          自动关闭 Edge 并导入
-        </TipButton>
-        <TipButton
-          tip="自动关闭 Chrome 后导入 Cookie"
-          icon={<ThunderboltOutlined />}
-          loading={importing}
-          onClick={() => onImport('chrome', true)}
-          disabled={!browserStatus?.chrome?.exists}
-          danger
-        >
-          自动关闭 Chrome 并导入
-        </TipButton>
-      </Space>
 
       {/* 导入结果提示（支持多行显示） */}
       {importResult && (
         <Alert
-          type={importResult.includes('成功') ? 'success' : 'error'}
+          type={importOk === true ? 'success' : 'error'}
           message={importResult.split('\n').map((line, i) => (
             <div key={`${line}-${i}`} style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{line}</div>
           ))}
@@ -673,10 +738,8 @@ function BrowserImportTab({
         />
       )}
 
-      <Divider plain style={{ margin: '8px 0' }}>
-        <Text type="secondary">或使用其他方式</Text>
-      </Divider>
-
+      {/* 「刷新检测」是状态类动作，原先前面挂了「或使用其他方式」分隔线，
+          语义上并不属于「另一种登录方式」，去掉这层分隔避免误导 */}
       <Space>
         <TipButton tip="重新检测浏览器状态" icon={<ReloadOutlined />} onClick={onRefreshStatus}>
           刷新检测
@@ -740,7 +803,7 @@ function JsonImportTab({
 
       <TextArea
         rows={8}
-        placeholder={'粘贴 Cookie JSON 数组或整档 JSON，例如：&#10;[{"name": "cookie2", "value": "...", "expires": -1}, ...]&#10;或 {"cookies": [...], "exported_at": ...}'}
+        placeholder={'粘贴 Cookie JSON 数组或整档 JSON，例如：\n[{"name": "cookie2", "value": "...", "expires": -1}, ...]\n或 {"cookies": [...], "exported_at": ...}'}
         value={jsonText}
         onChange={(e) => onTextChange(e.target.value)}
         style={{ fontFamily: 'monospace', fontSize: 11 }}
@@ -757,7 +820,6 @@ function JsonImportTab({
           loading={importing}
           onClick={onImport}
           disabled={!jsonText.trim()}
-          style={{ background: '#FF6200', borderColor: '#FF6200' }}
         >
           导入登录态
         </TipButton>
@@ -850,6 +912,7 @@ export default function Login() {
   } | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
+  const [importOk, setImportOk] = useState<boolean | null>(null)
 
   // 登录态 JSON 导入 Tab 状态（FR-C2-4）
   const [jsonText, setJsonText] = useState('')
@@ -862,6 +925,9 @@ export default function Login() {
 
   // Cookie 教程 Modal
   const [tutorialVisible, setTutorialVisible] = useState(false)
+
+  // 当前 Tab：受控，便于「自动获取失败」的提示把用户引导到「浏览器登录」
+  const [activeTab, setActiveTab] = useState('browser-login')
 
   const pollRef = useRef(pollTimer)
   pollRef.current = pollTimer
@@ -1111,22 +1177,26 @@ export default function Login() {
     }
     setImporting(true)
     setImportResult(null)
+    setImportOk(null)
     try {
       const result = await authApi.importFromBrowser(browser, autoClose)
       if (result.ok) {
         setImportResult(result.message || `成功从 ${browser} 导入 ${result.injected} 个 Cookie`)
+        setImportOk(true)
         message.success(result.message || '导入成功')
         onLoginSuccess()
       } else {
         // 失败分支：用 formatImportResult 拼接 errMsg + hint（与 catch 分支共用）
         const errMsg = result.error || '导入失败'
         setImportResult(formatImportResult(errMsg, result.hint))
+        setImportOk(false)
         message.error(errMsg)
       }
     } catch (err: any) {
       // catch 分支：从 axios 错误对象提取 errMsg + hint，再统一格式化
       const { errMsg, hint } = extractImportBrowserError(err)
       setImportResult(formatImportResult(errMsg, hint))
+      setImportOk(false)
       message.error(errMsg)
     } finally {
       setImporting(false)
@@ -1226,9 +1296,9 @@ export default function Login() {
     {
       key: 'browser-login',
       label: (
-        <span style={{ fontWeight: 600 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
           <GlobalOutlined /> 浏览器登录
-          <Tag color="orange" style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>推荐</Tag>
+          <Tag color="orange" style={{ marginLeft: 4, fontSize: 9, lineHeight: '14px', padding: '0 3px' }}>推荐</Tag>
         </span>
       ),
       children: (
@@ -1243,7 +1313,7 @@ export default function Login() {
     {
       key: 'cookie-inject',
       label: (
-        <span style={{ fontWeight: 500 }}><KeyOutlined /> Cookie 注入</span>
+        <span style={{ fontWeight: 500, fontSize: 13 }}><KeyOutlined /> Cookie 注入</span>
       ),
       children: (
         <CookieInjectTab
@@ -1264,13 +1334,15 @@ export default function Login() {
           onParsePaste={handleParsePaste}
           onPaste={handlePaste}
           onFileUpload={handleFileUpload}
+          onGoBrowserLogin={() => setActiveTab('browser-login')}
+          onClearAutoFillResult={() => setAutoFillResult(null)}
         />
       ),
     },
     {
       key: 'json-import',
       label: (
-        <span style={{ fontWeight: 500 }}><ImportOutlined /> 导入登录态</span>
+        <span style={{ fontWeight: 500, fontSize: 13 }}><ImportOutlined /> 导入登录态</span>
       ),
       children: (
         <JsonImportTab
@@ -1287,13 +1359,14 @@ export default function Login() {
     {
       key: 'browser-import',
       label: (
-        <span style={{ fontWeight: 500 }}><ChromeOutlined /> 浏览器导入</span>
+        <span style={{ fontWeight: 500, fontSize: 13 }}><ChromeOutlined /> 浏览器导入</span>
       ),
       children: (
         <BrowserImportTab
           browserStatus={browserStatus}
           importing={importing}
           importResult={importResult}
+          importOk={importOk}
           onImport={handleImportFromBrowser}
           onOpenBrowser={handleOpenBrowser}
           statusFailed={isFailed('browserStatus')}
@@ -1302,7 +1375,7 @@ export default function Login() {
             loadBrowserStatus()
             message.info('已刷新浏览器状态')
           }}
-          onClearImportResult={() => setImportResult(null)}
+          onClearImportResult={() => { setImportResult(null); setImportOk(null) }}
         />
       ),
     },
@@ -1352,7 +1425,16 @@ export default function Login() {
             </Text>
           </div>
 
-          <Tabs items={tabItems} centered />
+          <Tabs
+            items={tabItems}
+            centered
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            // 默认 gutter 是 32px，4 个 Tab 在窄窗口（<~590px）下总宽超过卡片内宽，
+            // antd 会把「浏览器导入」折叠进「…」，登录方式看不全。压到 8px 后
+            // 506px 窗口仍能一行放下全部 4 个 Tab（实测 Tab 条 509→437px）。
+            tabBarGutter={8}
+          />
 
           {/* 辅助功能：获取 Cookie 教程 */}
           <div style={{ textAlign: 'center', marginTop: 16 }}>
@@ -1375,6 +1457,9 @@ export default function Login() {
         title="如何获取闲鱼 Cookie"
         open={tutorialVisible}
         onCancel={() => setTutorialVisible(false)}
+        // 小窗口（560px 高）下 684px 的固定高度会让底部按钮被挤出屏幕，
+        // 只滚动正文，标题与「知道了」保持可见
+        styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto', paddingRight: 8 } }}
         footer={[
           <TipButton key="close" tip="关闭教程弹窗" onClick={() => setTutorialVisible(false)}>知道了</TipButton>,
         ]}
@@ -1384,13 +1469,15 @@ export default function Login() {
           <p>切换到「浏览器登录」标签页，启动 Playwright 浏览器窗口手动登录。</p>
 
           <p><strong>方法二：浏览器开发者工具（Cookie 注入）</strong></p>
-          <ol>
+          {/* 全局样式把 ol/ul 的 padding 清成了 0，序号的 list-style-position 又是 outside，
+              一旦正文变成滚动容器（maxHeight + overflow）序号就会被裁掉，所以这里显式留出缩进 */}
+          <ol style={{ paddingLeft: 20 }}>
             <li>在浏览器中打开 <a href="https://www.goofish.com" target="_blank" rel="noopener noreferrer">闲鱼官网</a> 并登录</li>
             <li>按 <kbd>F12</kbd> 打开开发者工具，切换到「Application」标签</li>
             <li>左侧选择「Cookies」→ 找到 goofish.com 域名</li>
             <li><strong>方式 A（快速）</strong>：全选 Cookie 列表，右键复制后，直接粘贴到「快速粘贴 Cookie」输入框，系统会自动识别并填充关键字段</li>
             <li><strong>方式 B（手动）</strong>：分别复制以下 4 个字段的值到对应输入框：
-              <ul>
+              <ul style={{ paddingLeft: 18, margin: '4px 0' }}>
                 <li><code>_m_h5_tk</code>（安全令牌）</li>
                 <li><code>cookie2</code>（会话ID）</li>
                 <li><code>sgcookie</code>（安全Cookie）</li>

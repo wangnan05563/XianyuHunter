@@ -364,3 +364,6 @@ backend/xianyu_hunter/resources/embedding/meta.json
 build/
 dist/
 .workbuddy-ai/
+
+# Inno Setup Lite 脚本是 build-exe.ps1 6.5 的生成物，不入库（源模板是 installer.iss）
+installer-lite.iss

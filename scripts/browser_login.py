@@ -524,6 +524,11 @@ async def _cmd_login(status_file: Path, timeout: int, data_dir: Path | None = No
     _hb_thread = threading.Thread(target=_hb, daemon=True)
     _hb_thread.start()
 
+    # 轮询心跳线程在「打开闲鱼」成功后才创建；离线/导航失败时 finally 仍会执行，
+    # 因此必须先初始化为 None，否则会抛 UnboundLocalError 并掩盖真正的启动错误。
+    _poll_hb_stop: threading.Event | None = None
+    _poll_hb_thread: threading.Thread | None = None
+
     try:
         async with async_playwright() as pw:
             launch_kwargs: dict = {
@@ -712,8 +717,12 @@ async def _cmd_login(status_file: Path, timeout: int, data_dir: Path | None = No
                 _poll_hb_thread.join(timeout=2)
                 return 2
             finally:
-                _poll_hb_stop.set()
-                _poll_hb_thread.join(timeout=2)
+                _hb_stop.set()
+                _hb_thread.join(timeout=3)
+                if _poll_hb_stop is not None:
+                    _poll_hb_stop.set()
+                if _poll_hb_thread is not None:
+                    _poll_hb_thread.join(timeout=2)
                 await bc.close()
     except Exception as e:
         _set_status(

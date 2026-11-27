@@ -75,6 +75,8 @@ export interface AppConfig {
     timeout: number
     regions: string
     filter_tags: string[]
+    /** 搜索结果翻页深度；后端已有该字段，前端此前漏配置 */
+    max_pages?: number
   }
   // 价格策略配置（对应后端 PriceStrategyConfig 模型）
   price_strategy: {
@@ -462,6 +464,8 @@ export interface AIConfig {
   // 0 表示由模型决定（Ollama 等本地模型不接受 dimensions 参数）
   embedding_dimensions?: number
   embedding_has_key?: boolean
+  // 后端仅返回是否已存密钥，不返回明文；用于区分「无密钥」和「脱敏回显」
+  has_key?: boolean
 }
 
 export interface AIUsage {

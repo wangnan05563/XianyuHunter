@@ -3,6 +3,7 @@ import { collectChangedPaths } from './configDirty'
 import type { DiffChange } from './configStore'
 import { chatbotApi } from '../pages/Chatbot/api'
 import type { ChatbotConfig } from '../pages/Chatbot/types'
+import { extractApiError } from '../utils/apiError'
 
 /**
  * 客服配置统一保存 store（T05072 / FR-E-4，D-7 裁决：纳入统一保存范式）
@@ -104,7 +105,7 @@ export const useChatbotConfigStore = create<ChatbotConfigState>((set, get) => ({
       set({ config: nextConfig, original: structuredClone(fresh), loading: false })
       return nextConfig
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '加载客服配置失败'
+      const msg = extractApiError(e, '加载客服配置失败')
       set({ error: msg, loading: false })
       return null
     }
@@ -156,7 +157,7 @@ export const useChatbotConfigStore = create<ChatbotConfigState>((set, get) => ({
         restartRequired: res?.hot_reload?.restart_required ?? [],
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '保存客服配置失败'
+      const msg = extractApiError(e, '保存客服配置失败')
       set({ error: msg, loading: false })
       throw e
     }

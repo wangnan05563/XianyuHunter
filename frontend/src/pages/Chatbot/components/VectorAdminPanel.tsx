@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatDateTime } from '../../../utils/timeFormat'
 import {
   Card, Table, Input, Tag, Space, Typography,
-  message, Statistic, Row, Col, Modal,
+  Statistic, Row, Col, Modal, App as AntdApp,
 } from 'antd'
 import {
   ReloadOutlined, CameraOutlined, RollbackOutlined, DeleteOutlined,
@@ -12,16 +12,20 @@ import { vectorAdminApi } from '../../../api/vectorAdmin'
 import type { VectorStatus, VectorSnapshot, VectorAuditLog } from '../../../api/vectorAdmin'
 import { TipButton } from '@/components/TipButton'
 import { confirmDanger, COUNT_UNKNOWN } from '@/components/DangerSummary'
+import FetchFailedHint from '@/components/FetchFailedHint'
+import { extractApiError } from '@/utils/apiError'
 
 // 向量库维护面板：状态总览 + 快照管理 + 数据清理 + 审计日志
 // 危险操作（恢复/删除快照/清空/按来源删除）统一走 confirmDanger 四要素文案
 // （T02577 D-9 裁决：只保留本面板一套入口，确认强度对齐 C 档），
 // 后端要求 confirm_token=CONFIRM_DELETE，已封装在 vectorAdminApi 内部
 export function VectorAdminPanel() {
+  const { message, modal } = AntdApp.useApp()
   const [status, setStatus] = useState<VectorStatus | null>(null)
   const [snapshots, setSnapshots] = useState<VectorSnapshot[]>([])
   const [auditLogs, setAuditLogs] = useState<VectorAuditLog[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // 创建快照 Modal
   const [snapshotModalOpen, setSnapshotModalOpen] = useState(false)
@@ -33,6 +37,7 @@ export function VectorAdminPanel() {
 
   const loadAll = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const [st, snaps, logs] = await Promise.all([
         vectorAdminApi.getStatus(),
@@ -42,8 +47,12 @@ export function VectorAdminPanel() {
       setStatus(st)
       setSnapshots(snaps.items)
       setAuditLogs(logs.items)
-    } catch {
-      message.error('加载向量库状态失败，请确认智能客服模块已启用')
+    } catch (e) {
+      // Promise.all 任一路失败就不能把其余成功结果当完整状态展示，统一置空并显式报错。
+      setStatus(null)
+      setSnapshots([])
+      setAuditLogs([])
+      setError(extractApiError(e, '加载向量库状态失败，请确认智能客服模块已启用'))
     } finally {
       setLoading(false)
     }
@@ -72,7 +81,7 @@ export function VectorAdminPanel() {
       scope: `集合 ${status?.collection_name ?? '（未知）'} 的全部片段；快照文件本身保留`,
       count: status?.chunk_count ?? null,
       recovery: `被覆盖后再写入的新片段无法找回；需要时可用同一快照 ${snapshot.id} 再次恢复`,
-    })
+    }, modal)
     if (!ok) return
     try {
       await vectorAdminApi.restoreSnapshot(snapshot.id)
@@ -90,7 +99,7 @@ export function VectorAdminPanel() {
       scope: '仅删除快照文件，不影响当前集合数据',
       count: 1,
       recovery: '快照文件删除后不可恢复（当前集合数据不受影响）',
-    })
+    }, modal)
     if (!ok) return
     try {
       await vectorAdminApi.deleteSnapshot(snapshot.id)
@@ -108,7 +117,7 @@ export function VectorAdminPanel() {
       scope: `集合 ${status?.collection_name ?? '（未知）'} 的全部向量片段；快照与原始文档不受影响`,
       count: status?.chunk_count ?? null,
       recovery: '不可恢复；建议先创建快照，之后可从快照恢复',
-    })
+    }, modal)
     if (!ok) return
     try {
       const res = await vectorAdminApi.cleanupAll()
@@ -131,7 +140,7 @@ export function VectorAdminPanel() {
       scope: `source_file=${sourceFile} 的片段；其他来源与原始文档不受影响`,
       count: COUNT_UNKNOWN,
       recovery: '不可恢复；需要时只能重新导入该来源文档',
-    })
+    }, modal)
     if (!ok) return
     try {
       const res = await vectorAdminApi.cleanupBySource(sourceFile)
@@ -146,6 +155,14 @@ export function VectorAdminPanel() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {error && (
+        <FetchFailedHint
+          source="向量库状态"
+          description={`${error}。为避免把空列表当成真实快照/审计数据，相关表格暂不展示；请重试后再操作。`}
+          onRetry={() => void loadAll()}
+        />
+      )}
+
       {/* 状态总览卡片 */}
       <Card
         title="向量库状态"
@@ -195,6 +212,7 @@ export function VectorAdminPanel() {
           size="small"
           rowKey="id"
           dataSource={snapshots}
+          scroll={{ x: 720 }}
           pagination={{ pageSize: 5 }}
           columns={[
             { title: '快照 ID', dataIndex: 'id', key: 'id', ellipsis: true },
@@ -251,6 +269,7 @@ export function VectorAdminPanel() {
           size="small"
           rowKey="id"
           dataSource={auditLogs}
+          scroll={{ x: 720 }}
           pagination={{ pageSize: 10 }}
           columns={[
             { title: '动作', dataIndex: 'action', key: 'action', render: (v: string) => <Tag>{v}</Tag> },
@@ -272,6 +291,7 @@ export function VectorAdminPanel() {
           快照将复制当前集合数据到 <code>data/chromadb/snapshots/manual_{'{timestamp}'}[_{'{label}'}]</code>，可用于后续恢复。
         </Typography.Paragraph>
         <Input
+          aria-label="快照备注"
           placeholder="备注（可选，会拼入快照目录名）"
           value={snapshotLabel}
           onChange={(e) => setSnapshotLabel(e.target.value)}
@@ -290,6 +310,7 @@ export function VectorAdminPanel() {
           删除指定来源文件对应的所有片段。用于文档过期或错误导入场景。
         </Typography.Paragraph>
         <Input
+          aria-label="来源文件路径"
           placeholder="如：docs/chatbot-详细设计.md"
           value={cleanupSourceFile}
           onChange={(e) => setCleanupSourceFile(e.target.value)}

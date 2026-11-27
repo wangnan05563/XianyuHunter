@@ -238,9 +238,13 @@ def test_daily_grab_limit_is_backed_by_schema_and_guard() -> None:
     )
     assert "max_orders_per_day" in buyer_src, "执行侧没有读取该字段 = 设了也不生效"
 
-    ui_src = (ROOT / "frontend" / "src" / "pages" / "Config" / "BuyerStrategy.tsx").read_text(
-        encoding="utf-8"
-    )
+    # 页面文案已随重构收进 buyerStrategyModel（页面直接渲染模型里的说明/状态文案），
+    # 因此把模型文件一并纳入可见文案的事实源。
+    ui_src = (
+        ROOT / "frontend" / "src" / "pages" / "Config" / "BuyerStrategy.tsx"
+    ).read_text(encoding="utf-8") + (
+        ROOT / "frontend" / "src" / "pages" / "Config" / "buyerStrategyModel.ts"
+    ).read_text(encoding="utf-8")
     assert "max_orders_per_day" in ui_src, "UI 未接入该字段"
     # 只检用户可见文案：源码注释里允许留档「原文案曾是假承诺」的说明（T02589 的修复记录）
     visible = re.sub(r"\{/\*.*?\*/\}", "", ui_src, flags=re.S)

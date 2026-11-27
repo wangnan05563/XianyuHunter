@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { App as AntdApp } from 'antd'
 
 const { chatbotMocks } = vi.hoisted(() => ({
   chatbotMocks: {
@@ -50,7 +51,9 @@ function setAllOk() {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <ConfigPage />
+      <AntdApp>
+        <ConfigPage />
+      </AntdApp>
     </MemoryRouter>,
   )
 }
@@ -69,7 +72,7 @@ beforeEach(() => {
 describe('客服配置页失败态（T02700）', () => {
   it('全部成功时没有任何错误态', async () => {
     renderPage()
-    await waitFor(() => expect(screen.getByText('智能客服配置')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: '客服配置' })).toBeInTheDocument())
     expect(screen.queryByText(/加载失败/)).not.toBeInTheDocument()
   })
 

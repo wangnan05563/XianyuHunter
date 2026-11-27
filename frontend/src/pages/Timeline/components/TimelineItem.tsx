@@ -59,6 +59,10 @@ function EventDetail({ item, idx, isExpanded, onToggleExpand, taskMap }: EventDe
   const level = (item.level || '').toLowerCase()
   const severity = SEVERITY_CONFIG[level] || SEVERITY_CONFIG.info
   const typeInfo = eventTypeMeta(eventType)
+  // payload.message 已在主信息行展示；没有其他字段时不再渲染空的「查看详情」抽屉
+  const detailEntries = payload
+    ? Object.entries(payload).filter(([k]) => k !== 'message').slice(0, 12)
+    : []
 
   return (
     <div style={{ padding: '4px 0' }}>
@@ -161,8 +165,8 @@ function EventDetail({ item, idx, isExpanded, onToggleExpand, taskMap }: EventDe
         </div>
       )}
 
-      {/* 展开详情 */}
-      {payload && (
+      {/* 展开详情：仅在载荷里有 message 以外的字段时出现 */}
+      {detailEntries.length > 0 && (
         <>
           <TipButton
             tip="展开或收起该事件的详细载荷"
@@ -185,14 +189,11 @@ function EventDetail({ item, idx, isExpanded, onToggleExpand, taskMap }: EventDe
               overflow: 'auto',
             }}>
               <Descriptions size="small" column={2} bordered>
-                {Object.entries(payload)
-                  .filter(([k]) => !['message'].includes(k))
-                  .slice(0, 12)
-                  .map(([k, v]) => (
-                    <Descriptions.Item key={k} label={k}>
-                      {safeStr(v)}
-                    </Descriptions.Item>
-                  ))}
+                {detailEntries.map(([k, v]) => (
+                  <Descriptions.Item key={k} label={k}>
+                    {safeStr(v)}
+                  </Descriptions.Item>
+                ))}
               </Descriptions>
             </div>
           )}

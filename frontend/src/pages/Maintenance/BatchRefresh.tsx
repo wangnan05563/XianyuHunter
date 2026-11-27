@@ -21,8 +21,6 @@ import {
   Tabs,
   Tag,
   Typography,
-  message,
-  notification,
 } from 'antd'
 import type { TableColumnsType, TableProps } from 'antd'
 import type { Dayjs } from 'dayjs'
@@ -115,6 +113,14 @@ function renderLastRunTimeText(time: string) {
 function formatElapsed(ms: number | null | undefined): string {
   if (ms == null || ms < 0) return '—'
   return formatDuration(Math.floor(ms / 1000), { withSeconds: true })
+}
+
+// 列表内完成时间只保留时分秒，完整日期放在 title 悬浮提示里，避免表格行被撑成三行
+function formatClockTime(time: string | null | undefined): string {
+  if (!time) return '—'
+  const formatted = formatTime(time)
+  const clock = formatted.split(' ').pop()
+  return clock || formatted
 }
 
 // ===== T02578 批量采集收尾反馈：可单测的纯函数（4.4-1 / 4.4-3 / 4.4-5）=====
@@ -240,12 +246,24 @@ export default function BatchRefresh() {
   )
 
   return (
-    <div className="page-container">
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary" style={{ fontSize: 13 }}>
+    <div className="page-container" data-testid="batch-refresh-page" style={{ marginRight: 80 }}>
+      <header
+        data-testid="batch-refresh-header"
+        style={{
+          marginBottom: 16,
+          padding: '18px 20px',
+          borderRadius: 10,
+          border: '1px solid var(--xh-border-color)',
+          background: 'var(--xh-bg-container)',
+        }}
+      >
+        <Typography.Title level={1} style={{ margin: 0, fontSize: 24, lineHeight: 1.35 }}>
+          批量采集
+        </Typography.Title>
+        <Text type="secondary" style={{ display: 'inline-block', marginTop: 6, fontSize: 13 }}>
           定时刷新在售商品详情 · 检测已售状态 · 补全字段变更 · 完整执行历史可追溯
         </Text>
-      </div>
+      </header>
 
       <Tabs
         activeKey={activeTab}
@@ -284,8 +302,10 @@ function calcProgressPercent(progress: BatchRefreshStatus['progress'] | undefine
 }
 
 function CurrentBatchPanel() {
+  const { message, notification } = App.useApp()
   const [status, setStatus] = useState<BatchRefreshStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [triggering, setTriggering] = useState(false)
   // 触发前预估：每次打开确认框重新取（4.4-2，条数是活的，不能缓存）
   const [triggerPreview, setTriggerPreview] = useState<TriggerPreviewState | undefined>()
@@ -314,9 +334,16 @@ function CurrentBatchPanel() {
   const formDirtyRef = useRef(false)
   // forceFastPoll 安全兜底：避免因后端异常导致永远高频轮询
   const forceFastPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // StrictMode 会重复执行首屏 effect；用 in-flight 标记去重，避免同一时刻重复请求状态
+  const statusInFlightRef = useRef(false)
 
   const loadStatus = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
+    if (statusInFlightRef.current) return
+    statusInFlightRef.current = true
+    if (!silent) {
+      setLoading(true)
+      setStatusError(null)
+    }
     try {
       const data = await batchRefreshApi.getStatus()
       setStatus(data)
@@ -331,8 +358,10 @@ function CurrentBatchPanel() {
         })
       }
     } catch (e) {
-      if (!silent) message.error(extractApiError(e), 5)
+      // 页面级错误态：不能把「加载失败」伪装成「未启动 / 0 条」
+      if (!silent) setStatusError(extractApiError(e))
     } finally {
+      statusInFlightRef.current = false
       if (!silent) setLoading(false)
     }
   }, [form])
@@ -535,16 +564,55 @@ function CurrentBatchPanel() {
   else if (unavailable) triggerTooltipText = '调度器未启动'
   // 4.4-5：暂停/继续/停止的提示按当前状态生成，禁用态不再写「能做的动作」
   const tips = controlButtonTips({ running, paused, stopping })
+  const initialLoading = loading && status == null
+  const initialError = statusError != null && status == null
+
+  if (initialLoading) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="加载中"
+        description="正在获取批量采集状态与配置，请稍候…"
+      />
+    )
+  }
+
+  if (initialError) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="状态加载失败"
+        description={statusError}
+        action={
+          <Button size="small" onClick={() => void loadStatus()}>
+            重试
+          </Button>
+        }
+      />
+    )
+  }
 
   return (
     <>
+      {statusError && (
+        <Alert
+          type="error"
+          showIcon
+          message="状态刷新失败，当前展示的是上一次成功结果"
+          description={statusError}
+          action={<Button size="small" onClick={() => void loadStatus()}>重试</Button>}
+          style={{ marginBottom: 16 }}
+        />
+      )}
       {/* 页面标题与刷新按钮 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Text type="secondary">实时查看当前批次的执行进度与状态</Text>
         <Space>
           <Space size="small">
             <Text type="secondary" style={{ fontSize: 12 }}>自动刷新</Text>
-            <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} />
+            <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} aria-label="自动刷新状态" />
           </Space>
           <TipButton tip="刷新当前批次执行状态" icon={<ReloadOutlined />} onClick={() => loadStatus()} loading={loading}>
             刷新状态
@@ -637,7 +705,7 @@ function CurrentBatchPanel() {
       {/* 状态概览：4 列 Statistic */}
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={24}>
-          <Col span={6}>
+          <Col xs={12} xl={6}>
             <Statistic
               title="调度器状态"
               formatter={() => renderStatusTag(status?.status ?? 'unavailable')}
@@ -646,7 +714,7 @@ function CurrentBatchPanel() {
               {status?.enabled ? '配置已启用' : '配置已禁用'}
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={12} xl={6}>
             <Statistic
               title="触发间隔"
               value={status?.interval_minutes ?? 0}
@@ -656,7 +724,7 @@ function CurrentBatchPanel() {
               由 APScheduler 按 interval 触发
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={12} xl={6}>
             <Statistic
               title="上次执行时间"
               // 调用顶层函数避免在 formatter 内联 JSX 子组件（SonarQube S6478）
@@ -666,7 +734,7 @@ function CurrentBatchPanel() {
               {lastResultText}
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={12} xl={6}>
             <Statistic
               title="变更日志条数"
               value={status?.change_log?.length ?? 0}
@@ -680,8 +748,8 @@ function CurrentBatchPanel() {
       </Card>
 
       <Row gutter={16}>
-        {/* 左侧：配置热更新 + 任务控制 */}
-        <Col span={10}>
+        {/* 左侧：配置热更新 + 任务控制；1024 以下上下堆叠，避免半宽挤压 */}
+        <Col xs={24} xl={10}>
           <Card
             title="配置热更新"
             style={{ marginBottom: 16 }}
@@ -717,7 +785,7 @@ function CurrentBatchPanel() {
                 valuePropName="checked"
                 tooltip="关闭后调度器不会定时触发采集（不影响已注册 job 的下次启动）"
               >
-                <Switch checkedChildren="开" unCheckedChildren="关" />
+                <Switch checkedChildren="开" unCheckedChildren="关" aria-label="启用批量采集" />
               </Form.Item>
               <Form.Item
                 label="触发间隔"
@@ -732,7 +800,7 @@ function CurrentBatchPanel() {
                     ]}
                     noStyle
                   >
-                    <InputNumber min={1} max={1440} style={{ width: '100%' }} />
+                    <InputNumber min={1} max={1440} style={{ width: '100%' }} aria-label="触发间隔（分钟）" />
                   </Form.Item>
                   <div className="ant-input-number-group-addon" style={{ display: 'flex', alignItems: 'center', padding: '0 11px', background: 'var(--xh-bg-spotlight, rgba(0,0,0,0.06))', border: '1px solid var(--xh-border-color, #d9d9d9)', borderLeft: 'none', borderRadius: '0 6px 6px 0' }}>
                     分钟
@@ -744,21 +812,21 @@ function CurrentBatchPanel() {
                 name="batch_size"
                 tooltip="每批从数据库拉取的最大商品数（分页控制），范围 1-500"
               >
-                <InputNumber min={1} max={500} style={{ width: 200 }} />
+                <InputNumber min={1} max={500} style={{ width: 200 }} aria-label="批次大小" />
               </Form.Item>
               <Form.Item
                 label="单次运行上限"
                 name="max_items_per_run"
                 tooltip="单次批量采集最多处理的商品数，防止长时间占用浏览器，范围 1-10000"
               >
-                <InputNumber min={1} max={10000} style={{ width: 200 }} />
+                <InputNumber min={1} max={10000} style={{ width: 200 }} aria-label="单次运行上限" />
               </Form.Item>
               <Form.Item
                 label="历史保留天数"
                 name="history_retention_days"
                 tooltip="执行历史保留天数，超过此天数启动时自动清理；0=永不清理，范围 0-3650"
               >
-                <InputNumber min={0} max={3650} style={{ width: 200 }} />
+                <InputNumber min={0} max={3650} style={{ width: 200 }} aria-label="历史保留天数" />
               </Form.Item>
             </Form>
           </Card>
@@ -847,7 +915,7 @@ function CurrentBatchPanel() {
         </Col>
 
         {/* 右侧：变更日志 */}
-        <Col span={14}>
+        <Col xs={24} xl={14}>
           <Card
             title="变更日志"
             extra={<Text type="secondary" style={{ fontSize: 12 }}>最近 50 条</Text>}
@@ -856,7 +924,7 @@ function CurrentBatchPanel() {
               size="small"
               rowKey={(r) => `${r.item_id}_${r.timestamp}`}
               dataSource={status?.change_log ?? []}
-              pagination={{ pageSize: 10, size: 'small' }}
+              pagination={(status?.change_log?.length ?? 0) > 10 ? { pageSize: 10, size: 'small' } : false}
               locale={{ emptyText: '暂无变更记录' }}
               scroll={{ x: 480 }}
               columns={[
@@ -915,7 +983,9 @@ function HistoryPanel() {
   // 删除确认走 App 上下文的 modal（T02975）：操作列 fixed:'right' 是 sticky 单元格，
   // Popconfirm 的 trigger 在横向滚动时反复重算位置（同 T02671 的因果链）
   const { modal } = App.useApp()
+  const { message } = App.useApp()
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [items, setItems] = useState<BatchRefreshHistoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
@@ -947,6 +1017,8 @@ function HistoryPanel() {
   const [pageSize, setPageSize] = useState(20)
   const [orderBy, setOrderBy] = useState<BatchRefreshHistoryQuery['order_by']>('started_at')
   const [orderDir, setOrderDir] = useState<BatchRefreshHistoryQuery['order_dir']>('desc')
+  // StrictMode 双执行 effect 时只保留一个历史请求
+  const listInFlightRef = useRef(false)
 
   const buildQuery = useCallback((): BatchRefreshHistoryQuery => {
     const q: BatchRefreshHistoryQuery = {
@@ -975,7 +1047,10 @@ function HistoryPanel() {
     !!filterStatus || !!filterSource || !!filterTaskId.trim() || !!(filterDateRange?.[0] && filterDateRange?.[1])
 
   const loadList = useCallback(() => {
+    if (listInFlightRef.current) return
+    listInFlightRef.current = true
     setLoading(true)
+    setLoadError(null)
     batchRefreshApi
       .listHistory(buildQuery())
       .then((res) => {
@@ -983,8 +1058,14 @@ function HistoryPanel() {
         setTotal(res.total)
         setStatusCounts(res.status_counts || {})
       })
-      .catch(() => message.error('加载执行历史失败'))
-      .finally(() => setLoading(false))
+      .catch((e) => {
+        // 失败态必须显式区分于「确实没有记录」的空表
+        setLoadError(`执行历史加载失败：${extractApiError(e)}`)
+      })
+      .finally(() => {
+        listInFlightRef.current = false
+        setLoading(false)
+      })
   }, [buildQuery])
 
   useEffect(() => {
@@ -1106,14 +1187,14 @@ function HistoryPanel() {
       title: 'Task ID',
       dataIndex: 'task_id',
       key: 'task_id',
-      width: 90,
+      width: 70,
       sorter: true,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 75,
       sorter: true,
       render: (s: BatchRefreshHistoryStatus) => renderHistoryStatusTag(s),
     },
@@ -1121,42 +1202,34 @@ function HistoryPanel() {
       title: '来源',
       dataIndex: 'trigger_source',
       key: 'trigger_source',
-      width: 80,
+      width: 65,
       render: (s: BatchRefreshTriggerSource) => renderTriggerSourceTag(s),
     },
     {
-      title: '开始时间',
+      title: '执行时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 170,
+      width: 200,
       sorter: true,
-      render: (t: string) => <Text style={{ fontSize: 12 }}>{formatTime(t)}</Text>,
-    },
-    {
-      title: '完成时间',
-      dataIndex: 'completed_at',
-      key: 'completed_at',
-      width: 170,
-      render: (t: string | null) => <Text style={{ fontSize: 12 }}>{formatTime(t)}</Text>,
-    },
-    {
-      title: '耗时',
-      dataIndex: 'duration_ms',
-      key: 'duration_ms',
-      width: 90,
-      sorter: true,
-      render: (ms: number | null) => formatElapsed(ms),
+      render: (t: string, r: BatchRefreshHistoryItem) => (
+        <div style={{ fontSize: 12, lineHeight: 1.65 }}>
+          <div>{formatTime(t)}</div>
+          <div style={{ color: 'var(--xh-text-tertiary)', fontSize: 11 }} title={formatTime(r.completed_at)}>
+            结束 {formatClockTime(r.completed_at)} · 耗时 {formatElapsed(r.duration_ms)}
+          </div>
+        </div>
+      ),
     },
     {
       title: '总数',
       dataIndex: 'total',
       key: 'total',
-      width: 70,
+      width: 60,
     },
     {
       title: '成功/失败/跳过',
       key: 'counts',
-      width: 160,
+      width: 130,
       render: (_: unknown, r: BatchRefreshHistoryItem) => (
         <Space size={4}>
           <Tag color="green">{r.success}</Tag>
@@ -1168,7 +1241,7 @@ function HistoryPanel() {
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      width: 130,
       fixed: 'right',
       render: (_: unknown, r: BatchRefreshHistoryItem) => (
         <Space size={4}>
@@ -1241,6 +1314,22 @@ function HistoryPanel() {
     )
   }
 
+  if (loadError) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="执行历史加载失败"
+        description={loadError}
+        action={
+          <Button size="small" onClick={loadList}>
+            重试
+          </Button>
+        }
+      />
+    )
+  }
+
   return (
     <>
       {/* 4.4-4 统计口径：筛选生效时顶部说明「第一张卡是筛选命中数，后三张是全表累计」 */}
@@ -1259,7 +1348,7 @@ function HistoryPanel() {
           <Card size="small">
             <Statistic
               title={filtersActive ? '当前筛选结果数' : '执行记录总数'}
-              value={total}
+              value={loading ? '—' : total}
             />
           </Card>
         </Col>
@@ -1267,7 +1356,7 @@ function HistoryPanel() {
           <Card size="small">
             <Statistic
               title="已完成（全表累计）"
-              value={statusCounts['completed'] ?? 0}
+              value={loading ? '—' : (statusCounts['completed'] ?? 0)}
               valueStyle={{ color: '#52c41a' }}
             />
           </Card>
@@ -1276,7 +1365,7 @@ function HistoryPanel() {
           <Card size="small">
             <Statistic
               title="已取消（全表累计）"
-              value={statusCounts['cancelled'] ?? 0}
+              value={loading ? '—' : (statusCounts['cancelled'] ?? 0)}
               valueStyle={{ color: '#fa8c16' }}
             />
           </Card>
@@ -1285,91 +1374,108 @@ function HistoryPanel() {
           <Card size="small">
             <Statistic
               title="已失败（全表累计）"
-              value={statusCounts['failed'] ?? 0}
+              value={loading ? '—' : (statusCounts['failed'] ?? 0)}
               valueStyle={{ color: '#ff4d4f' }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* 筛选与操作栏 */}
+      {/* 筛选与操作栏：每个筛选控件都有可见标签，避免只靠 placeholder 猜含义 */}
       <Card style={{ marginBottom: 16 }}>
-        <Row gutter={[12, 12]} align="middle">
-          <Col>
-            <InputNumber
-              placeholder="Task ID"
-              style={{ width: 120 }}
-              value={filterTaskId || undefined}
-              onChange={(v) => setFilterTaskId(v == null ? '' : String(v))}
-              onPressEnter={handleSearch}
-            />
-          </Col>
-          <Col>
-            <Select
-              placeholder="状态"
-              allowClear
-              style={{ width: 130 }}
-              value={filterStatus}
-              onChange={(v) => setFilterStatus(v)}
-              options={[
-                { label: '执行中', value: 'running' },
-                { label: '已完成', value: 'completed' },
-                { label: '已取消', value: 'cancelled' },
-                { label: '已失败', value: 'failed' },
-              ]}
-            />
-          </Col>
-          <Col>
-            <Select
-              placeholder="来源"
-              allowClear
-              style={{ width: 110 }}
-              value={filterSource}
-              onChange={(v) => setFilterSource(v)}
-              options={[
-                { label: '手动触发', value: 'manual' },
-                { label: '定时触发', value: 'scheduler' },
-              ]}
-            />
-          </Col>
-          <Col>
-            <RangePicker
-              showTime={false}
-              // filterDateRange 已是 [Dayjs | null, Dayjs | null] | null 类型，as 断言冗余（SonarQube S4325）
-              value={filterDateRange}
-              onChange={(range) => setFilterDateRange(range as [Dayjs | null, Dayjs | null] | null)}
-            />
-          </Col>
-          <Col>
-            <Space>
-              <TipButton tip="按筛选条件查询执行历史" type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-                查询
-              </TipButton>
-              <TipButton tip="重置所有筛选条件" onClick={handleReset}>重置</TipButton>
-            </Space>
-          </Col>
-          <Col flex="auto" style={{ textAlign: 'right' }}>
-            <Space>
-              {renderCleanupPopconfirm(
-                30,
-                '确认清理 30 天前的执行历史？',
-                '清理',
-                true,
-                <TipButton tip="清理 30 天前的执行历史" icon={<DeleteOutlined />}>清理 30 天前</TipButton>,
-              )}
-              {renderCleanupPopconfirm(
-                0,
-                '确认清空全部执行历史？此操作不可恢复。',
-                '清空',
-                true,
-                <TipButton tip="清空全部执行历史，不可恢复" danger icon={<DeleteOutlined />}>清空全部</TipButton>,
-              )}
-              <TipButton tip="重新加载执行历史列表" icon={<ReloadOutlined />} onClick={loadList} loading={loading}>
-                刷新
-              </TipButton>
-            </Space>
-          </Col>
-        </Row>
+        <div data-testid="history-filter-bar">
+          <Row gutter={[12, 12]} align="middle">
+            <Col>
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Task ID</Text>
+                <InputNumber
+                  placeholder="如 500"
+                  aria-label="Task ID 筛选"
+                  style={{ width: 120 }}
+                  value={filterTaskId || undefined}
+                  onChange={(v) => setFilterTaskId(v == null ? '' : String(v))}
+                  onPressEnter={handleSearch}
+                />
+              </Space>
+            </Col>
+            <Col>
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>状态</Text>
+                <Select
+                  placeholder="全部状态"
+                  aria-label="状态筛选"
+                  allowClear
+                  style={{ width: 130 }}
+                  value={filterStatus}
+                  onChange={(v) => setFilterStatus(v)}
+                  options={[
+                    { label: '执行中', value: 'running' },
+                    { label: '已完成', value: 'completed' },
+                    { label: '已取消', value: 'cancelled' },
+                    { label: '已失败', value: 'failed' },
+                  ]}
+                />
+              </Space>
+            </Col>
+            <Col>
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>来源</Text>
+                <Select
+                  placeholder="全部来源"
+                  aria-label="来源筛选"
+                  allowClear
+                  style={{ width: 110 }}
+                  value={filterSource}
+                  onChange={(v) => setFilterSource(v)}
+                  options={[
+                    { label: '手动触发', value: 'manual' },
+                    { label: '定时触发', value: 'scheduler' },
+                  ]}
+                />
+              </Space>
+            </Col>
+            <Col>
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>日期</Text>
+                <RangePicker
+                  showTime={false}
+                  // filterDateRange 已是 [Dayjs | null, Dayjs | null] | null 类型，as 断言冗余（SonarQube S4325）
+                  value={filterDateRange}
+                  onChange={(range) => setFilterDateRange(range as [Dayjs | null, Dayjs | null] | null)}
+                />
+              </Space>
+            </Col>
+            <Col>
+              <Space>
+                <TipButton tip="按筛选条件查询执行历史" type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+                  查询
+                </TipButton>
+                <TipButton tip="重置所有筛选条件" onClick={handleReset}>重置</TipButton>
+              </Space>
+            </Col>
+            <Col flex="auto" style={{ textAlign: 'right' }}>
+              <Space>
+                {renderCleanupPopconfirm(
+                  30,
+                  '确认清理 30 天前的执行历史？',
+                  '清理',
+                  true,
+                  <TipButton tip="清理 30 天前的执行历史" icon={<DeleteOutlined />}>清理 30 天前</TipButton>,
+                )}
+                {renderCleanupPopconfirm(
+                  0,
+                  '确认清空全部执行历史？此操作不可恢复。',
+                  '清空',
+                  true,
+                  <TipButton tip="清空全部执行历史，不可恢复" danger icon={<DeleteOutlined />}>清空全部</TipButton>,
+                )}
+                <TipButton tip="重新加载执行历史列表" icon={<ReloadOutlined />} onClick={loadList} loading={loading}>
+                  刷新
+                </TipButton>
+              </Space>
+            </Col>
+          </Row>
+        </div>
       </Card>
 
       {/* 历史记录表格 */}
@@ -1380,7 +1486,7 @@ function HistoryPanel() {
           dataSource={items}
           columns={columns}
           onChange={handleTableChange}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 730 }}
           size="small"
           pagination={{
             current: page,

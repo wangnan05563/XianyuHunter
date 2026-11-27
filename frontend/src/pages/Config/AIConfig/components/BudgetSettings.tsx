@@ -7,10 +7,11 @@ interface BudgetSettingsProps {
   // 局部字段更新，避免子组件直接操作父级 setState
   readonly onBudgetChange: (patch: Partial<AIUsage['budget']>) => void
   readonly saving: boolean
+  readonly dirty: boolean
   readonly onSave: () => void
 }
 
-export default function BudgetSettings({ budget, onBudgetChange, saving, onSave }: BudgetSettingsProps) {
+export default function BudgetSettings({ budget, onBudgetChange, saving, dirty, onSave }: BudgetSettingsProps) {
   return (
     <>
       <h3 style={{ marginBottom: 8 }}>预算控制</h3>
@@ -27,7 +28,7 @@ export default function BudgetSettings({ budget, onBudgetChange, saving, onSave 
               <InputNumber
                 id="budget-daily-token"
                 value={budget.daily_token_limit}
-                onChange={(v) => onBudgetChange({ daily_token_limit: v ?? 500000 })}
+                onChange={(v) => onBudgetChange({ daily_token_limit: v ?? 0 })}
                 placeholder="500000"
                 style={{ width: '100%' }}
                 min={0}
@@ -40,7 +41,7 @@ export default function BudgetSettings({ budget, onBudgetChange, saving, onSave 
               <InputNumber
                 id="budget-daily-cost"
                 value={budget.daily_cost_limit_usd}
-                onChange={(v) => onBudgetChange({ daily_cost_limit_usd: v ?? 5 })}
+                onChange={(v) => onBudgetChange({ daily_cost_limit_usd: v ?? 0 })}
                 placeholder="5.0"
                 style={{ width: '100%' }}
                 min={0}
@@ -54,7 +55,7 @@ export default function BudgetSettings({ budget, onBudgetChange, saving, onSave 
               <InputNumber
                 id="budget-rate-limit"
                 value={budget.rate_limit_per_min}
-                onChange={(v) => onBudgetChange({ rate_limit_per_min: v ?? 20 })}
+                onChange={(v) => onBudgetChange({ rate_limit_per_min: v ?? 0 })}
                 placeholder="20"
                 style={{ width: '100%' }}
                 min={0}
@@ -63,7 +64,14 @@ export default function BudgetSettings({ budget, onBudgetChange, saving, onSave 
           </Col>
         </Row>
         <div style={{ marginTop: 16 }}>
-          <TipButton tip="保存当前预算设置" type="primary" loading={saving} onClick={onSave}>
+          <TipButton
+            tip={dirty ? '保存当前预算设置' : '预算没有未保存的修改'}
+            type="primary"
+            loading={saving}
+            onClick={onSave}
+            disabled={!dirty}
+            data-testid="ai-save-budget"
+          >
             保存预算设置
           </TipButton>
         </div>

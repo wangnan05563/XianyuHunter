@@ -1,0 +1,276 @@
+/* 事件时间线页壳：页头、统计卡、筛选分组、事件类型 chips 与右侧悬浮工具安全区。 */
+.timeline-page {
+  box-sizing: border-box;
+  width: 100%;
+  /* 右侧悬浮工具固定落在页面右缘；预留 56/72px，避免压住相对时间与分页 */
+  padding-right: 56px;
+}
+
+.timeline-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.timeline-page-heading h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--xh-text-primary);
+}
+
+.timeline-page-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--xh-text-tertiary);
+}
+
+.timeline-stats-row {
+  margin-bottom: 16px;
+}
+
+.timeline-stats-row .ant-col {
+  display: flex;
+}
+
+.timeline-stats-row .ant-card {
+  flex: 1;
+}
+
+.timeline-main-card,
+.timeline-main-card .ant-card-body {
+  min-width: 0;
+}
+
+.timeline-main-card .ant-card-body {
+  overflow: hidden;
+}
+
+.timeline-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+
+.timeline-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.timeline-filter-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.timeline-filter-item > .ant-select {
+  min-width: 0;
+}
+
+.timeline-event-type-select {
+  width: 200px;
+  max-width: 100%;
+}
+
+.timeline-task-select {
+  width: 250px;
+  max-width: 100%;
+}
+
+.timeline-event-types {
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--xh-bg-spotlight);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.timeline-event-types-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.timeline-event-types-title {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.timeline-event-types-count {
+  margin-left: auto;
+  color: var(--xh-text-tertiary);
+  font-size: 11px;
+}
+
+.timeline-type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.timeline-type-chip {
+  cursor: pointer;
+  margin: 0;
+}
+
+.timeline-type-chip:focus-visible {
+  outline: 2px solid var(--xh-color-primary, #1677ff);
+  outline-offset: 1px;
+}
+
+.timeline-list {
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.timeline-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+  min-width: 0;
+}
+
+.timeline-row-time {
+  flex: 0 0 120px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--xh-text-tertiary);
+  line-height: 20px;
+  padding-top: 2px;
+}
+
+.timeline-row-marker {
+  flex: 0 0 auto;
+  padding-top: 6px;
+}
+
+.timeline-row-icon {
+  font-size: 14px;
+}
+
+.timeline-row-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: -10px;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+.timeline-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-pagination {
+  text-align: right;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.timeline-load-error {
+  margin-bottom: 16px;
+}
+
+.timeline-tasks-error {
+  min-width: 0;
+}
+
+@media (max-width: 1200px) {
+  .timeline-page {
+    padding-right: 72px;
+  }
+}
+
+@media (max-width: 900px) {
+  .timeline-page-heading h1 {
+    font-size: 20px;
+  }
+
+  .timeline-stats-row .ant-card-body {
+    padding: 10px;
+  }
+
+  .timeline-stats-row .ant-statistic-title {
+    overflow: hidden;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .timeline-stats-row .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  .timeline-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .timeline-filter-item {
+    width: 100%;
+  }
+
+  .timeline-filter-item > .ant-select {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 360px;
+  }
+
+  .timeline-event-types-head {
+    flex-wrap: wrap;
+  }
+
+  .timeline-row {
+    gap: 8px;
+  }
+
+  .timeline-row-time {
+    flex-basis: 96px;
+    font-size: 10px;
+  }
+
+  .timeline-pagination {
+    text-align: center;
+  }
+}
+
+/* 暗色下卡片与列表分隔线跟随主题 */
+[data-theme='dark'] .timeline-main-card,
+[data-theme='dark'] .timeline-stats-row .ant-card {
+  border-color: var(--xh-border-color);
+}
+
+[data-theme='dark'] .timeline-row {
+  border-bottom-color: var(--xh-border-color);
+}
+
+[data-theme='dark'] .timeline-pagination {
+  border-top-color: var(--xh-border-color);
+}

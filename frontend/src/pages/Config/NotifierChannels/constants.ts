@@ -17,7 +17,8 @@ export interface ChannelDef {
   featureScore: number
   // 凭据获取地址（卡片显示"获取"链接，新标签页打开）
   obtainUrl?: string
-  fields: { key: string; label: string; placeholder: string; secret?: boolean }[]
+  // optional=true 的字段允许为空，由后端使用默认值或钥匙串兜底（如 bark.server、ntfy.token）
+  fields: { key: string; label: string; placeholder: string; secret?: boolean; optional?: boolean }[]
 }
 
 // 定价分类元信息：用于分类标题与排序
@@ -39,7 +40,7 @@ export const defaultChannels: ChannelDef[] = [
     limits: '免费 5 条/天，Turbo 版需付费',
     featureScore: 3,
     obtainUrl: 'https://sct.ftqq.com/sendkey',
-    fields: [{ key: 'serverchan_send_key', label: 'SendKey', placeholder: 'SCT123456...' }],
+    fields: [{ key: 'serverchan_send_key', label: 'SendKey', placeholder: 'SCT123456...', secret: true }],
   },
   {
     key: 'pushplus',
@@ -51,7 +52,7 @@ export const defaultChannels: ChannelDef[] = [
     limits: '免费额度有限，VIP 解除限制',
     featureScore: 3,
     obtainUrl: 'https://www.pushplus.plus/doc/',
-    fields: [{ key: 'pushplus_token', label: 'Token', placeholder: 'abc123...' }],
+    fields: [{ key: 'pushplus_token', label: 'Token', placeholder: 'abc123...', secret: true }],
   },
   {
     key: 'bark',
@@ -63,7 +64,7 @@ export const defaultChannels: ChannelDef[] = [
     featureScore: 2,
     obtainUrl: 'https://github.com/Finb/Bark',
     fields: [
-      { key: 'bark_server', label: 'Server URL', placeholder: 'https://api.day.app' },
+      { key: 'bark_server', label: 'Server URL', placeholder: 'https://api.day.app', optional: true },
       { key: 'bark_key', label: 'Device Key', placeholder: 'bark device key', secret: true },
     ],
   },
@@ -104,7 +105,7 @@ export const defaultChannels: ChannelDef[] = [
     obtainUrl: 'https://open.dingtalk.com/document/robots/custom-robot-access',
     fields: [
       { key: 'dingtalk_webhook', label: 'Webhook URL', placeholder: 'https://oapi.dingtalk.com/...' },
-      { key: 'dingtalk_secret', label: 'Secret', placeholder: 'SEC...', secret: true },
+      { key: 'dingtalk_secret', label: 'Secret', placeholder: 'SEC...（可选，加签机器人使用）', secret: true, optional: true },
     ],
   },
   {
@@ -129,9 +130,9 @@ export const defaultChannels: ChannelDef[] = [
     featureScore: 5,
     obtainUrl: 'https://ntfy.sh',
     fields: [
-      { key: 'ntfy_server', label: 'Server URL', placeholder: 'https://ntfy.sh' },
+      { key: 'ntfy_server', label: 'Server URL', placeholder: 'https://ntfy.sh', optional: true },
       { key: 'ntfy_topic', label: 'Topic', placeholder: 'xianyu_hunter_alerts' },
-      { key: 'ntfy_token', label: 'Access Token', placeholder: 'tk_xxx（可选，私有 topic 鉴权）', secret: true },
+      { key: 'ntfy_token', label: 'Access Token', placeholder: 'tk_xxx（私有 topic 鉴权）', secret: true, optional: true },
     ],
   },
 ]
@@ -179,3 +180,32 @@ export const severityColors: Record<string, string> = {
   important: 'orange',
   critical: 'red',
 }
+
+// 面向用户的中文优先级文案；不直接暴露后端枚举名
+export const severityLabels: Record<string, string> = {
+  info: '普通',
+  important: '重要',
+  critical: '高优',
+}
+
+/**
+ * 仅写入时间线、不会进入 NotifierHub 的事件；与后端
+ * `container.py::_DB_ONLY_EVENTS` 对齐。把它们展示成可勾选项会让用户误以为能收到推送。
+ * eventTypes 仍保留 22 项用于 ENUM_TO_DOT 对齐，页面只渲染 notifiableEventTypes。
+ */
+export const DB_ONLY_EVENT_KEYS = [
+  'TASK_STOPPED',
+  'TASK_SEARCH_DONE',
+  'ITEM_FOUND',
+  'EVAL_SCORED',
+  'WAF_BLOCKED',
+  'AUTH_EXPIRED',
+  'SYSTEM_ERROR',
+  'MAINTENANCE_DATABASE',
+  'MAINTENANCE_LOGS',
+  'MAINTENANCE_CACHE',
+] as const
+
+export const notifiableEventTypes = eventTypes.filter(
+  (event) => !(DB_ONLY_EVENT_KEYS as readonly string[]).includes(event.key),
+)

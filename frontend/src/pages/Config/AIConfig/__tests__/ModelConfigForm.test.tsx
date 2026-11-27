@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { vi } from 'vitest'
 import ModelConfigForm from '../components/ModelConfigForm'
 
-test('保存配置按钮可独立持久化文本解析模型', async () => {
+// 保存按钮已统一收到页面级 sticky 头（AIConfig/index.tsx），表单本身只负责把编辑写回草稿；
+// 这里钉住「文本解析模型」字段的写回，避免表单又自造一份保存动作。
+test('文本解析模型字段的编辑会写回草稿', () => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation(() => ({
@@ -15,7 +16,7 @@ test('保存配置按钮可独立持久化文本解析模型', async () => {
       dispatchEvent: vi.fn(),
     })),
   })
-  const onSaveConfig = vi.fn()
+  const onConfigChange = vi.fn()
   render(
     <ModelConfigForm
       config={{
@@ -25,19 +26,17 @@ test('保存配置按钮可独立持久化文本解析模型', async () => {
         model: 'gpt-4.1-mini',
         vision_model: 'gpt-4o',
       }}
-      onConfigChange={vi.fn()}
+      onConfigChange={onConfigChange}
       showApiKey={false}
       onToggleShowApiKey={vi.fn()}
       onApplyPreset={vi.fn()}
-      saving={false}
       testing={false}
       testResult={null}
-      onSaveConfig={onSaveConfig}
       onTestConnection={vi.fn()}
     />,
   )
 
-  await userEvent.click(screen.getByRole('button', { name: '保存配置' }))
+  fireEvent.change(screen.getByLabelText('文本解析模型'), { target: { value: 'gpt-4.1' } })
 
-  expect(onSaveConfig).toHaveBeenCalledOnce()
+  expect(onConfigChange).toHaveBeenCalledWith({ model: 'gpt-4.1' })
 })

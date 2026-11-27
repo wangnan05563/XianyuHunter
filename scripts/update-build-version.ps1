@@ -46,6 +46,10 @@ $base = "$($parts[0]).$($parts[1])"
 # 2. 读取计数器：当天则递增，跨天重置为 1
 $today = Get-Date -Format "yyyyMMdd"
 $seq = 1
+# L5 兜底：.build-counter.json 被 gitignore，丢失/换机时若只从 1 开始，
+# 同日版本号会从 .2 倒退到 .1。先从当前 pyproject 版本里恢复今天的序号。
+$currentSeq = 0
+if ($currentVersion -match "\.$today\.(\d+)$") { $currentSeq = [int]$matches[1] }
 if (Test-Path $counterPath) {
     try {
         $counter = Get-Content $counterPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -54,9 +58,11 @@ if (Test-Path $counterPath) {
         }
         # 跨天时 seq 保持默认 1
     } catch {
-        Write-Host "[WARN] .build-counter.json 解析失败，序号重置为 1：$_" -ForegroundColor Yellow
+        Write-Host "[WARN] .build-counter.json 解析失败，序号从当前版本恢复：$_" -ForegroundColor Yellow
     }
 }
+# 计数器丢失但当前版本已是今天的 .N：至少从 N+1 继续，绝不让版本号倒退。
+if ($currentSeq -gt 0) { $seq = [Math]::Max($seq, $currentSeq + 1) }
 
 # 3. 构造新版本号
 $newVersion = "$base.$today.$seq"

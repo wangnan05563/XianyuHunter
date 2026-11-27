@@ -1,10 +1,27 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Card, Col, Row, Typography, Tag, Input, DatePicker, InputNumber, Space, Spin, Empty, Alert, message, theme } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Empty,
+  Input,
+  InputNumber,
+  Row,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  theme,
+} from 'antd'
 import { TipButton } from '@/components/TipButton'
 import { DownloadOutlined, DatabaseOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
 import { exportApi, type ExportDataset, type ExportDatasetInfo, type ExportParams } from '../../api'
 import { notifyExportResult } from '../../utils/exportFeedback'
+import './export.css'
 
 const { Paragraph, Text } = Typography
 const { RangePicker } = DatePicker
@@ -51,11 +68,16 @@ const DEFAULT_FILTER: FilterState = {
  */
 export default function Export() {
   const { token } = theme.useToken()
+  const { message } = App.useApp()
   const [datasets, setDatasets] = useState<ExportDatasetInfo[]>([])
   const [loading, setLoading] = useState(true)
   // 列定义接口失败时改用内置兜底：必须显式声明，否则用户以为看到的是后端真实列
   const [columnsFallback, setColumnsFallback] = useState(false)
   const [busyDataset, setBusyDataset] = useState<ExportDataset | null>(null)
+  // 导出失败必须留在卡片里，不能只靠几秒后消失的 toast；每个数据集独立记账
+  const [exportErrors, setExportErrors] = useState<Partial<Record<ExportDataset, string>>>({})
+  // 重载令牌：列定义兜底与空数据态都能让用户主动重试
+  const [reloadToken, setReloadToken] = useState(0)
   // 每个数据集独立维护筛选条件，切换数据集时保留各自的输入
   const [filters, setFilters] = useState<Record<ExportDataset, FilterState>>({
     items: { ...DEFAULT_FILTER },
@@ -65,9 +87,15 @@ export default function Export() {
   })
 
   useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setColumnsFallback(false)
     exportApi.listDatasets()
-      .then((res) => setDatasets(res.datasets || []))
+      .then((res) => {
+        if (!cancelled) setDatasets(res.datasets || [])
+      })
       .catch(() => {
+        if (cancelled) return
         // 拉取失败时用静态列定义兜底，保证页面可用；兜底状态单独记账并显式告知
         setColumnsFallback(true)
         setDatasets([
@@ -77,7 +105,14 @@ export default function Export() {
           { key: 'events', columns: ['id', 'type', 'task_id', 'item_id', 'stage', 'level', 'message', 'created_at'], description: '事件日志' },
         ])
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [reloadToken])
+
+  const reloadDatasets = useCallback(() => {
+    setReloadToken((n) => n + 1)
   }, [])
 
   const handleExport = async (ds: ExportDataset) => {
@@ -91,12 +126,20 @@ export default function Export() {
     }
     if (f.status.trim()) params.status = f.status.trim()
     if (f.level.trim()) params.level = f.level.trim()
+    setExportErrors((prev) => {
+      if (!prev[ds]) return prev
+      const next = { ...prev }
+      delete next[ds]
+      return next
+    })
     setBusyDataset(ds)
     try {
       const res = await exportApi.downloadFile(ds, params)
       notifyExportResult(message, res, DATASET_DISPLAY[ds].title)
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '导出失败，请稍后重试')
+      const errorMessage = e instanceof Error ? e.message : '导出失败，请稍后重试'
+      setExportErrors((prev) => ({ ...prev, [ds]: errorMessage }))
+      message.error(errorMessage)
     } finally {
       setBusyDataset(null)
     }
@@ -110,14 +153,20 @@ export default function Export() {
   const cards = useMemo(() => {
     if (loading) return null
     if (datasets.length === 0) {
-      return <Empty description="暂无可导出的数据集" />
+      return (
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '64px 0' }}>
+          <Empty description="暂无可导出的数据集">
+            <Button onClick={reloadDatasets}>重新加载</Button>
+          </Empty>
+        </div>
+      )
     }
     return datasets.map((ds) => {
       const display = DATASET_DISPLAY[ds.key] || { color: '#1677ff', title: ds.key }
       const filterConfig = DATASET_FILTERS[ds.key]
       const f = filters[ds.key]
       return (
-        <Col xs={24} lg={12} key={ds.key}>
+        <Col xs={24} xl={12} key={ds.key}>
           <Card
             title={
               <Space>
@@ -147,6 +196,7 @@ export default function Export() {
                   allowClear
                   size="small"
                   placeholder="任务 ID 过滤（可选）"
+                  aria-label={`任务 ID 过滤（${display.title}）`}
                   value={f.task_id}
                   onChange={(e) => updateFilter(ds.key, { task_id: e.target.value })}
                 />
@@ -156,6 +206,7 @@ export default function Export() {
                   size="small"
                   showTime
                   style={{ width: '100%' }}
+                  aria-label={`${display.title}导出时间范围`}
                   value={f.range}
                   onChange={(range) => updateFilter(ds.key, { range: range as [Dayjs, Dayjs] | null })}
                 />
@@ -165,6 +216,7 @@ export default function Export() {
                   allowClear
                   size="small"
                   placeholder="订单状态过滤（如 succeeded/failed/pending）"
+                  aria-label={`订单状态过滤（${display.title}）`}
                   value={f.status}
                   onChange={(e) => updateFilter(ds.key, { status: e.target.value })}
                 />
@@ -174,6 +226,7 @@ export default function Export() {
                   allowClear
                   size="small"
                   placeholder="事件等级过滤（如 info/warning/error）"
+                  aria-label={`事件等级过滤（${display.title}）`}
                   value={f.level}
                   onChange={(e) => updateFilter(ds.key, { level: e.target.value })}
                 />
@@ -185,6 +238,7 @@ export default function Export() {
                     size="small"
                     min={1}
                     max={50000}
+                    aria-label={`行数上限（${display.title}）`}
                     value={f.limit}
                     onChange={(v) => updateFilter(ds.key, { limit: v ?? 5000 })}
                     style={{ width: 100 }}
@@ -196,20 +250,42 @@ export default function Export() {
                   size="small"
                   icon={<DownloadOutlined />}
                   loading={busyDataset === ds.key}
+                  disabled={busyDataset !== null}
+                  aria-label={`导出${display.title} CSV（${ds.key}）`}
                   onClick={() => void handleExport(ds.key)}
                 >
                   导出 CSV
                 </TipButton>
               </Space>
+              {exportErrors[ds.key] && (
+                <Alert
+                  className="export-error-alert"
+                  type="error"
+                  showIcon
+                  message="导出失败"
+                  description={exportErrors[ds.key]}
+                  action={
+                    <Button
+                      size="small"
+                      aria-label={`重试导出${display.title}`}
+                      onClick={() => void handleExport(ds.key)}
+                    >
+                      重试
+                    </Button>
+                  }
+                  style={{ width: '100%' }}
+                />
+              )}
             </Space>
           </Card>
         </Col>
       )
     })
-  }, [datasets, loading, filters, busyDataset, token])
+  }, [datasets, loading, filters, busyDataset, token, exportErrors, message, reloadDatasets])
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: 24 }}>
+    <div className="page-container" data-testid="export-page" style={{ height: '100%', overflow: 'auto', position: 'relative' }}>
+      <h1 className="export-sr-only">数据导出</h1>
       <div style={{ marginBottom: 16 }}>
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
           将商品、评估、订单、事件数据导出为 CSV（Excel/Numbers 友好，含 UTF-8 BOM）。支持按任务 ID、时间范围、状态、等级筛选。
@@ -221,12 +297,14 @@ export default function Export() {
           showIcon
           message="数据集列定义接口加载失败，下方展示的是前端内置列定义"
           description="导出仍可发起，但列清单可能与后端实际字段存在差异。"
+          action={<Button size="small" onClick={reloadDatasets}>重新加载</Button>}
           style={{ marginBottom: 16 }}
         />
       )}
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
-          <Spin tip="加载数据集..." />
+        <div className="export-loading" aria-live="polite">
+          <Spin />
+          <Text type="secondary">加载数据集...</Text>
         </div>
       ) : (
         <Row gutter={[16, 16]}>

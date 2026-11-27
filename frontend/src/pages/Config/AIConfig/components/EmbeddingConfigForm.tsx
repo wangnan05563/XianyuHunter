@@ -1,16 +1,13 @@
-import { Card, Input, Space, Row, Col, Tag, InputNumber, Typography, Alert } from 'antd'
+import { Card, Input, Space, Row, Col, Tag, InputNumber, Alert } from 'antd'
 import { TipButton } from '@/components/TipButton'
 import {
   EyeInvisibleOutlined,
   EyeOutlined,
   ApiOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
 } from '@ant-design/icons'
 import type { AIConfig as AIConfigData } from '../../../../api'
 import { EMBEDDING_PRESETS, findEmbeddingPresetByBaseUrl } from '../constants'
-
-const { Text } = Typography
+import { canTestEmbedding } from '../aiConfigModel'
 
 // Embedding 连接测试结果，与 LLM TestResult 结构一致便于复用
 export interface EmbeddingTestResult {
@@ -141,8 +138,8 @@ export default function EmbeddingConfigForm({
           </div>
 
           {/* Embedding 模型 + 维度（并排） */}
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={12}>
               <div>
                 <label htmlFor="embedding-model" style={{ fontWeight: 500, marginBottom: 4, display: 'block' }}>
                   Embedding 模型
@@ -158,7 +155,7 @@ export default function EmbeddingConfigForm({
                 </div>
               </div>
             </Col>
-            <Col span={12}>
+            <Col xs={24} xl={12}>
               <div>
                 <label htmlFor="embedding-dimensions" style={{ fontWeight: 500, marginBottom: 4, display: 'block' }}>
                   向量维度
@@ -184,7 +181,7 @@ export default function EmbeddingConfigForm({
       {/* 快捷预设按钮行 */}
       <h3 style={{ marginBottom: 8 }}>Embedding 快捷预设</h3>
       <p style={{ color: 'var(--xh-text-tertiary)', marginBottom: 16 }}>
-        一键切换到常用 Embedding 服务商。推荐使用 Python 本地（无外部依赖，中文优化）。
+        一键填入常用 Embedding 服务商配置；点页头「保存配置」后生效。推荐 Python 本地（无外部依赖，中文优化）。
       </p>
       <Space wrap style={{ marginBottom: 24 }}>
         {(
@@ -195,32 +192,49 @@ export default function EmbeddingConfigForm({
         ).map(([key, preset]) => (
           <Tag
             key={key}
+            data-testid={`embedding-preset-${key}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`应用 ${preset.label} Embedding 预设`}
             style={{ cursor: 'pointer', padding: '4px 12px', fontSize: 14 }}
             color={preset.color}
             onClick={() => onApplyPreset(key)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onApplyPreset(key)
+              }
+            }}
           >
             {preset.label}
           </Tag>
         ))}
       </Space>
 
-      {/* 连接测试按钮 + 结果展示 */}
+      {/* 连接测试按钮 + 结果展示：结果放在按钮上方，避免按钮贴近视口底部时提示落到屏外 */}
       <div style={{ marginBottom: 24 }}>
-        <Space align="center">
+        <p className="ai-tab-save-hint">修改 Embedding 配置后，使用页头「保存配置」统一保存。</p>
+        {testResult && (
+          <Alert
+            className="ai-test-result"
+            data-testid="ai-embedding-test-result"
+            aria-live="polite"
+            type={testResult.success ? 'success' : 'error'}
+            showIcon
+            message={testResult.text}
+          />
+        )}
+        <Space wrap align="center">
           <TipButton
-            tip="测试 Embedding 连接是否可用"
+            tip={canTestEmbedding(config) ? '测试 Embedding 连接是否可用' : '请先开启 AI 功能'}
             icon={<ApiOutlined />}
             loading={testing}
             onClick={onTestConnection}
-            disabled={!config.ai_enabled}
+            disabled={!canTestEmbedding(config)}
+            data-testid="ai-test-embedding"
           >
-            {testing ? '测试中…（本地首次加载模型较慢）' : '🔗 测试 Embedding 连接'}
+            {testing ? '测试中…（本地首次加载模型较慢）' : '测试 Embedding 连接'}
           </TipButton>
-          {testResult && (
-            <Text style={{ color: testResult.success ? '#52c41a' : '#ff4d4f' }}>
-              {testResult.success ? <CheckCircleOutlined /> : <CloseCircleOutlined />} {testResult.text}
-            </Text>
-          )}
         </Space>
       </div>
     </>

@@ -162,6 +162,16 @@ body {
   top: 24px;
 }
 
+/* 价格策略页预览随内容滚动：长预览卡吸顶会钻到吸顶操作区下面，也会在底部被裁切 */
+.price-strategy-preview {
+  position: static;
+}
+
+/* 评估规则页右栏同样有多个长卡片：跟随滚动，避免 sticky 钻到顶部操作区/被底部裁切 */
+.eval-rules-preview {
+  position: static;
+}
+
 /* ============ 权重指示器（业务色保留：绿/橙） ============ */
 .weight-total-indicator {
   display: inline-flex;
@@ -182,6 +192,19 @@ body {
   background: #fef3e0; /* 实色等效 rgba(250, 173, 20, 0.12) 在白色背景上的合成效果 */
   color: #8c5200; /* 进一步加深琥珀色，确保在浅黄背景上对比度 ≥ 4.5:1 */
   border: 1px solid rgba(250, 173, 20, 0.3);
+}
+
+/* 暗色主题下权重指示器不再使用浅色实底，否则会在深色卡片上形成刺眼亮块 */
+[data-theme="dark"] .weight-total-ok {
+  background: rgba(82, 196, 26, 0.16);
+  color: #95de64;
+  border-color: rgba(82, 196, 26, 0.42);
+}
+
+[data-theme="dark"] .weight-total-warn {
+  background: rgba(250, 173, 20, 0.16);
+  color: #ffd666;
+  border-color: rgba(250, 173, 20, 0.42);
 }
 
 /* ============ 通道卡片 ============ */
@@ -353,6 +376,19 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 卡片第二行元信息：卖家 / 信用 / 发布时间，左对齐且比首行更轻 */
+.item-card-meta--sub {
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--xh-text-quaternary);
+}
+
+.item-card-credit {
+  color: #52c41a;
 }
 
 /* ============ 自动监控：数据变化高亮 ============ */

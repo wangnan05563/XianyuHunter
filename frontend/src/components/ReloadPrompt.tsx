@@ -86,6 +86,9 @@ export default function ReloadPrompt() {
         </Text>
       ),
       duration: 4,
+      // 登录页的卡片是居中布局，右上角的通知在窄窗口会压住品牌头部与 Tab 条，
+      // 那里正是用户要点的地方。登录页改到底部弹出，避开交互区。
+      placement: globalThis.location.pathname.startsWith('/xianyu/login') ? 'bottomRight' : 'topRight',
       btn: (
         <TipButton tip="关闭此提示" size="small" onClick={() => notification.destroy(key)}>
           知道了

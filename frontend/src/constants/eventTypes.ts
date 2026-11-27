@@ -59,6 +59,11 @@ export const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
   'login.expired': { label: '登录过期', color: 'red', icon: createElement(ExclamationCircleOutlined) },
   'auth.expired': { label: '会话过期', color: 'red', icon: createElement(ExclamationCircleOutlined) },
   'auth.cookie_self_heal': { label: '登录态自愈', color: 'green', icon: createElement(ToolOutlined) },
+  // 闲鱼 IM WebSocket（T05073 / O-01）：连接态事件进 SSE 时间线，需有中文标签
+  'im.connected': { label: 'IM 连接就绪', color: 'green', icon: createElement(ApiOutlined) },
+  'im.disconnected': { label: 'IM 连接断开', color: 'red', icon: createElement(CloseCircleOutlined) },
+  'im.message.received': { label: 'IM 收到消息', color: 'cyan', icon: createElement(InfoCircleOutlined) },
+  'im.degraded': { label: 'IM 降级运行', color: 'orange', icon: createElement(ExclamationCircleOutlined) },
   // 系统
   'system.error': { label: '系统错误', color: 'red', icon: createElement(CloseCircleOutlined) },
   // 维护（api_maintenance._log_cleanup_action 写 f"maintenance.{category}"）

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { eventTypes } from '../constants'
+import { eventTypes, DB_ONLY_EVENT_KEYS, notifiableEventTypes, severityLabels } from '../constants'
 import { ENUM_TO_DOT } from '../../../../constants/eventTypes'
 
 describe('NotifierChannels eventTypes ↔ ENUM_TO_DOT 对齐', () => {
@@ -22,6 +22,12 @@ describe('NotifierChannels eventTypes ↔ ENUM_TO_DOT 对齐', () => {
     }
   })
 
+  it('所有 severity 都有面向用户的中文标签', () => {
+    for (const e of eventTypes) {
+      expect(severityLabels[e.severity], `${e.key} 缺少中文 severity 标签`).toBeTruthy()
+    }
+  })
+
   it('eventTypes key 唯一', () => {
     const seen = new Set<string>()
     for (const e of eventTypes) {
@@ -34,5 +40,22 @@ describe('NotifierChannels eventTypes ↔ ENUM_TO_DOT 对齐', () => {
     const defaults = eventTypes.filter(e => e.defaultNotify).map(e => e.key)
     expect(defaults).toContain('EVAL_PASSED')
     expect(defaults).toContain('BUY_SUCCEEDED')
+  })
+
+  it('仅时间线事件与可推送事件互补，合计 22 项', () => {
+    expect(DB_ONLY_EVENT_KEYS).toHaveLength(10)
+    expect(notifiableEventTypes).toHaveLength(12)
+    const overlap = eventTypes
+      .filter(e => (DB_ONLY_EVENT_KEYS as readonly string[]).includes(e.key))
+      .filter(e => notifiableEventTypes.some(n => n.key === e.key))
+    expect(overlap).toHaveLength(0)
+  })
+
+  it('可推送事件不含旧枚举与纯时间线事件', () => {
+    const keys = new Set(notifiableEventTypes.map(e => e.key))
+    expect(keys.has('ITEM_FOUND')).toBe(false)
+    expect(keys.has('EVAL_SCORED')).toBe(false)
+    expect(keys.has('TASK_STOPPED')).toBe(false)
+    expect(keys.has('TASK_SEARCH_DONE')).toBe(false)
   })
 })

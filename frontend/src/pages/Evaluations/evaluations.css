@@ -1,0 +1,114 @@
+/* 评估明细的页面壳：页头、分析面板收起策略、右侧悬浮工具安全区。 */
+.evals-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 56px;
+  margin-bottom: 16px;
+}
+
+.evals-page-heading h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--xh-text-primary);
+}
+
+.evals-page-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--xh-text-tertiary);
+}
+
+.evals-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.evals-filter-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.evals-filter-item > .ant-select,
+.evals-filter-item > .ant-picker {
+  min-width: 0;
+}
+
+.evals-analysis-toggle {
+  flex: 0 0 auto;
+}
+
+/* 页面右侧的悬浮工具在 1280/1024/768 落在表格行高度上。
+   56/72px 安全区让表格卡片和固定操作列停在工具左侧，不再被压住。 */
+.evals-main-row {
+  padding-right: 56px;
+}
+
+.evals-table-col,
+.evals-analysis-col,
+.evals-list-card,
+.evals-list-card .ant-card-body {
+  min-width: 0;
+}
+
+.evals-list-card .ant-card-body {
+  overflow: hidden;
+}
+
+.evals-price-range-card .ant-statistic-content {
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .evals-main-row {
+    padding-right: 72px;
+  }
+}
+
+@media (max-width: 900px) {
+  .evals-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-right: 56px;
+  }
+
+  .evals-page-heading h1 {
+    font-size: 20px;
+  }
+
+  .evals-analysis-toggle {
+    align-self: flex-start;
+  }
+
+  .evals-main-row {
+    padding-right: 56px;
+  }
+
+  .evals-stats-row .ant-card-body {
+    padding: 10px;
+  }
+
+  .evals-stats-row .ant-statistic-title {
+    overflow: hidden;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .evals-stats-row .ant-statistic-content {
+    font-size: 20px;
+  }
+}
+
+/* 暗色主题下评估卡片的分隔线跟随主题；亮色保持默认。 */
+[data-theme='dark'] .evals-list-card,
+[data-theme='dark'] .evals-filter-card {
+  border-color: var(--xh-border-color);
+}

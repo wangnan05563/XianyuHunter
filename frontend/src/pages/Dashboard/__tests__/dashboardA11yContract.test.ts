@@ -42,10 +42,14 @@ describe('仪表盘可访问性契约', () => {
   })
 
   it('图表有名称或明确作为装饰隐藏', () => {
-    expect(FUNNEL).toContain('role="img"')
-    expect(HIST).toContain('role="img"')
+    // S6819：图表容器改用语义化 <figure> + aria-label，不再挂 role="img"
+    expect(FUNNEL).toContain('<figure')
+    expect(FUNNEL).toContain('aria-label={`评估漏斗图：')
+    expect(HIST).toContain('<figure')
+    expect(HIST).toContain('aria-label={`价格分布直方图')
     expect(HIST).toContain('aria-label="价格分布任务筛选"')
-    expect(TREND).toContain('role="img"')
+    expect(TREND).toContain('<figure')
+    expect(TREND).toContain('aria-label={`${trendMetricLabel')
     expect(STAT).toContain('aria-hidden="true"')
   })
 

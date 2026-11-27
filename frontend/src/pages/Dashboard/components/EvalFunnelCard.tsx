@@ -83,13 +83,12 @@ export default function EvalFunnelCard({ data, loading, rangeDays, onRangeChange
         {data && data.stages.length > 0 && (
           <>
             {/* 漏斗图：占满宽度，高度固定避免阶段少时压扁 */}
-            <div
-              role="img"
-              aria-label={`评估漏斗图：${data.stages.map(s => `${s.label} ${s.count}`).join('，')}`}
-              style={{ height: 320 }}
+            <figure
+              aria-label={`评估漏斗图：${data.stages.map((s) => s.label + ' ' + s.count).join('，')}`}
+              style={{ height: 320, margin: 0 }}
             >
               {funnelOption && <ReactECharts option={funnelOption} style={{ height: '100%', width: '100%' }} />}
-            </div>
+            </figure>
 
             <div className="eval-funnel-legend" aria-label="评估漏斗阶段明细">
               {data.stages.map((stage, index) => {

@@ -1,15 +1,244 @@
-/* About 页面局部样式：仅定义结构性布局，色彩/圆角/阴影全部走 antd theme token */
+/* About 页面局部样式：只定义结构性布局，色彩/圆角/阴影优先走 antd theme token */
 
 .xh-about-content {
   max-width: 720px;
   margin: 0 auto;
   padding: 32px 24px 64px;
+  box-sizing: border-box;
 }
 
+.xh-about-header {
+  margin: 0 0 20px;
+}
+
+.xh-about-h1 {
+  margin: 0 0 4px !important;
+  font-size: 24px !important;
+  line-height: 1.35 !important;
+  font-weight: 600 !important;
+}
+
+.xh-about-lead {
+  margin: 0 !important;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.xh-about-info-alert {
+  margin-bottom: 16px;
+}
+
+/* ===== 版本卡 ===== */
+.xh-about-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.xh-about-brand-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.xh-about-brand-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  color: var(--xh-text-secondary);
+  font-size: 13px;
+}
+
+.xh-about-version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.xh-about-version {
+  color: var(--xh-text-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.xh-about-version-unavailable {
+  color: var(--xh-text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.xh-about-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.xh-about-meta-item {
+  color: var(--xh-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.xh-about-sha {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.xh-about-meta-muted {
+  margin-top: 4px;
+  color: var(--xh-text-tertiary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ===== 更新状态 ===== */
+.xh-about-update-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--xh-text-secondary);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.xh-about-update-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.xh-about-download-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 170px;
+  max-width: 100%;
+}
+
+.xh-about-download-progress .ant-progress {
+  flex: 1;
+  margin: 0;
+}
+
+.xh-about-download-percent {
+  min-width: 34px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.xh-about-update-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.xh-about-install-error {
+  max-width: 240px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+/* ===== 资源入口 ===== */
+.xh-about-menu-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xh-about-menu-item {
+  margin: 0;
+}
+
+.xh-about-menu-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.xh-about-menu-link:hover {
+  color: inherit;
+}
+
+.xh-about-menu-link:focus-visible {
+  outline: 2px solid #ff6200;
+  outline-offset: -2px;
+}
+
+.xh-about-menu-icon {
+  flex-shrink: 0;
+  color: var(--xh-text-tertiary);
+  font-size: 14px;
+}
+
+/* ===== 页脚 ===== */
 .xh-about-footer {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   margin-top: 32px;
   padding-top: 16px;
+  text-align: center;
+}
+
+.xh-about-kernel,
+.xh-about-copyright,
+.xh-about-disclaimer {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.xh-about-disclaimer {
+  max-width: 560px;
+}
+
+/* ===== 开源声明 Modal ===== */
+.xh-about-licenses-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.xh-about-licenses-search .ant-input-affix-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.xh-about-licenses-count {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.xh-about-licenses-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.xh-about-licenses-empty {
+  padding: 32px;
+  color: var(--xh-text-secondary);
+  font-size: 13px;
+  text-align: center;
 }
 
 /* 移动端：padding 收缩，H1 字号下调 */
@@ -17,7 +246,19 @@
   .xh-about-content {
     padding: 16px 16px 48px;
   }
+  .xh-about-header {
+    margin-bottom: 16px;
+  }
   .xh-about-h1 {
-    font-size: 32px !important;
+    font-size: 22px !important;
+  }
+  .xh-about-lead {
+    font-size: 12px;
+  }
+  .xh-about-footer {
+    margin-top: 24px;
+  }
+  .xh-about-licenses-search {
+    gap: 8px;
   }
 }

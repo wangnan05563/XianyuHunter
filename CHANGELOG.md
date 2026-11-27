@@ -6,7 +6,83 @@
 
 ---
 
+## [0.4.20261127.2] - 2026-11-27
+
+### Fixed
+
+- **离线/导航失败时错误被掩盖（T05717 离线验证发现）**：`scripts/browser_login.py` 的轮询心跳变量只在「打开闲鱼成功」后创建，但 `finally` 无条件引用；`page.goto()` 抛错（如断网 `ERR_NETWORK_ACCESS_DENIED`）时会先抛 `UnboundLocalError`，把真实的网络错误覆盖成 `cannot access local variable '_poll_hb_stop'`。现改为在进入 Playwright 前初始化 `None` 并在 `finally` 判空，同时停止启动期心跳线程。
+- 回归测试：`tests/test_browser_login_launch.py` 模拟 `goto` 失败，断言状态文件保留真实 `ERR_NETWORK_ACCESS_DENIED` 且不出现 `local variable`。
+
+---
+
+## [0.4.20261127.1] - 2026-11-27
+
+### Fixed
+
+- **Full/Lite 形态误判（T05717 代码走查 P0）**：应用根目录新增 `bundle-manifest.json` 作为身份源；`playwright_browsers` 被整体删除时，Full 仍报“安装包不完整”，不会误判 Lite 去下载。旧 `.xh-full-bundle` 标记保留兼容。
+- **Chromium 空壳判定**：`chrome.exe` 必须同时具备非空 `chrome.dll`、`resources.pak`、`icudtl.dat`；构建、发布门禁与运行时使用同一判据。
+- **构建门禁可绕过**：`-SkipBuild` 也必须校验 `release\XianyuHunter-Setup-v<版本>.build.json` 侧车（版本、形态、manifest 哈希、Chromium 关键文件与主资产 size/sha256）。
+- **主资产选错版本**：严格按 `pyproject.toml` 当前版本取 `XianyuHunter-Setup-v<版本>.exe`，不再按 `LastWriteTime` 取“最新”。
+- **发布非原子**：Full/Lite 改为同一次 Release 会话，先草稿上传并校验 `state/size/digest`，全部通过后再公开；已公开 Release 替换同名资产时先临时名上传，再切换并保留回滚。
+- **发布校验只比体积**：远端 `digest=sha256:...` 与本地 SHA256 必须一致，否则重传/失败。
+- **draft Release 的 untagged URL**：创建 Release 前先确保远端 tag 存在，并在 PATCH 时显式写回 `tag_name`；修复公开后 URL 仍是 `untagged-...` 的问题。
+- **Chromium smoke 在 Windows PowerShell 误报**：不再依赖 `Start-Process -PassThru + WaitForExit(int)` 的 `ExitCode`，改用 .NET `Process` 读取 stdout/stderr；Windows PowerShell 5.1 与 pwsh 7 均通过。
+- **Lite 暂存残留**：`robocopy /MIR` 强制镜像、复制后校验不含 `playwright_browsers`，Lite manifest 改写为 `bundle_browser=false`。
+
+### Changed
+
+- `build-exe.ps1` 新增 `-SkipPyInstaller`，用于 PyInstaller 已成功、后续步骤失败时从 `[5/7]` 续跑。
+- `requirements-lock.txt` 随构建重新锁定。
+
+---
+
 ## [Unreleased]
+
+### Fixed
+
+- **「评估明细」页 UI 走查与修复（2026-11-20）**：用 `release/spa` 真实产物 + 5175 代理（→ 8001，`--no-with-scheduler`）在 1280×900 / 1920×1080 走查工具栏、统计卡、19 列评估表、筛选、空态、行展开、分析面板、列配置与告警深链，全程只读（未点 AI/深度鉴伪/官方采集/重新评估/批量评估/手动抢单）。用 40 条克隆评估事件做临时夹具，验收后已删除（`default` 任务 334、评估事件 0、关联 0）：
+  - **「评估总数 39」与分类卡之和 40、分页「共 40 条」对不上**：分布接口 `total` 只统计有 score 的记录，`insufficient_count` 单独返回，前端却直接把 `dist.total` 当总数。统计卡改为 `total + insufficient_count`，实测 40 = 31 可抢 + 2 通过 + 6 驳回 + 1 数据不足。
+  - **分析面板默认展开把表格压到 587px**：19 列表格横向滚 2436px，首屏只能看到 3~4 列，标题/评分/操作互不在同一视野。窄屏（<1600px）默认收起面板（`matchMedia` 判定，jsdom 不受影响），实测 1280 表格可视宽 **587 → 870px**；宽屏 1920 仍默认展开，panel 523px / 3 张图正常。表格另把「图片 + 标题」固定左侧、「操作」固定右侧，`scrollLeft=360` 时标题仍在视口（左 395），操作列仍贴右（右 1195）。
+  - **筛选空态把「筛没了」写成「没数据」，且清空按钮无效**：空态按 `hasActiveFilter` 区分「没有符合筛选条件的评估记录」与「暂无评估数据」，筛选态给「清空筛选条件」。原 `onReset` 在 page=1 时直接 `list.load()`，用的是清空前的 filters 快照，实测点完仍 0 条；改为 `setPage(1) + reloadToken` 等下一轮 `filtersRef` 更新后再查，实测 0 → 20 行 / 共 40 条。
+  - **告警深链偶发被首屏全量请求覆盖**：`?item_id=...&score_max=70` 应显示 1 条，实测有时变回 40 条。`useEvalList` 加请求序号，只接受最后一次响应；复验稳定为「共 1 条」、定位告警和商品 ID 输入框同步。
+  - **工具栏 4 行 235px**：17 个控件在 1280 下占 4 行。`Space` 间距 16 → 8、Card body padding 24 → 16，实测高度 **235 → 203px**，控件尺寸未缩小。
+  - **「价格区间」卡有 hover 效果但点了没反应**：六张统计卡里唯一不参与筛选的一张仍 `hoverable`。移除 hover 样式；其余 5 张补 `role=button / tabIndex / aria-pressed`，Enter/Space 可切换分类。
+  - **图标按钮与折叠竖条缺可读名称**：AI 成色、深度鉴伪、官方采集、三种反馈、手动抢单、面板开关与竖条 5 个模块图标补 `aria-label`；表格内实测可枚举出完整中文名称。
+  - **排序仅当前页却无说明**：价格 / 预估盈利 / 评分 sorter 只排当前页 dataSource，分页在后端；与商品中心同口径加 `showSorterTooltip`「仅对当前页排序；跨页顺序仍由后端分页决定」。
+  - **复验结果**：统计 40=40、表格 19 数据列（21 个表头含选择/展开）固定列生效、空态可一键恢复、深链 1 条、分析面板窄屏收起/宽屏 3 图、console 0 错误、网络 0 个 4xx/5xx。构建产物 109 个 assets / 4.5MB，PWA precache 122 条 / 4589KB。
+  - **测试说明**：本次 `vitest run src/pages/Evaluations/__tests__` 连续两次在 worker 启动阶段超时（`Timeout waiting for worker to respond`，0 个用例执行），属本机资源/进程环境问题；已用 `tsc -b`、生产构建与 Playwright 实机走查替代验证，未出现断言失败。
+- **「商品中心」页 UI 走查与修复（2026-11-20）**：以 `release/spa` 真实产物 + 5175 代理（→ 8001，`--no-with-scheduler`）在 1280×900 走查卡片 / 表格 / 筛选 / 空态 / 分页 / 删除 / 列配置，只读交互为主（未点实时搜索、采集、导出与真实删除）。首轮归纳 8 项，修复后二次复验通过：
+  - **任务下拉 334 项只能纯滚动**：`Select` 无搜索，找目标任务要滚很久。加 `showSearch + optionFilterProp="label"`，实测输入「UI审计」后候选从 334 项收敛到 1 项。
+  - **缺价卡片渲染成「¥—」**：`¥{price ?? '—'}` 在无价格时看着像异常金额。新增 `formatItemPrice`（仅 number 输出 `¥x.xx`，否则 `—`），卡片 / 表格 / Tooltip 三处统一；用缺价夹具实测卡片与表格价格单元格均为 `—`。
+  - **空态文案把「筛没了」误报成「没数据」**：搜索不命中时也提示「暂无商品数据，可尝试实时搜索」。按「未选任务 / 有筛选未命中 / 真无数据」分三档，并在筛选态给「清空筛选条件」按钮；该按钮把搜索、地区、品牌与状态一起复位（状态回「全部」而不是只回在售）。
+  - **删除单击即生效、卡片删除按钮无名字**：卡片删除图标 `aria-label/title` 为空，且卡片与表格均无二次确认。两处统一走 `Modal.confirm`（标题「删除该商品关联？」、正文带商品标题并说明「仅移除关联，不影响闲鱼原帖」、确认键 danger）；实测点删除弹窗出现、点取消后卡片数不变。卡片删除同时补 `aria-label`、`title` 与禁用态配色。
+  - **卡片默认 6 列过窄、关键信息只在 Tooltip**：1280 下卡宽仅 138px，卖家 / 信用 / 发布时间只有 hover 才可见（触屏不可用）。栅格改 `xs=12 sm=8 md=8 lg=6 xl=6 xxl=4`，实测 1280 为 **4 列 / 卡宽 216px**；新增第二行元信息（卖家、绿色信用、发布时间），与表格信息对齐。
+  - **表格操作列被挤出可视区**：13 列总宽 1246px、可视区 910px，操作列在横向滚动条之外。操作列加 `fixed:'right'`，实测在 `scrollLeft=0` 与 `=200` 时都稳定落在视口内（1139~1235，宽 96）。
+  - **「信用」列与卖家列内信用 Tag 重复**：同一信用度在一行里显示两次，还额外占 80px。移除独立信用列（列配置同步从 12 项降为 11 项），信用保留在卖家列昵称下方的绿色 Tag；表格总宽 **1246 → 1166px**，列数 13 → 12。
+  - **排序语义误导与无障碍缺口**：价格 / 发布时间排序只作用于当前页 dataSource，分页却在后端，用户会误以为全量已排序；表格加 `showSorterTooltip` 明确「仅对当前页排序」。搜索历史 Tag 补 `role=button + tabIndex + Enter/Space`，自动轮询 `Switch` 与表格图标按钮补 `aria-label`。
+  - **复验结果**：卡片 4 列 / 216×399、无价格 `—`、空态「没有符合筛选条件的商品」+ 一键清空、删除二次确认可取消、表格 12 列与操作列固定、分页第 2 页 4 张、列配置 11 项；console 0 错误、无 4xx/5xx。临时审计任务与 49 条关联在验收后已清理。
+- **「任务管理」页 UI 走查与修复（2026-11-20）**：以 `release/spa` 真实产物 + 5175 代理（→ 8001，`--no-with-scheduler`）在 1280×900 逐项走查列表 / 详情 / 向导，只做只读与界面状态验证（未点启动、删除、演练、创建等写数据动作）。首轮实测 334 条任务 / 6 页，归纳并修复 5 项：
+  - **列表没有关键词搜索**（最影响可用性）：334 条任务只能翻页肉眼找。`GET /api/tasks` 与 repo 的 `list_tasks / list_tasks_with_last_seen / count_tasks` 均无搜索入参，前后端一并补 `q`（`name / keyword / id` 三列 `ilike` + `or_`，SQL 层过滤保证匹配项跨分页可见），路由做 `strip + 64` 字裁剪并在响应回带 `q`；前端 `taskApi.list` 加 `q`，工具条新增「搜索任务名 / 关键词 / ID」输入框（400ms 防抖、搜索时页码回 1、清空即时恢复）。实测：`q=暂停` → 共 54 条且首行命中，`q=zzz-nomatch` → 空态，清空 → 回到 334 条；与状态筛选叠加（运行中 + 暂停 = 1 条）。
+  - **价格区间文案三处不一致**：列表 `¥不限 ~ ¥不限`、详情 `不限 - 不限`，且详情 `if (minPrice)` 判空把 **0 元误显示成「不限」**。新增 `utils/priceRange.ts` 统一口径（`null/undefined`=不限、`0` 是合法价格、分隔符 `~`），列表表格 / 卡片 / AI 解析预览 / 模板卡 / 详情五处全部改用它，并补 `priceRange.test.ts` 3 条边界用例（含 0 元）。
+  - **任务名与关键词两列重复**：建任务时「任务名称」默认等于关键词，大量行两列一字不差。`name === keyword` 时关键词列弱化为「同任务名」（表格 + 卡片视图一致），把列宽让给真正有差异的信息。
+  - **详情字段缺失 / 调度口径误导**：详情原 12 项无条件展示 `Cron 表达式`，但 `use_cron=false` 的任务实际按间隔跑。补「调度方式」（`Cron 表达式` 或 `按间隔（N 秒）`）与「评估阈值」（null →「沿用全局」），共 14 项；实测首任务显示「按间隔（60 秒）」而 Cron 列仍是 `*/5 * * * *`，误导消除。
+  - **向导校验提示堆叠**：关键词为空时连点「下一步」，右上角会叠出一串相同 toast。`showStepErrors` 改用固定 `key`（`task-step-error`），同一条提示就地替换。
+  - **构建产物堆积拖慢首次加载**：`emptyOutDir:false` 使 `release/spa/assets` 累积到 **481 个文件 / 13.7 MB / 225 份 `index-*.js`**，PWA precache 把这些死文件全列进清单（494 条 / 14 MB）。新增 `frontend/scripts/clean-spa-assets.mjs` 并在 `package.json` 挂 `prebuild`：构建前只清 `release/spa/assets/`、`sw.js`、`workbox-*.js` 这类每次必重新生成的文件（含路径白名单校验），favicon / icon.svg 等静态资源保留。
+- **登录页 4 种登录方式的 UI 走查与修复（2026-11-19）**：以 `release/spa` 真实产物 + 临时代理（`/xianyu/api` → 8001，不动在跑的 8001 实例）在 1280×800 / 900×700 / 506×560 / 420×800 四档视口逐项走查；未点击会写档案的「注入 / 导入 / 启动浏览器登录」按钮，只走 UI 状态。
+  - **Tab 条在窄窗口折叠**：antd 默认 `tabBarGutter=32`，4 个 Tab 总宽 **509px**，超过卡片内宽（506px 窗口时 474px），「浏览器导入」被折进「…」，更窄时首个 Tab 还会被裁掉半个字。压到 `tabBarGutter=8` + 标签 13px + 紧凑「推荐」Tag 后实测总宽 **509 → 406px**：506px 窗口 4 个 Tab 全部可见（420px 仍由 antd 折叠兜底）。
+  - **「导入登录态」占位符露出 `&#10;`**：表达式容器里的 HTML 实体不会被解码，粘贴框直接显示 `&#10;` 字面量；同页「快速粘贴」用的是引号属性（实体能解码），两处写法不一致。统一改成真实换行。
+  - **自动获取失败提示不可读**：后端把「v20 应用绑定加密 / CDP 未找到 cookie / Default 数据库被锁定」拼成一长串，前端当 12px 内联红字贴在按钮旁（实测 5 行、无结构、无下一步）。改为结构化 Alert（可关闭 + 「改用浏览器登录」直达）+「查看技术细节」折叠保留原文。
+  - **主按钮禁用态看不出来**：`注入 Cookie 登录` / `导入登录态` / `从 Edge 导入` 等内联 `background:#FF6200` 覆盖了 antd 的禁用样式，禁用时仍是实心橙底（实测 `bg=rgb(255,98,0)`、文字 25% 灰）。全局 `colorPrimary` 本就是 `#FF6200`，去掉内联覆盖后禁用态恢复为 `rgba(0,0,0,0.04)` 灰底。
+  - **无效粘贴后旧值残留无提示**：粘贴框换成无效内容时字段仍保留上一次的值、注入按钮仍可点，容易误注入过期 Cookie。补一句「下方字段仍是上一次填写的内容」。
+  - **浏览器导入 Tab 信息噪音**：常驻的「文件被锁定」黄色 Alert + 两个红色「自动关闭并导入」按钮占掉半屏，把主操作挤到折叠线以下。收进默认折叠的排查 Collapse（面板高 ~600 → **385px**）；`从 Edge 导入` 在未检测到闲鱼 Cookie 时不再用主色（Chrome 检测到 Cookie 时仍为主色），悬浮提示说明「先去浏览器登录，再点刷新检测」。
+  - **教程弹窗在小窗口被截断**：506×560 下弹窗高 **709px**，「知道了」落在屏幕外。正文改 `maxHeight: calc(100vh - 240px)` 内部滚动（实测 709 → **464px**，标题与按钮常驻可见）；同时给 `ol/ul` 显式 `paddingLeft`——全局 `* { margin:0; padding:0 }` 把列表缩进清成了 0，而 `list-style-position` 仍是 `outside`，正文一旦成为滚动容器，序号就被裁掉（这是改成内部滚动后暴露的连带问题）。
+  - **单测同步**：`loginLoadFailure.test.tsx` 里「自动关闭并导入」两处断言改为先展开排查折叠面板再校验禁用态（按钮已被折叠面板收起的默认收起状态影响，4 个用例全部通过）。
+  - **PWA 离线提示遮挡登录页头部**：`ReloadPrompt` 的「应用已可离线使用」通知固定在右上角，窄窗口直接压住品牌头部与 Tab 条（自动化点击实测被它挡住，报 `BU_TARGET_OBSCURED`）。登录页改为 `placement: bottomRight`。
+- **一键发布「脚本跑完、但没有安装包、也没真发出去」（2026-11-18）**：三个独立缺陷叠加，均已修复并用 0.4.20261118.1 实跑闭环。
+  - **发布门禁覆盖了配置变量**（`build-publish.ps1` 1.5 节，11-13 引入）：Chromium 完整性校验里 `foreach ($rel in @('chrome-win64\chrome.exe', …))` 直接复用了 `$rel = $cfg.github_release` 这个变量名，循环结束后 `$rel` 变成字符串，`$rel.asset.dir / $rel.notes` 全为 `$null`，发布阶段崩在 `Cannot index into a null array`。循环变量改为 `$kernelDir / $kernelRel`。
+  - **安装包失败只 WARN，脚本仍 exit 0**（`build-exe.ps1` 6.4/6.5 节）：ISCC 缺失或编译失败时只打 `[WARN] 跳过安装包制作`，收尾照样打印「构建完成！」；`build-publish.ps1` 随后还会把 `release\xianyu-hunter` 压成 zip 当主资产发出去。现在 ISCC 不可用/编译失败/产物为 0 字节一律 `throw`，收尾再断言 Setup exe 存在；`build-publish` 只接受安装包（zip 回退需显式 `asset.allow_zip_fallback=true`），并校验体积下限与「产物必须晚于本次流水线启动」。
+  - **Lite 包实际仍含 Chromium**（`build-exe.ps1` 6.5 节）：实测 `Excludes: "playwright_browsers\*"` 对嵌套内核文件不生效，Lite 与 Full 打出来只差 20 字节（271 476 385 vs 271 476 405）。改为 robocopy `/XD playwright_browsers` 生成 `release\lite-dist` 暂存目录、Lite 的 `Source` 指向它，并加体积门禁（Lite 必须比 Full 小 15% 以上）；实测 135.6 MB vs 271.5 MB。
+  - **发布成功只凭接口状态码**（`publish-release.py`）：同名资产「已存在就跳过上传并 return 0」→ 重建的同名安装包永远贴不上去却报成功；复用旧 Release 也不刷新说明。改为默认「删除同名资产后替换上传」（`GH_REPLACE_ASSET=0` 可关）、`PATCH` 更新 Release 说明，并在上传后回查远端 `state=uploaded` 且字节数与本地一致，否则非零退出。
 
 ### Changed
 

@@ -1,7 +1,7 @@
 // frontend/src/components/DangerSummary.tsx
 // 危险操作确认文案的单一渲染口径：动作 + 影响范围 + 数量 + 恢复成本 四要素。
 // 规范正文见 docs/standards/危险操作文案规范.md（T02573）。
-import { Modal, Typography } from 'antd'
+import { Modal, Typography, type ModalFuncProps } from 'antd'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
@@ -59,10 +59,16 @@ export default function DangerSummary(copy: DangerCopy) {
   )
 }
 
+/** 可传入 AntdApp.useApp() 的 modal，使确认框继承暗色主题并避免静态方法告警。 */
+interface ConfirmModalApi {
+  confirm: (props: ModalFuncProps) => unknown
+}
+
 /** 用四要素文案替换原生 confirm；resolve(true) 表示用户确认执行 */
-export function confirmDanger(copy: DangerCopy): Promise<boolean> {
+export function confirmDanger(copy: DangerCopy, modal?: ConfirmModalApi): Promise<boolean> {
   return new Promise((resolve) => {
-    Modal.confirm({
+    const api = modal ?? Modal
+    api.confirm({
       title: copy.title ?? '确认执行该操作？',
       icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />,
       width: 560,

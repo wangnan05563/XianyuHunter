@@ -176,12 +176,11 @@ export default function PriceHistogramCard({
       )}
       {error && <FetchFailedHint source="价格分布" onRetry={onRetry} />}
       {histogramOption && (
-        <div
-          role="img"
+        <figure
           aria-label={`价格分布直方图：共 ${histogram?.summary.count ?? 0} 件，均价 ${histogram?.summary.mean ?? 0} 元，中位 ${histogram?.summary.median ?? 0} 元，P25 ${histogram?.summary.p25 ?? 0} 元，P75 ${histogram?.summary.p75 ?? 0} 元`}
         >
           <ReactECharts option={histogramOption} style={{ height: 340 }} notMerge={true} lazyUpdate={true} />
-        </div>
+        </figure>
       )}
       {!histogramOption && !error && (
         <Empty description="暂无价格数据" />

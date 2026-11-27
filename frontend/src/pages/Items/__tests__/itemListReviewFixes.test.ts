@@ -66,6 +66,51 @@ describe('地区/品牌候选项来源', () => {
 
 // T02658（评审 2.3-5）：标题列原来是一个去样式 button，点一下同时「真实采集 + 新开原帖」，
 // 两个副作用都不可发现。现在标题只开原帖，采集移到独立按钮。
+describe('商品中心 UI 评审修复（2026-11-25）', () => {
+  it('页面有唯一 H1、根 testid 与页头说明', () => {
+    expect(page).toContain('className="page-container xh-items-page" data-testid="items-page"')
+    expect(page).toContain('<h1 className="items-page-title">商品中心</h1>')
+    expect(page).toContain('className="items-page-subtitle"')
+  })
+
+  it('表格固定布局且不再用 1000px 最小宽度，避免标题列被挤成竖排', () => {
+    expect(page).not.toContain("scroll={{ x: 1000 }}")
+    expect(page).toContain('tableLayout="fixed"')
+    expect(page).toContain("scroll={{ x: '100%' }}")
+    expect(page).toMatch(/col\.ellipsis = true/)
+  })
+
+  it('列按断点收敛：标题/价格/状态始终展示，图片从 lg、品牌/卖家从 xl 起', () => {
+    expect(page).toContain('thumb_url: [\'lg\']')
+    expect(page).toContain('title: []')
+    expect(page).toContain('price: []')
+    expect(page).toContain('is_sold: []')
+    expect(page).toContain("if (FIELD_RESPONSIVE[field]?.length) col.responsive = FIELD_RESPONSIVE[field]")
+  })
+
+  it('卡片栅格在 768/1024 两列、1280 三列，不再 4 列挤成 150px', () => {
+    expect(page).toContain('xs={24} sm={12} md={12} lg={12} xl={8} xxl={6}')
+  })
+
+  it('列表加载失败有持久 Alert、专用空态和重试入口', () => {
+    expect(page).toContain('message="商品列表加载失败"')
+    expect(page).toContain("'商品列表加载失败，请点击重试'")
+    expect(page).toContain('tip="重新加载商品列表"')
+    expect(page).toMatch(/setLoadError\(detail \|\| '商品列表加载失败'\)/)
+  })
+
+  it('筛选/视图控件有显式可访问名，表格图片有 alt', () => {
+    expect(page).toContain('aria-label="选择任务"')
+    expect(page).toContain('aria-label="搜索标题"')
+    expect(page).toContain('aria-label="按商品状态筛选"')
+    expect(page).toContain('aria-label="按地区筛选"')
+    expect(page).toContain('aria-label="按品牌筛选"')
+    expect(page).toContain("label: '卡片视图'")
+    expect(page).toContain("label: '表格视图'")
+    expect(page).toContain('alt={d?.title ? `${d.title} 商品图片` : \'商品图片\'}')
+  })
+})
+
 describe('商品标题与采集职责拆分（T02658）', () => {
   const linkCase = page.slice(page.indexOf("case 'link':"), page.indexOf("case 'price':"))
 

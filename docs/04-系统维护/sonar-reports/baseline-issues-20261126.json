@@ -1,0 +1,670 @@
+{
+  "total": 95,
+  "issues": [
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/mobile/pages/Dashboard/index.tsx",
+      "line": 117,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/mobile/pages/Dashboard/index.tsx",
+      "line": 190,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/BrandCard.tsx",
+      "line": 84,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/BrandCard.tsx",
+      "line": 158,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/BrandCard.tsx",
+      "line": 229,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/BrandCard.tsx",
+      "line": 233,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/BrandCard.tsx",
+      "line": 233,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/OpenSourceLicenses.tsx",
+      "line": 91,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/About/OpenSourceLicenses.tsx",
+      "line": 128,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Chatbot/Config.tsx",
+      "line": 43,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Chatbot/Config.tsx",
+      "line": 308,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Chatbot/Config.tsx",
+      "line": 308,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Chatbot/Config.tsx",
+      "line": 310,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Chatbot/index.tsx",
+      "line": 931,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/AIConfig/index.tsx",
+      "line": 41,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/AIConfig/index.tsx",
+      "line": 320,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/AIConfig/index.tsx",
+      "line": 322,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/BuyerStrategy.tsx",
+      "line": 158,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 102,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 38 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 479,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 925,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 1042,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S7770",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 1121,
+      "message": "arrow function is equivalent to `Boolean`. Use `Boolean` directly."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/EvalRules.tsx",
+      "line": 1146,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/components/QuietHoursTimeline.tsx",
+      "line": 14,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/index.tsx",
+      "line": 71,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7770",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/index.tsx",
+      "line": 214,
+      "message": "arrow function is equivalent to `String`. Use `String` directly."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/index.tsx",
+      "line": 532,
+      "message": "Use <details>, <fieldset>, <optgroup>, or <address> instead of the \"group\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/notifierModel.ts",
+      "line": 57,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 21 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/notifierModel.ts",
+      "line": 68,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/NotifierChannels/notifierModel.ts",
+      "line": 84,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 78,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 50 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S6754",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 96,
+      "message": "useState call is not destructured into value + setter pair"
+    },
+    {
+      "rule": "typescript:S6606",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 183,
+      "message": "Prefer using nullish coalescing operator (`??`) instead of a ternary expression, as it is simpler to read."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 188,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S6606",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 264,
+      "message": "Prefer using nullish coalescing operator (`??`) instead of a ternary expression, as it is simpler to read."
+    },
+    {
+      "rule": "typescript:S7770",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 349,
+      "message": "arrow function is equivalent to `Boolean`. Use `Boolean` directly."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 397,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 398,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S4325",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 504,
+      "message": "This assertion is unnecessary since it does not change the type of the expression."
+    },
+    {
+      "rule": "typescript:S4325",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 568,
+      "message": "This assertion is unnecessary since it does not change the type of the expression."
+    },
+    {
+      "rule": "typescript:S4325",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 642,
+      "message": "This assertion is unnecessary since it does not change the type of the expression."
+    },
+    {
+      "rule": "typescript:S4325",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 690,
+      "message": "This assertion is unnecessary since it does not change the type of the expression."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 766,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/PriceStrategy.tsx",
+      "line": 774,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/buyerStrategyModel.ts",
+      "line": 145,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/buyerStrategyModel.ts",
+      "line": 150,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/buyerStrategyModel.ts",
+      "line": 164,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/buyerStrategyModel.ts",
+      "line": 171,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S4138",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/evalRulesModel.ts",
+      "line": 83,
+      "message": "Expected a `for-of` loop instead of a `for` loop with this simple iteration."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/priceStrategyModel.ts",
+      "line": 120,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/priceStrategyModel.ts",
+      "line": 157,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Config/searchConfigModel.ts",
+      "line": 70,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 30 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/searchConfigModel.ts",
+      "line": 75,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/searchConfigModel.ts",
+      "line": 89,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/searchConfigModel.ts",
+      "line": 102,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Config/searchConfigModel.ts",
+      "line": 113,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Dashboard/components/EvalFunnelCard.tsx",
+      "line": 86,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S4624",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Dashboard/components/EvalFunnelCard.tsx",
+      "line": 88,
+      "message": "Refactor this code to not use nested template literals."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Dashboard/components/PriceHistogramCard.tsx",
+      "line": 179,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S4624",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Dashboard/components/StatCardsSection.tsx",
+      "line": 109,
+      "message": "Refactor this code to not use nested template literals."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Dashboard/components/TrendModal.tsx",
+      "line": 157,
+      "message": "Use <img alt=...>, or <img alt=...> instead of the \"img\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 423,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 20 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 522,
+      "message": "Prefer `globalThis.window` over `window`."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 523,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 524,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 574,
+      "message": "Prefer `globalThis.window` over `window`."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 586,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Evaluations/index.tsx",
+      "line": 956,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Export/index.tsx",
+      "line": 305,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S3863",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 1,
+      "message": "'D:\\code\\otherProjects\\XianyuHunter\\frontend\\node_modules\\react\\index.js' imported multiple times."
+    },
+    {
+      "rule": "typescript:S3863",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 2,
+      "message": "'D:\\code\\otherProjects\\XianyuHunter\\frontend\\node_modules\\react\\index.js' imported multiple times."
+    },
+    {
+      "rule": "typescript:S6845",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 80,
+      "message": "`tabIndex` should only be declared on interactive elements."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 80,
+      "message": "Use <section aria-label=...>, or <section aria-labelledby=...> instead of the \"region\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 877,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 973,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Help/index.tsx",
+      "line": 996,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S7735",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Items/ItemList.tsx",
+      "line": 1221,
+      "message": "Unexpected negated condition."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Items/ItemList.tsx",
+      "line": 1223,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Items/ItemList.tsx",
+      "line": 1225,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Logs/ErrorLogs.tsx",
+      "line": 612,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S3776",
+      "severity": "CRITICAL",
+      "component": "xianyu_hunter:frontend/src/pages/Maintenance/Tunnel.tsx",
+      "line": 530,
+      "message": "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Maintenance/Tunnel.tsx",
+      "line": 843,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 72,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 72,
+      "message": "Prefer `globalThis.window` over `window`."
+    },
+    {
+      "rule": "typescript:S7764",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 106,
+      "message": "Prefer `globalThis` over `window`."
+    },
+    {
+      "rule": "typescript:S7768",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 139,
+      "message": "Prefer `tbody.before(thead)` over `bodyTable.insertBefore(thead, tbody)`."
+    },
+    {
+      "rule": "typescript:S1874",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 226,
+      "message": "'returnValue' is deprecated."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 545,
+      "message": "Use <output> instead of the \"status\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S6819",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 551,
+      "message": "Use <section aria-label=...>, or <section aria-labelledby=...> instead of the \"region\" role to ensure accessibility across all devices."
+    },
+    {
+      "rule": "typescript:S6847",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 551,
+      "message": "Non-interactive elements should not be assigned mouse or keyboard event listeners."
+    },
+    {
+      "rule": "typescript:S6845",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/MenuAdmin/index.tsx",
+      "line": 556,
+      "message": "`tabIndex` should only be declared on interactive elements."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Orders/Orders.tsx",
+      "line": 526,
+      "message": "Extract this nested ternary operation into an independent statement."
+    },
+    {
+      "rule": "typescript:S6606",
+      "severity": "MINOR",
+      "component": "xianyu_hunter:frontend/src/pages/Tasks/TaskDetail.tsx",
+      "line": 570,
+      "message": "Prefer using nullish coalescing operator (`??`) instead of a ternary expression, as it is simpler to read."
+    },
+    {
+      "rule": "typescript:S3358",
+      "severity": "MAJOR",
+      "component": "xianyu_hunter:frontend/src/pages/Timeline/components/TimelineList.tsx",
+      "line": 33,
+      "message": "Extract this nested ternary operation into an independent statement."
+    }
+  ]
+}

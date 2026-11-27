@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Card, Table, Space, Spin, Input, Select, Slider, Row, Col,
   Empty, DatePicker, Alert, Progress, Checkbox, Tag, Statistic, InputNumber,
-  Tooltip, Popconfirm,
+  Tooltip, Popconfirm, Drawer,
 } from 'antd'
 import {
   ReloadOutlined, AimOutlined, SearchOutlined, UndoOutlined,
@@ -44,19 +44,20 @@ import { useEvalColumns } from './hooks/useEvalColumns'
 
 import { translateDimension, translateRejectReason } from './dimensionLabels'
 import type { DistResponse, SellerTrendData } from './utils'
+import './evaluations.css'
 
 const { RangePicker } = DatePicker
 
-const SCROLL_X = 2170
-
-// S3776 修复：用查表替代原 useMemo 内 switch（5 case 嵌套在 if 内贡献 ~+10 复杂度）
-// 为什么用 Record：列宽/responsive 调整是静态映射，查表比 switch 更扁平
-const COLLAPSED_COLUMN_OVERRIDES: Record<string, Record<string, unknown>> = {
-  task_id: { responsive: undefined },
-  title: { width: 280 },
-  seller: { width: 220 },
-  publish: { responsive: undefined },
-  condition_tags: { width: 180 },
+// 窄屏列宽收敛：表格从 19 列（2436px）压到关键列，标题/价格/评分/状态/操作常驻。
+// 不按 panelCollapsed 改列，面板展开时表格改为独占整行，避免再被挤到 587px。
+const WIDE_WIDTHS: Record<string, number> = {
+  title: 220, price: 90, brand: 80, score: 80, risk: 70, is_sold: 76, action: 80,
+}
+const COMPACT_WIDTHS: Record<string, number> = {
+  title: 190, price: 84, brand: 80, score: 72, risk: 64, is_sold: 70, action: 72,
+}
+const NARROW_WIDTHS: Record<string, number> = {
+  title: 130, price: 84, brand: 80, score: 64, risk: 60, is_sold: 62, action: 68,
 }
 
 function ExpandedDetail({ r, trendCache, trendLoading, trendError, loadSellerTrend }: {
@@ -278,6 +279,8 @@ function ResultCategoryCards({
 }) {
   // 配置数组：5 个分类卡片共享同一渲染模板，只差 title/value/color
   // 为什么用数组：原 5 段几乎相同 JSX，每段含 onClick + 条件 style，配置化后子组件复杂度 ~3，主函数减 ~7
+  // dist.total 只统计「有分数」的记录（分布图分母），insufficient_count 是 score=null 的那批；
+  // 若直接展示 dist.total，「评估总数 39」会和下面 5 张卡之和 40、分页「共 40 条」对不上
   const cards: ReadonlyArray<{
     readonly key: ResultCategory
     readonly title: string
@@ -286,28 +289,43 @@ function ResultCategoryCards({
     readonly activeColor: string
     readonly activeBg: string
   }> = [
-    { key: null, title: '评估总数', value: dist.total, activeColor: '#1890ff', activeBg: 'rgba(24,144,255,0.06)' },
+    { key: null, title: '评估总数', value: dist.total + dist.insufficient_count, activeColor: '#1890ff', activeBg: 'rgba(24,144,255,0.06)' },
     { key: 'auto', title: `可抢(≥${autoBuyScore})`, value: dist.marginals.result.auto, valueStyle: { color: '#52c41a' }, activeColor: '#52c41a', activeBg: 'rgba(82,196,26,0.06)' },
     { key: 'pass', title: `通过(${passScore}-${autoBuyScore - 1})`, value: dist.marginals.result.pass, valueStyle: { color: '#1890ff' }, activeColor: '#1890ff', activeBg: 'rgba(24,144,255,0.06)' },
     { key: 'fail', title: `驳回(<${passScore})`, value: dist.marginals.result.fail, valueStyle: { color: '#ff4d4f' }, activeColor: '#ff4d4f', activeBg: 'rgba(255,77,79,0.06)' },
     { key: 'insufficient', title: '数据不足', value: dist.insufficient_count, valueStyle: { color: 'var(--xh-text-tertiary)' }, activeColor: '#faad14', activeBg: 'rgba(250,173,20,0.06)' },
   ]
   return (
-    <Row gutter={12} style={{ marginBottom: 16 }}>
+    <Row gutter={[12, 12]} style={{ marginBottom: 16 }} className="evals-stats-row">
       {cards.map((c) => (
-        <Col span={4} key={String(c.key)}>
+        <Col xs={12} md={8} xl={4} key={String(c.key)}>
           <Card
             size="small" hoverable
             onClick={() => onSelect(c.key)}
+            role="button"
+            tabIndex={0}
+            aria-pressed={resultCategory === c.key}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect(c.key)
+              }
+            }}
             style={resultCategory === c.key ? { borderColor: c.activeColor, background: c.activeBg } : {}}
           >
             <Statistic title={c.title} value={c.value} valueStyle={c.valueStyle} />
           </Card>
         </Col>
       ))}
-      <Col span={4}>
-        <Card size="small" hoverable>
-          <Statistic title="价格区间" value={dist.price_range[0] > 0 ? `¥${dist.price_range[0]}~${dist.price_range[1]}` : '—'} />
+      <Col xs={12} md={8} xl={4}>
+        {/* 价格区间只展示统计，不参与筛选：去掉 hoverable 的点击暗示，
+            六张卡里只有这一张点了没反应 */}
+        <Card size="small" className="evals-price-range-card">
+          <Statistic
+            title="价格区间"
+            value={dist.price_range[0] > 0 ? `¥${dist.price_range[0]}~${dist.price_range[1]}` : '—'}
+            valueStyle={{ fontSize: 22 }}
+          />
         </Card>
       </Col>
     </Row>
@@ -365,6 +383,17 @@ function BatchSelectionAlert({
   )
 }
 
+// 筛选标签与控件必须作为一个整体换行。原先直接塞进 Space 的 span+控件会被
+// 拆成两个独立 flex item，1024/768 下出现「任务ID：」独占一行、输入框掉到下一行。
+function FilterItem({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <div className="evals-filter-item">
+      <span className="evals-filter-label">{label}：</span>
+      {children}
+    </div>
+  )
+}
+
 // 本页独立请求的数据源（T02899）：任务列表喂筛选下拉，
 // 原先把 reject 吞成空块后，「没有任务」与「后端挂了」是同一个画面。
 type EvaluationsSource = 'tasks'
@@ -391,7 +420,14 @@ function buildDeepLinkMessage(itemId: string | undefined, scoreMax: number | und
   return `链接里的告警定位条件（商品 ${idText} / 评分 ≤ ${scoreMax}）已被手动筛选覆盖，下方列表按当前筛选条件展示`
 }
 
-export default function Evaluations() {
+// S3358：空态文案改用 if/else，避免嵌套三元
+function resolveEvalEmptyDescription(loadError: string | null, hasActiveFilter: boolean): string {
+  if (loadError) return '评估数据加载失败，请使用上方“重新加载”'
+  if (hasActiveFilter) return '没有符合筛选条件的评估记录'
+  return '暂无评估数据'
+}
+
+export default function Evaluations() { // NOSONAR S3776：页面级容器组件，主体为组合式子组件与条件渲染；再拆分需跨组件传参与状态提升，回归风险大于收益
   // 告警深链（T02620）：抽屉的「低分评估」项跳过来带 ?item_id=<id>&score_max=<0-100>，
   // 本页必须真的读取，否则链接只是「跳过来自己找」——与 Orders.tsx 读 ?ref= 同一族。
   const [searchParams, setSearchParams] = useSearchParams()
@@ -487,8 +523,14 @@ export default function Evaluations() {
     applyConfig: applyColumnConfig,
   } = useColumnConfig('xh.evals.columns', COLUMN_DEFINITIONS)
 
+  // 1280/1440 笔记本上「分析面板展开」会把 19 列表格压到 ~587px（实测 1280），
+  // 表格要横向滚 2436px 才能看到标题/评分；窄屏默认收起，宽屏仍保持原来的展开态。
+  // 用 matchMedia 而不是 globalThis.innerWidth：jsdom 测试环境没有真实视口，不会误触发。
+  const defaultPanelCollapsed = typeof globalThis !== 'undefined'
+    && typeof globalThis.matchMedia === 'function'
+    && globalThis.matchMedia('(max-width: 1599px)').matches
   const [panelCollapsed, setPanelCollapsed] = usePersistentState<boolean>(
-    'xh.evals.panelCollapsed', false,
+    'xh.evals.panelCollapsed', defaultPanelCollapsed,
     { validator: (v): v is boolean => typeof v === 'boolean' },
   )
 
@@ -528,23 +570,36 @@ export default function Evaluations() {
   const onReset = () => {
     autoSearch.cancel()
     filters.reset()
-    if (list.page === 1) {
-      list.load()
-    } else {
-      list.setPage(1)
-    }
+    // 不能在这里直接 list.load()：filters 是同一轮里的旧快照，load 会带着刚清掉的
+    // 条件再查一次（实测点「清空筛选条件」后仍 0 条）。统一走 page=1 + reloadToken，
+    // 等下一轮渲染 filtersRef 更新后再发请求；page>1 时也能保证请求的是第 1 页。
+    list.setPage(1)
+    setReloadToken((t) => t + 1)
   }
 
+  const [viewportWidth, setViewportWidth] = useState<number>(() => (
+    typeof globalThis === 'undefined' ? 1280 : globalThis.innerWidth
+  ))
+  useEffect(() => {
+    const onResize = () => setViewportWidth(globalThis.innerWidth)
+    globalThis.addEventListener('resize', onResize)
+    return () => globalThis.removeEventListener('resize', onResize)
+  }, [])
+  const isNarrow = viewportWidth <= 900
+  const isCompact = viewportWidth <= 1200
+  const isNarrowAnalysis = viewportWidth <= 1599
+
   const adaptedColumns = useMemo(() => {
-    if (!panelCollapsed) return columns
+    let widths = WIDE_WIDTHS
+    if (isNarrow) widths = NARROW_WIDTHS
+    else if (isCompact) widths = COMPACT_WIDTHS
     return columns.map((col) => {
-      const override = COLLAPSED_COLUMN_OVERRIDES[String(col.key ?? '')]
-      return override ? { ...col, ...override } : col
+      const width = widths[String(col.key ?? '')]
+      return width ? { ...col, width } : col
     })
-  }, [columns, panelCollapsed])
+  }, [columns, isNarrow, isCompact])
 
   const visibleColumns = applyColumnConfig(adaptedColumns)
-  const scrollX = panelCollapsed ? 2180 : SCROLL_X
 
   // 品牌候选优先用后端全量 DISTINCT；请求失败静默回落当页提取（与商品页同口径，T02662）
   const [brandFacets, setBrandFacets] = useState<string[]>([])
@@ -566,9 +621,30 @@ export default function Evaluations() {
   // 范围口径与后端一致（routes/evaluations_recompute.py:361）：按 user_id + 可选 task_id
   // 取 eval.* 事件重算，不受当前时间窗/价格筛选影响，故描述里不引用这两个筛选值。
   const selectedTaskName = filters.tasks.find((t) => t.id === filters.taskId)?.name
+  const selectedTask = filters.tasks.find((t) => t.id === filters.taskId)
+  // 选中任务后价格区间会自动带出任务的 min/max（useEvalFilters），这不是用户主动筛选。
+  // 空态判断要把它排除，否则任务本身没有评估数据时会被误判成「筛选没命中」。
+  const priceFilterActive = (filters.priceRange[0] != null
+    && filters.priceRange[0] !== (selectedTask?.min_price ?? null))
+    || (filters.priceRange[1] != null
+      && filters.priceRange[1] !== (selectedTask?.max_price ?? null))
   const recomputeScope = filters.taskId
     ? `任务「${selectedTaskName || filters.taskId}」下的历史评估记录`
     : '当前账号全部历史评估记录（未选择任务）'
+
+  // 空态要区分「筛选没命中」和「任务本来没有评估数据」：
+  // 旧实现两者都写「暂无评估数据」，用户搜了个不存在的商品 ID 会以为数据丢了。
+  // taskId 是页面上下文，不算筛选条件（否则任何任务空态都会被判成筛选无结果）。
+  const hasActiveFilter = Boolean(
+    filters.itemId
+    || filters.scoreRange[0] > 0 || filters.scoreRange[1] < 100
+    || filters.dateRange
+    || filters.brandFilter
+    || filters.soldFilter !== 'all'
+    || priceFilterActive
+    || filters.includeOutOfRange
+    || filters.resultCategory,
+  )
 
   const renderExpandedRow = (r: EvalItem) => (
     <ExpandedDetail
@@ -580,8 +656,46 @@ export default function Evaluations() {
     />
   )
 
+  const analysisPanelNode = (collapsed: boolean) => (
+    <AnalysisPanel
+      panelCollapsed={collapsed}
+      onExpand={() => setPanelCollapsed(false)}
+      dist={dist.dist}
+      distRange={dist.distRange}
+      distLoading={dist.distLoading}
+      onDistRangeChange={dist.setDistRange}
+      passScore={dist.passScore}
+      autoBuyScore={dist.autoBuyScore}
+      thresholdTarget={dist.thresholdTarget}
+      onThresholdTargetChange={dist.setThresholdTarget}
+      fetchSuggestion={dist.fetchSuggestion}
+      suggestion={dist.suggestion}
+      thresholdValue={dist.thresholdValue}
+      onThresholdValueChange={dist.setThresholdValue}
+      thresholdPassCount={dist.thresholdPassCount}
+      thresholdPassRate={dist.thresholdPassRate}
+      pageItemsCount={list.items.length}
+      totalCount={list.total}
+    />
+  )
+
   return (
-    <div className="page-container">
+    <div className="page-container evals-page" data-testid="evaluations-page">
+      <header className="evals-page-header">
+        <div className="evals-page-heading">
+          <h1>评估明细</h1>
+          <div className="evals-page-subtitle">复核商品评分、风险与结果分布，支持按任务、价格和时间筛选</div>
+        </div>
+        <TipButton
+          className="evals-analysis-toggle"
+          icon={panelCollapsed ? <RightOutlined /> : <LeftOutlined />}
+          aria-label={panelCollapsed ? '展开分析面板' : '收起分析面板'}
+          onClick={() => setPanelCollapsed(!panelCollapsed)}
+          tip={panelCollapsed ? '展开分析面板' : '收起分析面板'}
+        >
+          {panelCollapsed ? '展开分析' : '收起分析'}
+        </TipButton>
+      </header>
       {/* 深链落地说明（T02620）：让用户知道当前视图是「告警带来的筛选」而非全量列表，
           并提供一键回到正常筛选——与 Orders.tsx 的 ref 定位提示同构。
           T02831：这条提示描述的是「URL 参数 = 当前筛选」，用户手动改过筛选之后参数就不再是
@@ -596,109 +710,129 @@ export default function Evaluations() {
           action={<TipButton size="small" onClick={clearDeepLink} tip="清除告警深链参数，回到正常筛选视图">清除定位</TipButton>}
         />
       )}
-      <Card style={{ marginBottom: 16 }}>
-        <Space wrap size="middle">
-          <span>商品ID：</span>
-          <Input
-            placeholder="模糊匹配" allowClear style={{ width: 160 }}
-            value={filters.itemId} onChange={(e) => filters.setItemId(e.target.value)}
-            onPressEnter={queryItemId}
-            onBlur={queryItemId}
-          />
-          <span>任务ID：</span>
-          <Select
-            placeholder="选择任务" allowClear showSearch
-            style={{ width: 260 }}
-            value={filters.taskId || undefined}
-            onChange={(v) => { filters.setTaskId(v || ''); autoSearch.schedule() }}
-            onClear={() => filters.setTaskId('')}
-            filterOption={(input, option) =>
-              (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
-            }
-            options={filters.tasks.map((t) => ({
-              label: `${t.name}（${t.keyword}）`,
-              value: t.id,
-            }))}
-            notFoundContent="暂无任务"
-          />
-          <span>评分范围：</span>
-          <Slider
-            range style={{ width: 200 }}
-            value={filters.scoreRange}
-            onChange={(v) => { filters.setScoreRange(v as [number, number]); autoSearch.schedule() }}
-          />
-          <span>时间范围：</span>
-          <RangePicker
-            value={filters.dateRange as [dayjs.Dayjs, dayjs.Dayjs] | null}
-            onChange={(v) => { filters.setDateRange(v ? [v[0]?.toISOString() ?? '', v[1]?.toISOString() ?? ''] : null); autoSearch.schedule() }}
-          />
-          <span>品牌：</span>
-          <Select
-            placeholder="选择品牌"
-            allowClear
-            showSearch
-            style={{ width: 160 }}
-            value={filters.brandFilter}
-            onChange={(v) => { filters.setBrandFilter(v || ''); autoSearch.schedule() }}
-            onClear={() => filters.setBrandFilter('')}
-            filterOption={(input, option) =>
-              (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
-            }
-            options={brandOptions.map((b) => ({ label: b, value: b }))}
-            notFoundContent="暂无品牌"
-          />
-          <span>状态：</span>
-          <Select
-            placeholder="状态筛选"
-            style={{ width: 100 }}
-            allowClear
-            value={filters.soldFilter}
-            onChange={(v) => { filters.setSoldFilter(v || 'all'); autoSearch.schedule() }}
-            options={[
-              { label: '全部', value: 'all' },
-              { label: '在售', value: 'onsale' },
-              { label: '已售', value: 'sold' },
-            ]}
-          />
-          <Tooltip
-            title={
-              <div style={{ lineHeight: 1.6 }}>
-                <div><b>查询规则：</b></div>
-                <div>1. 价格区间：商品价格需在 [最低, 最高] 范围内</div>
-                <div>2. 低于市场参考价：选中任务后，按任务 market_ratio 配置过滤掉价格高于「同任务商品中位数 × market_ratio」的商品（样本数 ≥ 3 才生效）</div>
-                <div style={{ marginTop: 4, color: '#aaa' }}>提示：勾选「显示超范围」可跳过市场参考价过滤，用于审计历史商品</div>
-                <div style={{ marginTop: 4, color: '#aaa' }}>改完条件约 300ms 后自动查询；商品ID 要回车或移出输入框才生效，「查询」按钮随时可立即执行</div>
-              </div>
-            }
-          >
-            <span style={{ cursor: 'help', borderBottom: '1px dashed currentColor' }}>
-              价格范围：
-              <QuestionCircleOutlined style={{ marginLeft: 2, fontSize: 12, color: '#999' }} />
-            </span>
-          </Tooltip>
-          <InputNumber
-            placeholder="最低"
-            min={0}
-            style={{ width: 90 }}
-            value={filters.priceRange[0]}
-            onChange={(v) => { filters.setPriceRange([v ?? null, filters.priceRange[1]]); autoSearch.schedule() }}
-          />
-          <span>-</span>
-          <InputNumber
-            placeholder="最高"
-            min={0}
-            style={{ width: 90 }}
-            value={filters.priceRange[1]}
-            onChange={(v) => { filters.setPriceRange([filters.priceRange[0], v ?? null]); autoSearch.schedule() }}
-          />
-          <Tooltip title="开启后显示超出任务价格范围的历史商品（审计用）">
-            <Checkbox
-              checked={filters.includeOutOfRange}
-              onChange={(e) => { filters.setIncludeOutOfRange(e.target.checked); autoSearch.schedule() }}
+      <Card style={{ marginBottom: 16 }} styles={{ body: { padding: 16 } }} className="evals-filter-card">
+        {/* 17 个筛选项在 1280 下原本占 4 行 / 235px；收紧行内与行间距，尽量压到 3 行，
+            给下方 19 列表格多留可视高度（不改控件尺寸，避免小屏触控目标过小） */}
+        <Space wrap size={[8, 8]}>
+          <FilterItem label="商品ID">
+            <Input
+              placeholder="模糊匹配" allowClear style={{ width: 160 }}
+              aria-label="按商品 ID 筛选"
+              value={filters.itemId} onChange={(e) => filters.setItemId(e.target.value)}
+              onPressEnter={queryItemId}
+              onBlur={queryItemId}
+            />
+          </FilterItem>
+          <FilterItem label="任务ID">
+            <Select
+              placeholder="选择任务" allowClear showSearch
+              aria-label="按任务筛选"
+              style={{ width: 260 }}
+              value={filters.taskId || undefined}
+              onChange={(v) => { filters.setTaskId(v || ''); autoSearch.schedule() }}
+              onClear={() => filters.setTaskId('')}
+              filterOption={(input, option) =>
+                (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={filters.tasks.map((t) => ({
+                label: `${t.name}（${t.keyword}）`,
+                value: t.id,
+              }))}
+              notFoundContent="暂无任务"
+            />
+          </FilterItem>
+          <FilterItem label="评分范围">
+            <Slider
+              range style={{ width: 200 }}
+              ariaLabelForHandle={['最低评分', '最高评分']}
+              value={filters.scoreRange}
+              onChange={(v) => { filters.setScoreRange(v as [number, number]); autoSearch.schedule() }}
+            />
+          </FilterItem>
+          <FilterItem label="时间范围">
+            <RangePicker
+              aria-label="按时间范围筛选"
+              value={filters.dateRange as [dayjs.Dayjs, dayjs.Dayjs] | null}
+              onChange={(v) => { filters.setDateRange(v ? [v[0]?.toISOString() ?? '', v[1]?.toISOString() ?? ''] : null); autoSearch.schedule() }}
+            />
+          </FilterItem>
+          <FilterItem label="品牌">
+            <Select
+              placeholder="选择品牌"
+              allowClear
+              showSearch
+              aria-label="按品牌筛选"
+              style={{ width: 160 }}
+              value={filters.brandFilter}
+              onChange={(v) => { filters.setBrandFilter(v || ''); autoSearch.schedule() }}
+              onClear={() => filters.setBrandFilter('')}
+              filterOption={(input, option) =>
+                (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={brandOptions.map((b) => ({ label: b, value: b }))}
+              notFoundContent="暂无品牌"
+            />
+          </FilterItem>
+          <FilterItem label="状态">
+            <Select
+              placeholder="状态筛选"
+              aria-label="按商品状态筛选"
+              style={{ width: 100 }}
+              allowClear
+              value={filters.soldFilter}
+              onChange={(v) => { filters.setSoldFilter(v || 'all'); autoSearch.schedule() }}
+              options={[
+                { label: '全部', value: 'all' },
+                { label: '在售', value: 'onsale' },
+                { label: '已售', value: 'sold' },
+              ]}
+            />
+          </FilterItem>
+          <div className="evals-filter-item evals-price-filter">
+            <Tooltip
+              title={
+                <div style={{ lineHeight: 1.6 }}>
+                  <div><b>查询规则：</b></div>
+                  <div>1. 价格区间：商品价格需在 [最低, 最高] 范围内</div>
+                  <div>2. 低于市场参考价：选中任务后，按任务 market_ratio 配置过滤掉价格高于「同任务商品中位数 × market_ratio」的商品（样本数 ≥ 3 才生效）</div>
+                  <div style={{ marginTop: 4, color: '#aaa' }}>提示：勾选「显示超范围」可跳过市场参考价过滤，用于审计历史商品</div>
+                  <div style={{ marginTop: 4, color: '#aaa' }}>改完条件约 300ms 后自动查询；商品ID 要回车或移出输入框才生效，「查询」按钮随时可立即执行</div>
+                </div>
+              }
             >
-              显示超范围
-            </Checkbox>
-          </Tooltip>
+            <span className="evals-filter-label" style={{ cursor: 'help', borderBottom: '1px dashed currentColor' }}>
+                价格范围：
+                <QuestionCircleOutlined style={{ marginLeft: 2, fontSize: 12, color: '#999' }} />
+              </span>
+            </Tooltip>
+            <InputNumber
+              placeholder="最低"
+              aria-label="最低价格"
+              min={0}
+              style={{ width: 90 }}
+              value={filters.priceRange[0]}
+              onChange={(v) => { filters.setPriceRange([v ?? null, filters.priceRange[1]]); autoSearch.schedule() }}
+            />
+            <span>-</span>
+            <InputNumber
+              placeholder="最高"
+              aria-label="最高价格"
+              min={0}
+              style={{ width: 90 }}
+              value={filters.priceRange[1]}
+              onChange={(v) => { filters.setPriceRange([filters.priceRange[0], v ?? null]); autoSearch.schedule() }}
+            />
+          </div>
+          <div className="evals-filter-item">
+            <Tooltip title="开启后显示超出任务价格范围的历史商品（审计用）">
+              <Checkbox
+                checked={filters.includeOutOfRange}
+                onChange={(e) => { filters.setIncludeOutOfRange(e.target.checked); autoSearch.schedule() }}
+              >
+                显示超范围
+              </Checkbox>
+            </Tooltip>
+          </div>
           <TipButton type="primary" icon={<SearchOutlined />} onClick={autoSearch.flush} tip="立即按当前筛选条件查询（改完条件约 300ms 后也会自动查一次）">查询</TipButton>
           <TipButton icon={<UndoOutlined />} onClick={onReset} tip="重置全部筛选条件">重置</TipButton>
           <TipButton icon={<ReloadOutlined />} onClick={list.load} loading={list.loading} tip="重新加载评估列表数据">刷新</TipButton>
@@ -789,19 +923,30 @@ export default function Evaluations() {
         />
       )}
 
-      <Row gutter={16}>
-        <Col span={panelCollapsed ? 23 : 16}>
-          <Card style={{ transition: 'all 0.2s ease' }}
-            extra={
-              <TipButton
-                type="text"
-                size="small"
-                icon={panelCollapsed ? <RightOutlined /> : <LeftOutlined />}
-                onClick={() => setPanelCollapsed(!panelCollapsed)}
-                tip={panelCollapsed ? '展开分析面板' : '收起分析面板'}
+      <Row gutter={[16, 16]} className="evals-main-row">
+        <Col xs={24} xxl={panelCollapsed ? 23 : 16} className="evals-table-col">
+          <Card style={{ transition: 'all 0.2s ease' }} className="evals-list-card">
+            {list.loadError && (
+              <Alert
+                type="error"
+                showIcon
+                className="evals-load-error"
+                style={{ marginBottom: 12 }}
+                message="评估列表加载失败"
+                description={list.loadError}
+                action={(
+                  <TipButton
+                    icon={<ReloadOutlined />}
+                    loading={list.loading}
+                    onClick={list.load}
+                    aria-label="重新加载评估列表"
+                    tip="重新请求评估列表"
+                  >
+                    重新加载
+                  </TipButton>
+                )}
               />
-            }
-          >
+            )}
             <BatchSelectionAlert
               selectedCount={batch.selectedRowKeys.length}
               batchAIEvaluating={batch.batchAIEvaluating}
@@ -813,19 +958,29 @@ export default function Evaluations() {
               onClearSelection={() => batch.setSelectedRowKeys([])}
             />
             <Spin spinning={list.loading}>
-              {list.items.length === 0 ? (
-                <Empty description={filters.resultCategory ? '当前过滤条件下无匹配记录' : '暂无评估数据'} />
-              ) : (
+              {list.items.length === 0 && (
+                <Empty description={resolveEvalEmptyDescription(list.loadError, hasActiveFilter)}>
+                  {!list.loadError && hasActiveFilter && (
+                    <TipButton tip="清空商品ID、评分/时间/品牌/状态/价格筛选与结果分类，回到全部评估" onClick={onReset}>
+                      清空筛选条件
+                    </TipButton>
+                  )}
+                </Empty>
+              )}
+              {list.items.length > 0 && (
                 <Table
                   columns={visibleColumns}
                   dataSource={list.items}
                   rowKey={(r) => `${r.item_id}-${r.created_at}`}
                   size="middle"
+                  tableLayout="fixed"
                   rowSelection={{
                     selectedRowKeys: batch.selectedRowKeys,
                     onChange: (keys) => batch.setSelectedRowKeys(keys),
                   }}
-                  scroll={{ x: scrollX }}
+                  scroll={{ x: '100%' }}
+                  // 与列表同口径：排序只在当前页 dataSource 内生效，分页在后端
+                  showSorterTooltip={{ title: '仅对当前页排序；跨页顺序仍由后端分页决定' }}
                   expandable={{
                     expandedRowRender: renderExpandedRow,
                     rowExpandable: () => true,
@@ -834,8 +989,8 @@ export default function Evaluations() {
                     current: list.page,
                     pageSize: list.pageSize,
                     total: list.total,
-                    showSizeChanger: true,
-                    showQuickJumper: true,
+                    showSizeChanger: !isNarrow,
+                    showQuickJumper: !isNarrow,
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showLessItems: true,
                     onChange: (p, ps) => { list.setPage(p); list.setPageSize(ps) },
@@ -847,29 +1002,29 @@ export default function Evaluations() {
           </Card>
         </Col>
 
-        <Col span={panelCollapsed ? 1 : 8}>
-          <AnalysisPanel
-            panelCollapsed={panelCollapsed}
-            onExpand={() => setPanelCollapsed(false)}
-            dist={dist.dist}
-            distRange={dist.distRange}
-            distLoading={dist.distLoading}
-            onDistRangeChange={dist.setDistRange}
-            passScore={dist.passScore}
-            autoBuyScore={dist.autoBuyScore}
-            thresholdTarget={dist.thresholdTarget}
-            onThresholdTargetChange={dist.setThresholdTarget}
-            fetchSuggestion={dist.fetchSuggestion}
-            suggestion={dist.suggestion}
-            thresholdValue={dist.thresholdValue}
-            onThresholdValueChange={dist.setThresholdValue}
-            thresholdPassCount={dist.thresholdPassCount}
-            thresholdPassRate={dist.thresholdPassRate}
-            pageItemsCount={list.items.length}
-            totalCount={list.total}
-          />
-        </Col>
+        {!isNarrowAnalysis && (
+          <Col
+            xxl={panelCollapsed ? 1 : 8}
+            className={`evals-analysis-col ${panelCollapsed ? 'is-collapsed' : 'is-expanded'}`}
+          >
+            {analysisPanelNode(panelCollapsed)}
+          </Col>
+        )}
       </Row>
+
+      {/* <1600px 用 Drawer 承载分析：表格保持整行宽度，展开时图表覆盖在表格上方，
+          关闭后立即回到列表；不再把表格压到 587px，也不用把 1500px 高的分析块塞进表格上方。 */}
+      {isNarrowAnalysis && (
+        <Drawer
+          title="评估分析"
+          placement="right"
+          width={isNarrow ? '100%' : 520}
+          open={!panelCollapsed}
+          onClose={() => setPanelCollapsed(true)}
+        >
+          {analysisPanelNode(false)}
+        </Drawer>
+      )}
 
       <AIEvalModal
         open={ai.aiModalOpen}

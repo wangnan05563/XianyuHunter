@@ -114,7 +114,7 @@ export default function MobileDashboard() {
     return (
       <div>
         <MobileDashboardHeader color={token.colorText} secondary={token.colorTextSecondary} />
-        <div style={{ textAlign: 'center', padding: 48 }} role="status" aria-live="polite">
+        <div style={{ textAlign: 'center', padding: 48 }} aria-live="polite">
           <Spin />
           <div style={{ marginTop: 8, color: token.colorTextSecondary, fontSize: 13 }}>正在加载仪表盘数据…</div>
         </div>
@@ -187,8 +187,7 @@ export default function MobileDashboard() {
               {kpi.sub && <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{kpi.sub}</div>}
             </div>
             {/* 星级评定：金色 ★ 表示达成等级；数据不可用时不给星（不给「正常」的错觉） */}
-            <div
-              role="img"
+            <figure
               aria-label={`${kpi.label}评级：${kpi.star} / 5 星`}
               style={{ color: token.colorWarning, fontSize: 16 }}
             >
@@ -196,7 +195,7 @@ export default function MobileDashboard() {
                 {'★'.repeat(kpi.star)}
                 <span style={{ color: token.colorBorder }}>{'★'.repeat(5 - kpi.star)}</span>
               </span>
-            </div>
+            </figure>
           </div>
         </Card>
       ))}

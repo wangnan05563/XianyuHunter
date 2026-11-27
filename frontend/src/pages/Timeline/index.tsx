@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Card, Row, Col, Statistic, message } from 'antd'
+import { Alert, Card, Row, Col, Statistic } from 'antd'
 import {
   ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ShoppingOutlined,
 } from '@ant-design/icons'
@@ -11,7 +11,9 @@ import { ORDER_STATUS } from '../../constants/orderStatus'
 import TimelineFilter from './components/TimelineFilter'
 import TimelineList from './components/TimelineList'
 import FetchFailedHint from '../../components/FetchFailedHint'
+import { TipButton } from '../../components/TipButton'
 import { useFailedSources } from '../../hooks/useFailedSources'
+import './timeline.css'
 
 const PAGE_SIZE = 30
 
@@ -30,6 +32,7 @@ export default function TimelinePage() {
   const [taskId, setTaskId] = useState<string | undefined>(undefined)
   const [types, setTypes] = useState<string>('orders,events')
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
   const [page, setPage] = useState(1)
   // 事件类型过滤：空数组 = 不过滤（显示全部）
@@ -90,6 +93,7 @@ export default function TimelinePage() {
 
   const load = useCallback(() => {
     setLoading(true)
+    setLoadError(false)
     timelineApi.list({ types, task_id: taskId, limit: 500 })
       .then((res) => {
         const data = res.items || []
@@ -101,7 +105,14 @@ export default function TimelinePage() {
         setItems(filtered.slice(0, PAGE_SIZE))
         setPage(1)
       })
-      .catch(() => message.error('加载时间线失败'))
+      .catch(() => {
+        // 失败不使用 toast：瞬时提示会消失，且下方仍然渲染「暂无匹配」会误报为空数据。
+        // 清空旧数据，由持久错误条与「加载失败」空态明确区分「没取到」和「取到 0 条」。
+        setLoadError(true)
+        setAllItems([])
+        setItems([])
+        setPage(1)
+      })
       .finally(() => setLoading(false))
   }, [types, taskId, eventTypeFilter])
 
@@ -136,19 +147,28 @@ export default function TimelinePage() {
   const taskMap = new Map(tasks.map(t => [t.id, t.name || t.keyword || t.id]))
 
   return (
-    <div className="page-container">
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+    <div className="page-container timeline-page" data-testid="timeline-page">
+      <header className="timeline-page-header">
+        <div className="timeline-page-heading">
+          <h1>事件时间线</h1>
+          <div className="timeline-page-subtitle">
+            按时间倒序汇总订单与系统事件，支持按任务与事件类型筛选。
+          </div>
+        </div>
+      </header>
+
+      <Row className="timeline-stats-row" gutter={[16, 16]}>
+        <Col xs={12} md={12} xl={6}>
           <Card size="small">
             <Statistic title="订单事件" value={orderCount} prefix={<ShoppingOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={12} xl={6}>
           <Card size="small">
             <Statistic title="系统事件" value={eventCount} prefix={<ClockCircleOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={12} xl={6}>
           <Card size="small">
             <Statistic
               title="抢单成功"
@@ -158,7 +178,7 @@ export default function TimelinePage() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={12} xl={6}>
           <Card size="small">
             <Statistic
               title="抢单失败"
@@ -170,13 +190,35 @@ export default function TimelinePage() {
         </Col>
       </Row>
 
-      <Card>
-        {isFailed('tasks') && (
-          <FetchFailedHint
-            source={SOURCE_LABELS.tasks}
-            onRetry={loadTasks}
-            description="任务下拉的选项取自该接口。失败时下方时间线仍是上次取到的数据，但按任务筛选暂时用不了。"
+      <Card className="timeline-main-card">
+        {loadError && (
+          <Alert
+            className="timeline-load-error"
+            type="error"
+            showIcon
+            message="加载事件时间线失败"
+            description="接口请求失败，统计与事件列表暂不可用；当前数字已清空，不代表真实状态。请检查后端服务后重试。"
+            action={(
+              <TipButton
+                aria-label="重新加载事件时间线"
+                tip="重新请求事件时间线"
+                size="small"
+                onClick={load}
+                loading={loading}
+              >
+                重新加载
+              </TipButton>
+            )}
           />
+        )}
+        {isFailed('tasks') && (
+          <div className="timeline-tasks-error">
+            <FetchFailedHint
+              source={SOURCE_LABELS.tasks}
+              onRetry={loadTasks}
+              description="任务下拉的选项取自该接口。失败时下方时间线仍是上次取到的数据，但按任务筛选暂时用不了。"
+            />
+          </div>
         )}
         <TimelineFilter
           types={types}
@@ -197,6 +239,7 @@ export default function TimelinePage() {
           pageSize={PAGE_SIZE}
           total={filteredItems.length}
           loading={loading}
+          loadError={loadError}
           expandedItems={expandedItems}
           taskMap={taskMap}
           onPageChange={handlePageChange}

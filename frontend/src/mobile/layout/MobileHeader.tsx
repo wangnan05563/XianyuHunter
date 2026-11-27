@@ -116,7 +116,7 @@ export default function MobileHeader() {
         <span className="m-brand-name">闲鱼猎人</span>
       </button>
       <div className="m-header-actions">
-        {/* 调度器状态灯：用 <output> 替代 role="status"，原生 live region 语义 */}
+        {/* 调度器状态灯：用 <output> 替代 aria-live="polite"，原生 live region 语义 */}
         <Tooltip title={schedulerLabel}>
           <output
             className="m-status-dot"

@@ -14,7 +14,7 @@
  * - 移动端原本 `whiteSpace: pre-wrap` 直接拼接 content 导致 markdown 源码全部暴露
  */
 import { useMemo, useState, useRef, createContext, useContext } from 'react'
-import { Tag, Tooltip, message, theme } from 'antd'
+import { App, Tag, Tooltip, theme } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -91,6 +91,7 @@ function MarkdownPre({ children }: { readonly children?: React.ReactNode }) {
 
 // 代码块组件：语言标签 + 复制按钮 + 语法高亮（markdownHighlight 子集已处理）
 function CodeBlock({ children, className }: { readonly children?: React.ReactNode; readonly className?: string }) {
+  const { message } = App.useApp()
   const [copied, setCopied] = useState(false)
   const codeRef = useRef<HTMLElement>(null)
   // className 形如 "hljs language-sql"：只取语言名，否则高亮插件加的 hljs 前缀会混进标签

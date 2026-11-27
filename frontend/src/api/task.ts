@@ -5,8 +5,9 @@ import type { Task, TaskOption, TaskCreateBody, TaskRun, TaskDep, TaskLink, Fiel
 // 任务 API：负责任务的 CRUD 与运行控制
 // start/pause/resume/stop 统一委托 control 端点，避免后端多次实现相似逻辑
 export const taskApi = {
-  list: (params?: { status?: string; limit?: number; offset?: number }) =>
-    client.get<{ items: Task[]; count: number; total: number; limit: number; offset: number }>(
+  // q：任务名 / 关键词 / 任务 ID 模糊匹配（后端 SQL 层过滤，匹配项跨分页也能搜到）
+  list: (params?: { status?: string; q?: string; limit?: number; offset?: number }) =>
+    client.get<{ items: Task[]; count: number; total: number; limit: number; offset: number; q: string | null }>(
       '/api/tasks',
       { params },
     ).then((r) => r.data),

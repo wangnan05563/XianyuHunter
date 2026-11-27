@@ -69,9 +69,9 @@ export default function MenuAdmin() {
   const [error, setError] = useState<string | null>(null)
   // 仅窄屏启用横向滚动，避免 1024 等宽度被无谓地撑出滚动条
   const [isNarrowTable, setIsNarrowTable] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
+    () => typeof globalThis !== 'undefined' && globalThis.matchMedia('(max-width: 900px)').matches,
   )
-  const tableScrollRef = useRef<HTMLDivElement>(null)
+  const tableScrollRef = useRef<HTMLElement>(null)
   // 编辑中数据
   const [rows, setRows] = useState<MenuRow[]>([])
 
@@ -103,7 +103,7 @@ export default function MenuAdmin() {
 
   // 与 CSS 的 900px 断点保持一致：仅在窄屏让 AntD body 横向滚动
   useEffect(() => {
-    const mql = window.matchMedia('(max-width: 900px)')
+    const mql = globalThis.matchMedia('(max-width: 900px)')
     const onChange = (e: MediaQueryListEvent): void => setIsNarrowTable(e.matches)
     setIsNarrowTable(mql.matches)
     mql.addEventListener('change', onChange)
@@ -136,7 +136,7 @@ export default function MenuAdmin() {
       }
       thead.appendChild(tr)
       const tbody = bodyTable.querySelector('tbody')
-      if (tbody) bodyTable.insertBefore(thead, tbody)
+      if (tbody) tbody.before(thead)
     }
     sync()
     const observer = new MutationObserver(sync)
@@ -223,10 +223,9 @@ export default function MenuAdmin() {
     if (!hasDirty) return
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault()
-      event.returnValue = ''
     }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
+    globalThis.addEventListener('beforeunload', handler)
+    return () => globalThis.removeEventListener('beforeunload', handler)
   }, [hasDirty])
 
   // 丢弃修改确认：刷新与返回共用
@@ -320,20 +319,6 @@ export default function MenuAdmin() {
       setResetting(false)
     }
   }, [loadMenus, message])
-
-  // 横向滚动交给 AntD 的 table body，外层 region 保留焦点与键盘控制；
-  // 这样表头可以独立于横向滚动容器做 sticky，首列固定仍由 CSS 负责。
-  const handleTableScrollKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-    // 输入框内方向键用于移动光标/调整数值，不能连带滚动表格
-    if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
-    const body = e.currentTarget.querySelector<HTMLElement>('.ant-table-body')
-    if (!body || body.scrollWidth <= body.clientWidth) return
-    e.preventDefault()
-    const step = Math.max(40, Math.min(120, Math.round(body.clientWidth * 0.1)))
-    const maxScroll = body.scrollWidth - body.clientWidth
-    body.scrollLeft = Math.max(0, Math.min(maxScroll, body.scrollLeft + (e.key === 'ArrowRight' ? step : -step)))
-  }, [])
 
   // 表格列定义
   const columns = useMemo(
@@ -542,19 +527,16 @@ export default function MenuAdmin() {
           )}
 
           {loading ? (
-            <div className="xh-menu-admin-loading" role="status" aria-live="polite">
+            <div className="xh-menu-admin-loading" aria-live="polite">
               <Spin size="large" />
               <div style={{ marginTop: 12, color: token.colorTextSecondary }}>加载菜单配置…</div>
             </div>
           ) : (
             (rows.length > 0 || !error) && (
-              <div
+              <section
                 ref={tableScrollRef}
                 className="xh-menu-admin-table-scroll"
-                role="region"
                 aria-label="菜单配置表"
-                tabIndex={0}
-                onKeyDown={handleTableScrollKeyDown}
               >
                 <Table<MenuRow>
                   rowKey="key"
@@ -567,7 +549,7 @@ export default function MenuAdmin() {
                   scroll={isNarrowTable ? { x: 820 } : undefined}
                   locale={{ emptyText: <div className="xh-menu-admin-empty">暂无菜单配置</div> }}
                 />
-              </div>
+              </section>
             )
           )}
         </Card>

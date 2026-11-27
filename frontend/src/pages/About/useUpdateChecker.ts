@@ -34,6 +34,10 @@ export type UpdateDownload = {
   done: number
   message: string
   installing: boolean
+  /** 已成功触发安装程序，按钮需保持禁用，避免重复拉起 UAC */
+  installed: boolean
+  /** 安装触发失败信息；保留 100% 进度并提供「重试安装」 */
+  installError: string
 }
 
 const IDLE_TIMEOUT_MS = 3000
@@ -70,7 +74,7 @@ export function useUpdateChecker(current: string) {
 
   // 一键更新子状态：下载进度 + 是否已触发安装
   const [download, setDownload] = useState<UpdateDownload>({
-    status: 'idle', total: 0, done: 0, message: '', installing: false,
+    status: 'idle', total: 0, done: 0, message: '', installing: false, installed: false, installError: '',
   })
   // 下载轮询定时器句柄
   const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -164,17 +168,21 @@ export function useUpdateChecker(current: string) {
   const pollDownload = useCallback(async (downloadUrl: string, latest: string) => {
     if (downloadingRef.current) return
     downloadingRef.current = true
-    setDownload((d) => ({ ...d, status: 'downloading', message: '', installing: false }))
+    setDownload((d) => ({
+      ...d, status: 'downloading', message: '', installing: false, installed: false, installError: '',
+    }))
     // 立即查询一次（可能已完成），命中终态则不启动轮询
     const queryOnce = async (): Promise<'done' | 'error' | 'continue'> => {
       try {
         const s = await aboutApi.downloadUpdate(downloadUrl, latest)
         if (s.status === 'done') {
-          setDownload((d) => ({ ...d, status: 'done', total: s.total, done: s.bytes_downloaded }))
+          setDownload((d) => ({ ...d, status: 'done', total: s.total, done: s.bytes_downloaded, installError: '' }))
           return 'done'
         }
         if (s.status === 'error') {
-          setDownload((d) => ({ ...d, status: 'error', message: s.error ?? '下载失败', done: s.bytes_downloaded, total: s.total }))
+          setDownload((d) => ({
+            ...d, status: 'error', message: s.error ?? '下载失败', done: s.bytes_downloaded, total: s.total, installError: '',
+          }))
           return 'error'
         }
         // downloading/pending：更新进度继续轮询
@@ -182,7 +190,7 @@ export function useUpdateChecker(current: string) {
         return 'continue'
       } catch (e) {
         const msg = isNetworkError(e) ? '网络异常，请检查网络后重试' : '下载失败，请重试'
-        setDownload((d) => ({ ...d, status: 'error', message: msg }))
+        setDownload((d) => ({ ...d, status: 'error', message: msg, installError: '' }))
         return 'error'
       }
     }
@@ -214,7 +222,9 @@ export function useUpdateChecker(current: string) {
       message.info(TEXTS.updateDownloadManual)
       return
     }
-    setDownload((d) => ({ ...d, status: 'downloading', message: '' }))
+    setDownload((d) => ({
+      ...d, status: 'downloading', message: '', installing: false, installed: false, installError: '',
+    }))
     message.loading({ content: TEXTS.updateDownloading, duration: 0, key: 'update-download' })
     await pollDownload(state.downloadUrl, state.latest)
     message.destroy('update-download')
@@ -223,18 +233,27 @@ export function useUpdateChecker(current: string) {
   // 触发安装：下载完成后调用，静默运行安装包（触发 UAC 授权）
   const install = useCallback(async (state: UpdateState) => {
     if (state.kind !== 'newer' || !state.downloadUrl) return
-    setDownload((d) => ({ ...d, installing: true, message: '' }))
+    setDownload((d) => ({ ...d, installing: true, installError: '' }))
     try {
       const r = await aboutApi.installUpdate(state.downloadUrl)
       if (r.ok) {
-        setDownload((d) => ({ ...d, installing: false, status: 'done', message: r.message ?? '安装程序已启动' }))
+        // 保留 100% 进度；installed 让按钮永久禁用，防止重复拉起安装程序
+        setDownload((d) => ({
+          ...d, installing: false, status: 'done', installed: true, installError: '', message: r.message ?? '安装程序已启动',
+        }))
         message.success(TEXTS.updateInstallStarted)
       } else {
-        setDownload((d) => ({ ...d, installing: false, status: 'error', message: r.error ?? '安装失败' }))
-        message.error(r.error ?? TEXTS.updateInstallFailed)
+        // 安装失败仍保留已下载的 100% 进度，重试只重新触发安装，不重新下载
+        const error = r.error ?? TEXTS.updateInstallFailed
+        setDownload((d) => ({
+          ...d, installing: false, status: 'done', installError: error,
+        }))
+        message.error(error)
       }
     } catch {
-      setDownload((d) => ({ ...d, installing: false, status: 'error', message: TEXTS.updateInstallFailed }))
+      setDownload((d) => ({
+        ...d, installing: false, status: 'done', installError: TEXTS.updateInstallFailed,
+      }))
       message.error(TEXTS.updateInstallFailed)
     }
   }, [message])

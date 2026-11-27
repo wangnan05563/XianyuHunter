@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from xianyu_hunter.infra.db_models import _utcnow, ItemRow, TaskRow
@@ -36,8 +36,24 @@ class TasksMixin:
             row = conn.execute(stmt).first()
             return self._row_to_dict(row) if row else None
 
+    @staticmethod
+    def _apply_keyword_filter(stmt, q: str | None):
+        """关键词模糊匹配任务名 / 关键词 / 任务 ID（列表搜索框用）
+
+        走 SQL 层而不是前端过滤：列表是 limit/offset 分页，前端只拿得到当前页，
+        在几百个任务里「搜不到下一页的命中项」会被当成功能坏了（2026-11-20 UI 走查）。
+        """
+        if not q:
+            return stmt
+        like = f"%{q}%"
+        return stmt.where(or_(
+            TaskRow.name.ilike(like),
+            TaskRow.keyword.ilike(like),
+            TaskRow.id.ilike(like),
+        ))
+
     def list_tasks(self, status: str | None = None, limit: int | None = None, offset: int = 0,
-                   user_id: str | None = None) -> list[dict]:
+                   user_id: str | None = None, q: str | None = None) -> list[dict]:
         with self.engine.connect() as conn:
             stmt = select(TaskRow)
             if status:
@@ -47,6 +63,7 @@ class TasksMixin:
                 stmt = stmt.where(TaskRow.status != "deleted")
             if user_id is not None:
                 stmt = stmt.where(TaskRow.user_id == user_id)
+            stmt = self._apply_keyword_filter(stmt, q)
             stmt = stmt.order_by(desc(TaskRow.created_at))
             if limit is not None:
                 stmt = stmt.limit(limit).offset(offset)
@@ -54,7 +71,8 @@ class TasksMixin:
             return [self._row_to_dict(r) for r in rows]
 
     def list_tasks_with_last_seen(self, status: str | None = None, limit: int | None = None,
-                                   offset: int = 0, user_id: str | None = None) -> list[dict]:
+                                   offset: int = 0, user_id: str | None = None,
+                                   q: str | None = None) -> list[dict]:
         """列出任务 + 每个任务最后一次抓到商品的时间（LEFT JOIN + GROUP BY 一次性聚合）"""
         last_seen_subq = (
             select(ItemRow.task_id, func.max(ItemRow.last_seen).label("last_seen_at"))
@@ -75,6 +93,7 @@ class TasksMixin:
                 stmt = stmt.where(TaskRow.status != "deleted")
             if user_id is not None:
                 stmt = stmt.where(TaskRow.user_id == user_id)
+            stmt = self._apply_keyword_filter(stmt, q)
             stmt = stmt.order_by(desc(TaskRow.created_at))
             if limit is not None:
                 stmt = stmt.limit(limit).offset(offset)
@@ -100,8 +119,9 @@ class TasksMixin:
             stmt = stmt.order_by(desc(TaskRow.created_at)).limit(max(1, limit))
             return [{"id": r.id, "name": r.name, "keyword": r.keyword} for r in conn.execute(stmt)]
 
-    def count_tasks(self, status: str | None = None, user_id: str | None = None) -> int:
-        """统计任务数（带 status 过滤）。不传 status = 排除已删除"""
+    def count_tasks(self, status: str | None = None, user_id: str | None = None,
+                    q: str | None = None) -> int:
+        """统计任务数（带 status / 关键词过滤）。不传 status = 排除已删除"""
         with self.engine.connect() as conn:
             stmt = select(func.count()).select_from(TaskRow)
             if status:
@@ -111,6 +131,7 @@ class TasksMixin:
                 stmt = stmt.where(TaskRow.status != "deleted")
             if user_id is not None:
                 stmt = stmt.where(TaskRow.user_id == user_id)
+            stmt = self._apply_keyword_filter(stmt, q)
             return int(conn.execute(stmt).scalar() or 0)
 
     def update_task_status(self, task_id: str, status: str, user_id: str | None = None) -> None:

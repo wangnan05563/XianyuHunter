@@ -1,0 +1,143 @@
+.xh-help-page {
+  max-width: none;
+  margin: 0;
+  padding: 0 !important;
+  min-height: 100%;
+}
+
+.xh-help-page .ant-layout {
+  background: transparent;
+}
+
+.xh-help-sider {
+  flex: 0 0 240px !important;
+  max-width: 240px !important;
+  min-width: 240px !important;
+  border-right: 1px solid var(--xh-border);
+}
+
+.xh-help-nav {
+  min-height: 100%;
+  padding-bottom: 24px;
+}
+
+.xh-help-sidebar-head {
+  padding: 16px 16px 8px;
+}
+
+.xh-help-search {
+  padding: 0 16px 12px;
+}
+
+.xh-help-count {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.xh-help-anchor-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.xh-help-content {
+  min-width: 0;
+}
+
+.xh-help-content-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.xh-help-title {
+  margin: 0 !important;
+  font-size: 24px !important;
+  line-height: 1.35 !important;
+}
+
+.xh-help-section-title {
+  margin: 0 !important;
+  font-size: 20px !important;
+  line-height: 1.4 !important;
+}
+
+.xh-help-section-card {
+  scroll-margin-top: 16px;
+}
+
+.xh-help-mobile-toolbar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 8px 16px;
+  background: var(--xh-bg-container);
+  border-bottom: 1px solid var(--xh-border);
+}
+
+.xh-help-mobile-count {
+  font-size: 12px;
+}
+
+.xh-help-empty {
+  padding: 64px 16px;
+  text-align: center;
+  color: var(--xh-text-quaternary);
+}
+
+.xh-help-table-wrap:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+.xh-help-drawer .xh-help-nav {
+  background: var(--xh-bg-container);
+}
+
+@media (max-width: 1199px) {
+  .xh-help-sider {
+    display: none !important;
+  }
+
+  .xh-help-mobile-toolbar {
+    display: flex;
+  }
+
+  .xh-help-content-inner {
+    padding: 16px 16px 48px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .xh-help-mobile-toolbar {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .xh-help-mobile-toolbar {
+    justify-content: flex-end;
+  }
+
+  .xh-help-content-inner {
+    padding: 16px 14px 40px;
+  }
+
+  .xh-help-title {
+    font-size: 20px !important;
+  }
+
+  .xh-help-section-title {
+    font-size: 18px !important;
+  }
+
+  .xh-help-hero .ant-card-body {
+    padding: 16px !important;
+  }
+}
